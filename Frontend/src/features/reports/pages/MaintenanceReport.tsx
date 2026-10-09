@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../services/reportApi';
 import { ReportLayout } from '../components/ReportLayout';
 import { ReportFilters } from '../components/ReportFilters';
 import { ExportActions } from '../components/ExportActions';
 import { ReportTable } from '../components/ReportTable';
+import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
-import { Wrench, DollarSign, CheckCircle2, Clock } from 'lucide-react';
+import { Wrench, DollarSign, CheckCircle2, Clock, Eye } from 'lucide-react';
 
 export const MaintenanceReport: React.FC = () => {
   const { filters, setFilterVal, resetFilters } = useReportFilters('createdAt');
   const { isExporting, handleExport } = useReportExport();
+  const [selectedRow, setSelectedRow] = useState<any>(null);
 
   // Query Maintenance data
   const { data, isLoading } = useQuery({
@@ -87,6 +89,19 @@ export const MaintenanceReport: React.FC = () => {
       header: 'Completed Date',
       render: (row: any) =>
         row.completedDate && row.completedDate !== 'N/A' ? new Date(row.completedDate).toLocaleDateString() : 'Pending',
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row: any) => (
+        <button
+          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-md transition-colors"
+          title="View Details"
+          onClick={() => setSelectedRow(row)}
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+      ),
     },
   ];
 
@@ -183,6 +198,15 @@ export const MaintenanceReport: React.FC = () => {
         sortBy={filters.sortBy}
         sortOrder={filters.sortOrder}
       />
+
+      {selectedRow && (
+        <ReportDetailsModal
+          title="Maintenance Details"
+          data={selectedRow}
+          columns={columns}
+          onClose={() => setSelectedRow(null)}
+        />
+      )}
     </ReportLayout>
   );
 };

@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../services/reportApi';
 import { ReportLayout } from '../components/ReportLayout';
 import { ReportFilters } from '../components/ReportFilters';
 import { ExportActions } from '../components/ExportActions';
 import { ReportTable } from '../components/ReportTable';
+import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
-import { DollarSign, CreditCard, CheckCircle2, TrendingUp } from 'lucide-react';
+import { DollarSign, CreditCard, CheckCircle2, TrendingUp, Eye } from 'lucide-react';
 
 export const PaymentHistoryReport: React.FC = () => {
   const { filters, setFilterVal, resetFilters } = useReportFilters('paymentDate');
   const { isExporting, handleExport } = useReportExport();
+  const [selectedRow, setSelectedRow] = useState<any>(null);
 
   // Query Payment History data
   const { data, isLoading } = useQuery({
@@ -56,6 +58,19 @@ export const PaymentHistoryReport: React.FC = () => {
         >
           {row.paymentStatus}
         </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row: any) => (
+        <button
+          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-md transition-colors"
+          title="View Details"
+          onClick={() => setSelectedRow(row)}
+        >
+          <Eye className="w-4 h-4" />
+        </button>
       ),
     },
   ];
@@ -153,6 +168,15 @@ export const PaymentHistoryReport: React.FC = () => {
         sortBy={filters.sortBy}
         sortOrder={filters.sortOrder}
       />
+
+      {selectedRow && (
+        <ReportDetailsModal
+          title="Payment Details"
+          data={selectedRow}
+          columns={columns}
+          onClose={() => setSelectedRow(null)}
+        />
+      )}
     </ReportLayout>
   );
 };

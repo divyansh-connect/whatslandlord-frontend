@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../services/reportApi';
 import { ReportLayout } from '../components/ReportLayout';
 import { ReportFilters } from '../components/ReportFilters';
 import { ExportActions } from '../components/ExportActions';
 import { ReportTable } from '../components/ReportTable';
+import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
-import { Percent, Building2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Percent, Building2, CheckCircle2, AlertCircle, Eye } from 'lucide-react';
 
 export const OccupancyReport: React.FC = () => {
   const { filters, setFilterVal, resetFilters } = useReportFilters('propertyName');
   const { isExporting, handleExport } = useReportExport();
+  const [selectedRow, setSelectedRow] = useState<any>(null);
 
   // Query Occupancy data
   const { data, isLoading } = useQuery({
@@ -62,6 +64,19 @@ export const OccupancyReport: React.FC = () => {
           </div>
           <span className="font-bold text-xs">{row.occupancyPercentage}%</span>
         </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row: any) => (
+        <button
+          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-md transition-colors"
+          title="View Details"
+          onClick={() => setSelectedRow(row)}
+        >
+          <Eye className="w-4 h-4" />
+        </button>
       ),
     },
   ];
@@ -144,6 +159,15 @@ export const OccupancyReport: React.FC = () => {
         pagination={data?.pagination}
         onPageChange={(page) => setFilterVal('page', page)}
       />
+
+      {selectedRow && (
+        <ReportDetailsModal
+          title="Occupancy Details"
+          data={selectedRow}
+          columns={columns}
+          onClose={() => setSelectedRow(null)}
+        />
+      )}
     </ReportLayout>
   );
 };
