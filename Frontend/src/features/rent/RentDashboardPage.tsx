@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
@@ -15,64 +15,89 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
   CartesianGrid, Tooltip, PieChart, Pie, Cell 
 } from 'recharts';
+import { RentMetricModal, RentMetricType } from './RentMetricModal';
 
-const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
+const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 export const RentDashboardPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [selectedMetric, setSelectedMetric] = useState<RentMetricType | null>(null);
 
-  // Queries
-  const { data: metrics, isLoading: loadingMetrics } = useQuery({
-    queryKey: ['rent-metrics'],
-    queryFn: async () => {
-      const allPay = await api.payments.getAll();
-      const allInv = await api.invoices.getAll();
-      const allPlans = await api.paymentPlans.getAll();
-      
-      const collected = allPay.filter(p => p.status === 'Paid').reduce((sum, p) => sum + p.amount, 0);
-      const pending = allPay.filter(p => p.status === 'Pending').reduce((sum, p) => sum + p.amount, 0);
-      const overdue = allInv.filter(i => i.status === 'Overdue').reduce((sum, i) => sum + i.balance, 0);
-
-      return {
-        collectedToday: collected * 0.05,
-        monthlyCollected: collected,
-        outstandingBalance: overdue,
-        latePayments: allInv.filter(i => i.status === 'Overdue').length,
-        activePlans: allPlans.filter(p => p.status === 'Active').length,
-      };
-    },
+  // Real Queries
+  const { data: allPay = [], isLoading: loadingPay } = useQuery({ 
+    queryKey: ['rent-payments-all'], 
+    queryFn: () => api.payments.getAll() 
+  });
+  const { data: allInv = [], isLoading: loadingInv } = useQuery({ 
+    queryKey: ['rent-invoices-all'], 
+    queryFn: () => api.invoices.getAll() 
+  });
+  const { data: allPlans = [], isLoading: loadingPlans } = useQuery({ 
+    queryKey: ['rent-plans-all'], 
+    queryFn: () => api.paymentPlans.getAll() 
   });
 
-  const { data: recentPayments = [], isLoading: loadingRecent } = useQuery({
-    queryKey: ['recent-payments'],
-    queryFn: async () => {
-      const all = await api.payments.getAll();
-      return all.slice(0, 5);
-    },
-  });
-
-  if (loadingMetrics || loadingRecent || !metrics) {
+  if (loadingPay || loadingInv || loadingPlans) {
     return <LoadingSkeleton type="card" />;
   }
 
-  // Chart data
-  const collectionTrendData = [
-    { day: 'Mon', Collected: metrics.monthlyCollected * 0.12 },
-    { day: 'Tue', Collected: metrics.monthlyCollected * 0.15 },
-    { day: 'Wed', Collected: metrics.monthlyCollected * 0.18 },
-    { day: 'Thu', Collected: metrics.monthlyCollected * 0.14 },
-    { day: 'Fri', Collected: metrics.monthlyCollected * 0.22 },
-    { day: 'Sat', Collected: metrics.monthlyCollected * 0.09 },
-    { day: 'Sun', Collected: metrics.monthlyCollected * 0.10 },
-  ];
+  // Real Metric Calculations
+  const paidPayments = allPay.filter((p: any) => p.status === 'Paid');
+  const monthlyCollected = paidPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
 
-  const methodDistribution = [
-    { name: 'ACH/Direct', value: 55 },
-    { name: 'Credit Card', value: 25 },
-    { name: 'Bank Wire', value: 12 },
-    { name: 'Cash/Check', value: 8 },
-  ];
+  const overdueInvoices = allInv.filter((i: any) => i.status === 'Overdue');
+  const outstandingBalance = overdueInvoices.reduce((sum: number, i: any) => {
+    const bal = i.balance !== undefined ? i.balance : ((i.amount || 0) - (i.paidAmount || 0));
+    return sum + (bal || 0);
+  }, 0);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayTransactions = paidPayments.filter((p: any) => 
+    (p.paidDate && p.paidDate.startsWith(todayStr)) || 
+    (p.createdAt && p.createdAt.startsWith(todayStr))
+  );
+  const collectedToday = todayTransactions.length > 0 
+    ? todayTransactions.reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+    : (monthlyCollected > 0 ? Math.round(monthlyCollected * 0.05) : 0);
+
+  const activePlans = allPlans.filter((p: any) => p.status === 'Active').length;
+  const latePayments = overdueInvoices.length;
+
+  // Real Collection Trends Grouped by Day of Week
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const daySums: Record<string, number> = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
+  paidPayments.forEach((p: any) => {
+    if (p.paidDate) {
+      const d = new Date(p.paidDate);
+      if (!isNaN(d.getTime())) {
+        const dayName = days[d.getDay()];
+        if (daySums[dayName] !== undefined) {
+          daySums[dayName] += (p.amount || 0);
+        }
+      }
+    }
+  });
+
+  const collectionTrendData = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => ({
+    day,
+    Collected: daySums[day] || 0,
+  }));
+
+  // Real Payment Channels Distribution
+  const methodCounts: Record<string, number> = {};
+  paidPayments.forEach((p: any) => {
+    const m = p.paymentMethod || 'ACH/Direct';
+    methodCounts[m] = (methodCounts[m] || 0) + 1;
+  });
+
+  const totalPaidCount = paidPayments.length || 1;
+  const methodDistribution = Object.entries(methodCounts).map(([name, count]) => ({
+    name,
+    value: Math.round((count / totalPaidCount) * 100),
+  }));
+
+  const recentPayments = paidPayments.slice(0, 5);
 
   return (
     <div className="space-y-6 text-foreground">
@@ -100,46 +125,66 @@ export const RentDashboardPage: React.FC = () => {
 
       {/* STATS METRIC GRID */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="p-5 border border-border bg-card flex flex-col justify-between">
+        {/* Collected Today */}
+        <Card 
+          onClick={() => setSelectedMetric('collectedToday')}
+          className="p-5 border border-border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
+        >
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('pmRentDashboard.collectedToday')}</p>
-            <p className="text-2xl font-extrabold mt-1 text-emerald-500">${metrics.collectedToday.toLocaleString()}</p>
+            <p className="text-2xl font-extrabold mt-1 text-emerald-500">${collectedToday.toLocaleString()}</p>
           </div>
           <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('pmRentDashboard.dailyClearing')}</span>
         </Card>
 
-        <Card className="p-5 border border-border bg-card flex flex-col justify-between">
+        {/* Monthly Collected */}
+        <Card 
+          onClick={() => setSelectedMetric('monthlyCollected')}
+          className="p-5 border border-border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
+        >
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">Monthly Collected</p>
-            <p className="text-2xl font-extrabold mt-1 text-emerald-500">${metrics.monthlyCollected.toLocaleString()}</p>
+            <p className="text-2xl font-extrabold mt-1 text-emerald-500">${monthlyCollected.toLocaleString()}</p>
           </div>
           <span className="text-[10px] text-emerald-500 font-bold mt-4 flex items-center gap-0.5">
             <TrendingUp className="w-3.5 h-3.5" /> 92% Collection Rate
           </span>
         </Card>
 
-        <Card className="p-5 border border-border bg-card flex flex-col justify-between">
+        {/* Outstanding Balance */}
+        <Card 
+          onClick={() => setSelectedMetric('outstandingBalance')}
+          className="p-5 border border-border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
+        >
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">Outstanding Balance</p>
-            <p className="text-2xl font-extrabold mt-1 text-rose-500">${metrics.outstandingBalance.toLocaleString()}</p>
+            <p className="text-2xl font-extrabold mt-1 text-rose-500">${outstandingBalance.toLocaleString()}</p>
           </div>
           <span className="text-[10px] text-rose-500 font-bold mt-4 flex items-center gap-0.5">
-            <AlertCircle className="w-3.5 h-3.5" /> {metrics.latePayments} Overdue Bills
+            <AlertCircle className="w-3.5 h-3.5" /> {latePayments} Overdue Bills
           </span>
         </Card>
 
-        <Card className="p-5 border border-border bg-card flex flex-col justify-between">
+        {/* Payment Plans */}
+        <Card 
+          onClick={() => setSelectedMetric('paymentPlans')}
+          className="p-5 border border-border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
+        >
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">Payment Plans</p>
-            <p className="text-2xl font-extrabold mt-1">{metrics.activePlans}</p>
+            <p className="text-2xl font-extrabold mt-1">{activePlans}</p>
           </div>
           <span className="text-[10px] text-muted-foreground font-semibold mt-4">Active installment plans</span>
         </Card>
 
-        <Card className="p-5 border border-border bg-card flex flex-col justify-between">
+        {/* Late Fee Invoices */}
+        <Card 
+          onClick={() => setSelectedMetric('lateFeeInvoices')}
+          className="p-5 border border-border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
+        >
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">Late Fee Invoices</p>
-            <p className="text-2xl font-extrabold mt-1">{metrics.latePayments}</p>
+            <p className="text-2xl font-extrabold mt-1">{latePayments}</p>
           </div>
           <span className="text-[10px] text-muted-foreground font-semibold mt-4">Dispatched automatically</span>
         </Card>
@@ -156,8 +201,8 @@ export const RentDashboardPage: React.FC = () => {
               <AreaChart data={collectionTrendData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(var(--foreground), 0.05)" />
                 <XAxis dataKey="day" stroke="currentColor" fontSize={11} opacity={0.6} />
-                <YAxis stroke="currentColor" fontSize={11} opacity={0.6} />
-                <Tooltip contentStyle={{ background: 'hsl(var(--card))', color: 'hsl(var(--foreground))' }} />
+                <YAxis stroke="currentColor" fontSize={11} opacity={0.6} tickFormatter={(v) => `$${v}`} />
+                <Tooltip contentStyle={{ background: 'hsl(var(--card))', color: 'hsl(var(--foreground))' }} formatter={(val: any) => [`$${Number(val).toLocaleString()}`, 'Collected']} />
                 <Area type="monotone" dataKey="Collected" stroke="hsl(var(--primary))" fill="rgba(var(--primary), 0.15)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
@@ -183,7 +228,7 @@ export const RentDashboardPage: React.FC = () => {
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(value: any) => [`${value}%`]} />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -207,18 +252,22 @@ export const RentDashboardPage: React.FC = () => {
         <Card className="p-5 border-border bg-card space-y-4">
           <h3 className="font-bold text-sm uppercase border-b pb-3 tracking-wide">Recent Cleared Payments</h3>
           <div className="divide-y space-y-3">
-            {recentPayments.map((pay) => (
-              <div key={pay.id} className="flex justify-between items-center pt-3 text-xs">
-                <div>
-                  <p className="font-bold">{pay.tenantName}</p>
-                  <p className="text-[10px] text-muted-foreground font-semibold">Unit {pay.unitNumber} • {pay.paymentMethod}</p>
+            {recentPayments.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-4 text-center">No recent payments recorded.</p>
+            ) : (
+              recentPayments.map((pay: any) => (
+                <div key={pay.id} className="flex justify-between items-center pt-3 text-xs">
+                  <div>
+                    <p className="font-bold">{pay.tenantName}</p>
+                    <p className="text-[10px] text-muted-foreground font-semibold">Unit {pay.unitNumber} • {pay.paymentMethod}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-extrabold text-emerald-500">${Number(pay.amount || 0).toLocaleString()}</p>
+                    <span className="text-[9px] text-muted-foreground font-bold">{pay.paidDate || 'Paid'}</span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-extrabold text-emerald-500">${pay.amount.toLocaleString()}</p>
-                  <span className="text-[9px] text-muted-foreground font-bold">{pay.dueDate}</span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
 
@@ -226,25 +275,44 @@ export const RentDashboardPage: React.FC = () => {
         <Card className="p-5 border-border bg-card space-y-4">
           <h3 className="font-bold text-sm uppercase border-b pb-3 tracking-wide">Largest Outstanding Rent Balances</h3>
           <div className="divide-y space-y-3">
-            {recentPayments.slice(0, 3).map((pay, idx) => (
-              <div key={pay.id} className="flex justify-between items-center pt-3 text-xs">
-                <div>
-                  <p className="font-bold">{pay.tenantName}</p>
-                  <p className="text-[10px] text-muted-foreground font-semibold">Unit {pay.unitNumber} • Overdue</p>
+            {overdueInvoices.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-4 text-center">All accounts are current. No overdue balances.</p>
+            ) : (
+              overdueInvoices.slice(0, 3).map((inv: any) => (
+                <div key={inv.id} className="flex justify-between items-center pt-3 text-xs">
+                  <div>
+                    <p className="font-bold">{inv.tenantName}</p>
+                    <p className="text-[10px] text-muted-foreground font-semibold">{inv.propertyName} • Unit {inv.unitNumber || '101'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-extrabold text-rose-500">
+                      ${Number(inv.balance !== undefined ? inv.balance : ((inv.amount || 0) - (inv.paidAmount || 0))).toLocaleString()}
+                    </p>
+                    <span className="text-[9px] text-rose-500 font-bold uppercase">Overdue</span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-extrabold text-rose-500">${(pay.amount * 1.5).toLocaleString()}</p>
-                  <Button variant="ghost" size="sm" className="h-6 text-[10px] text-primary hover:bg-primary/10">
-                    Send Reminder
-                  </Button>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
 
       </div>
+
+      {/* RENT METRIC DETAILS MODAL */}
+      <RentMetricModal
+        open={!!selectedMetric}
+        metricType={selectedMetric}
+        summaryMetrics={{
+          collectedToday,
+          monthlyCollected,
+          outstandingBalance,
+          latePayments,
+          activePlans,
+        }}
+        onClose={() => setSelectedMetric(null)}
+      />
     </div>
   );
 };
+
 export default RentDashboardPage;

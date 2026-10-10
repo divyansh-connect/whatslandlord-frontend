@@ -40,13 +40,24 @@ export const EditPaymentModal: React.FC<EditPaymentModalProps> = ({ payment, ope
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['rent-ledger-list'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices-list'] });
       queryClient.invalidateQueries({ queryKey: ['payment-detail', payment?.id] });
       onOpenChange(false);
     },
   });
 
+  const isTenantOnline =
+    payment?.createdBy === 'Tenant' ||
+    payment?.createdBy === 'Tenant Portal' ||
+    ['Razorpay', 'Stripe', 'AuthorizeNet'].includes(payment?.paymentMethod);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isTenantOnline) {
+      alert('Online payments made from Tenant Portal cannot be modified.');
+      return;
+    }
     if (payment) {
       updateMutation.mutate();
     }
@@ -57,6 +68,11 @@ export const EditPaymentModal: React.FC<EditPaymentModalProps> = ({ payment, ope
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} title={`Edit Payment ${payment.receiptNumber || payment.id}`}>
       <form onSubmit={handleSubmit} className="space-y-4 pt-2 text-xs font-semibold text-foreground">
+        {isTenantOnline && (
+          <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg text-xs font-medium">
+            This payment was processed online via the Tenant Portal. In accordance with accounting compliance, online tenant payments cannot be edited.
+          </div>
+        )}
         <div className="space-y-1">
           <label className="text-muted-foreground text-[10px] uppercase font-bold">Tenant</label>
           <Input value={payment.tenantName || 'N/A'} disabled className="bg-muted/50" />
@@ -71,6 +87,7 @@ export const EditPaymentModal: React.FC<EditPaymentModalProps> = ({ payment, ope
               value={amount}
               onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
               required
+              disabled={isTenantOnline}
             />
           </div>
 
@@ -81,6 +98,7 @@ export const EditPaymentModal: React.FC<EditPaymentModalProps> = ({ payment, ope
               value={paidDate}
               onChange={(e) => setPaidDate(e.target.value)}
               required
+              disabled={isTenantOnline}
             />
           </div>
         </div>
@@ -88,7 +106,9 @@ export const EditPaymentModal: React.FC<EditPaymentModalProps> = ({ payment, ope
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className="text-muted-foreground text-[10px] uppercase font-bold">Payment Method *</label>
-            <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+            <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} disabled={isTenantOnline}>
+              <option value="Offline">Offline (Cash / Direct)</option>
+              <option value="Offline (Partial)">Offline (Partial)</option>
               <option value="ACH">ACH / Direct Deposit</option>
               <option value="CreditCard">Credit Card</option>
               <option value="DebitCard">Debit Card</option>

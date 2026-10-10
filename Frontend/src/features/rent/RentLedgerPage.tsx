@@ -6,10 +6,11 @@ import { DataTable } from '../../components/DataTable';
 import { FilterBar } from '../../components/FilterBar';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/StatusBadge';
-import { Download, Printer, Eye, ArrowLeft } from 'lucide-react';
+import { Download, Printer, Eye, ArrowLeft, Pencil } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useSearch, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import { EditPaymentModal } from './EditPaymentModal';
 
 interface LedgerItem {
   id: string;
@@ -30,6 +31,7 @@ export const RentLedgerPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [propertyFilter, setPropertyFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [editingPayment, setEditingPayment] = useState<any | null>(null);
   
   const search: any = useSearch({ strict: false });
   const navigate = useNavigate();
@@ -157,28 +159,62 @@ export const RentLedgerPage: React.FC = () => {
       id: 'actions',
       header: t('rentLedgerPage.actions'),
       cell: ({ row }) => {
-        const tenantObj = tenants.find((tItem) => `${tItem.firstName} ${tItem.lastName}` === row.original.tenantName);
+        const item = row.original as any;
+        const tenantObj = tenants.find((tItem) => `${tItem.firstName} ${tItem.lastName}` === item.tenantName);
+        
+        const isPayment = item.transactionType === 'Payment';
+        const isTenantOnline =
+          item.createdBy === 'Tenant' ||
+          item.createdBy === 'Tenant Portal' ||
+          ['Razorpay', 'Stripe', 'AuthorizeNet'].includes(item.paymentMethod);
+        const canEditPayment = isPayment && !isTenantOnline && (item.paymentId || (item.id && String(item.id).startsWith('led-pay-')));
+
         return (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              if (row.original.tenantId) {
-                setSelectedTenantId(row.original.tenantId);
-              } else if (tenantObj) {
-                setSelectedTenantId(tenantObj.id);
-              } else {
-                const firstTenant = tenants[0];
-                if (firstTenant) {
-                  setSelectedTenantId(firstTenant.id);
+          <div className="flex items-center space-x-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (item.tenantId) {
+                  setSelectedTenantId(item.tenantId);
+                } else if (tenantObj) {
+                  setSelectedTenantId(tenantObj.id);
+                } else {
+                  const firstTenant = tenants[0];
+                  if (firstTenant) {
+                    setSelectedTenantId(firstTenant.id);
+                  }
                 }
-              }
-            }}
-            className="h-8 w-8 text-muted-foreground hover:text-primary cursor-pointer"
-            title="View Tenant Statement"
-          >
-            <Eye className="w-4 h-4" />
-          </Button>
+              }}
+              className="h-8 w-8 text-muted-foreground hover:text-primary cursor-pointer"
+              title="View Tenant Statement"
+            >
+              <Eye className="w-4 h-4" />
+            </Button>
+
+            {canEditPayment && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  const pId = item.paymentId || String(item.id).replace('led-pay-', '');
+                  setEditingPayment({
+                    id: pId,
+                    amount: item.credit || item.amount || 0,
+                    paidDate: item.date,
+                    paymentMethod: item.paymentMethod || 'Offline',
+                    referenceNumber: item.referenceNumber || '',
+                    tenantName: item.tenantName,
+                    createdBy: item.createdBy,
+                  });
+                }}
+                className="h-8 w-8 text-blue-500 hover:bg-blue-500/10 cursor-pointer"
+                title="Edit Payment"
+              >
+                <Pencil className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
         );
       },
     },
@@ -476,6 +512,15 @@ export const RentLedgerPage: React.FC = () => {
           </div>
         </>
       )}
+
+      {/* Edit Payment Modal */}
+      <EditPaymentModal
+        payment={editingPayment}
+        open={!!editingPayment}
+        onOpenChange={(open) => {
+          if (!open) setEditingPayment(null);
+        }}
+      />
     </div>
   );
 };

@@ -78,10 +78,12 @@ export const NewPaymentPage: React.FC = () => {
         paidDate: values.paidDate,
         paymentMethod: values.paymentMethod,
         referenceNumber: values.referenceNumber || `RCP-${Math.floor(100000 + Math.random() * 900000)}-ZTR`,
+        createdBy: 'Manager',
       });
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['rent-ledger-list'] });
       queryClient.invalidateQueries({ queryKey: ['invoices-list'] });
       queryClient.invalidateQueries({ queryKey: ['tenant-dashboard-metrics'] });
       setSuccess(true);

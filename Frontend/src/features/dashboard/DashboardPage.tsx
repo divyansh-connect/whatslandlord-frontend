@@ -71,6 +71,7 @@ export const DashboardPage: React.FC = () => {
             trendLabel="+12.4%"
             description={t('dashboard.rentCollectionRate')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('monthlyRevenue')}
           />
           <StatsCard
             title={t('dashboard.pendingRent')}
@@ -80,6 +81,7 @@ export const DashboardPage: React.FC = () => {
             trendLabel="-8.5%"
             description={t('dashboard.outstandingBalances')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('pendingRent')}
           />
           <StatsCard
             title={t('dashboard.expenses')}
@@ -87,6 +89,7 @@ export const DashboardPage: React.FC = () => {
             icon={<DollarSign className="w-5 h-5" />}
             description={t('dashboard.invoicesPaid')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('expenses')}
           />
           <StatsCard
             title={t('dashboard.openMaintenance')}
@@ -96,6 +99,7 @@ export const DashboardPage: React.FC = () => {
             trendLabel="+1 pending"
             description={t('dashboard.activeWorkOrders')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('openMaintenance')}
           />
         </div>
       ) : (
@@ -146,6 +150,7 @@ export const DashboardPage: React.FC = () => {
             trendLabel="+4.2%"
             description={t('dashboard.comparedToLastMonth')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('occupancyRate')}
           />
           <StatsCard
             title={t('dashboard.monthlyRevenue')}
@@ -155,6 +160,7 @@ export const DashboardPage: React.FC = () => {
             trendLabel="+12.4%"
             description={t('dashboard.rentCollectionRate')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('monthlyRevenue')}
           />
           <StatsCard
             title={t('dashboard.pendingRent')}
@@ -164,6 +170,7 @@ export const DashboardPage: React.FC = () => {
             trendLabel="-8.5%"
             description={t('dashboard.outstandingBalances')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('pendingRent')}
           />
           <StatsCard
             title={t('dashboard.expenses')}
@@ -171,6 +178,7 @@ export const DashboardPage: React.FC = () => {
             icon={<DollarSign className="w-5 h-5" />}
             description={t('dashboard.invoicesPaid')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('expenses')}
           />
           <StatsCard
             title={t('dashboard.openMaintenance')}
@@ -180,6 +188,7 @@ export const DashboardPage: React.FC = () => {
             trendLabel="+1"
             description={t('dashboard.activeWorkOrders')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('openMaintenance')}
           />
           <StatsCard
             title={t('dashboard.leasesExpiringSoon')}
@@ -187,6 +196,7 @@ export const DashboardPage: React.FC = () => {
             icon={<Calendar className="w-5 h-5" />}
             description={t('dashboard.expiringIn60Days')}
             loading={loadingMetrics}
+            onClick={() => setSelectedMetric('leasesExpiringSoon')}
           />
         </div>
       )}
@@ -386,6 +396,7 @@ export const DashboardPage: React.FC = () => {
       <MetricDetailsModal
         open={!!selectedMetric}
         metricType={selectedMetric}
+        metricsSummary={metrics}
         onClose={() => setSelectedMetric(null)}
       />
     </div>

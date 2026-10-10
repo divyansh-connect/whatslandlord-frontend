@@ -160,6 +160,10 @@ export const api = {
           availabilityDate: u.availabilityDate ? String(u.availabilityDate).split('T')[0] : '',
           status: u.status,
           tenantName: u.tenants?.length ? `${u.tenants[0].firstName} ${u.tenants[0].lastName}` : 'Vacant',
+          isLateFeeEnabled: u.isLateFeeEnabled,
+          lateFeeType: u.lateFeeType || 'FLAT',
+          lateFeeAmount: u.lateFeeAmount,
+          lateFeeGraceDays: u.lateFeeGraceDays,
         }));
       } catch (e) {
         console.error('Units DB fetch failed:', e);
@@ -1317,6 +1321,11 @@ export const api = {
               description: `Payment Received - Ref ${pay.referenceNumber || 'N/A'}`,
               transactionType: 'Payment',
               id: `led-pay-${pay.id}`,
+              paymentId: pay.id,
+              paymentMethod: pay.paymentMethod,
+              referenceNumber: pay.referenceNumber,
+              createdBy: pay.createdBy,
+              rawPayment: pay,
             });
           }
         });
@@ -1355,6 +1364,11 @@ export const api = {
               credit: tx.amount,
               balance: runningBalance,
               transactionType: tx.transactionType,
+              paymentId: tx.paymentId,
+              paymentMethod: tx.paymentMethod,
+              referenceNumber: tx.referenceNumber,
+              createdBy: tx.createdBy,
+              rawPayment: tx.rawPayment,
             });
           }
         });
@@ -1935,6 +1949,7 @@ export const api = {
           version: d.version || 1,
           status: d.status || 'Active',
           updatedAt: d.createdAt ? d.createdAt.split('T')[0] : 'N/A',
+          fileUrl: d.fileUrl,
         }));
       } catch (e) {
         return [];

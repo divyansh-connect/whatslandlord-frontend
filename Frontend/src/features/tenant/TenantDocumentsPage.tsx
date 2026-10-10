@@ -22,6 +22,7 @@ export const TenantDocumentsPage: React.FC = () => {
 
   // Upload modal states
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState('');
   const [fileCategory, setFileCategory] = useState('Rental Agreement');
   const [customCategory, setCustomCategory] = useState('');
@@ -30,20 +31,48 @@ export const TenantDocumentsPage: React.FC = () => {
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
   const [downloadedDocName, setDownloadedDocName] = useState('');
 
-  const handleDownload = (doc: any) => {
+  const handleDownload = async (doc: any) => {
     if (doc.fileUrl) {
       let downloadUrl = doc.fileUrl;
+      const filename = doc.name.endsWith('.pdf') ? doc.name : `${doc.name}.pdf`;
+
       if (downloadUrl.includes('res.cloudinary.com') && downloadUrl.includes('/upload/')) {
         downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
       }
+
+      try {
+        const response = await fetch(downloadUrl);
+        if (response.ok) {
+          const blob = await response.blob();
+          const blobUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            window.URL.revokeObjectURL(blobUrl);
+            document.body.removeChild(a);
+          }, 100);
+          setDownloadedDocName(filename);
+          setSuccessDialogOpen(true);
+          return;
+        }
+      } catch (e) {
+        console.warn('Fetch blob download failed, falling back to direct link:', e);
+      }
+
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = doc.name;
+      a.download = filename;
       a.target = '_blank';
+      a.rel = 'noopener noreferrer';
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      setDownloadedDocName(doc.name);
+      setTimeout(() => {
+        document.body.removeChild(a);
+      }, 100);
+      setDownloadedDocName(filename);
       setSuccessDialogOpen(true);
     } else {
       alert(`No download URL available for ${doc.name}`);
@@ -54,11 +83,13 @@ export const TenantDocumentsPage: React.FC = () => {
   const { data: documents = [], isLoading } = useQuery({ queryKey: ['tenant-documents-list'], queryFn: () => api.tenantDocuments.getAll() });
 
   const uploadMutation = useMutation({
-    mutationFn: (newDoc: any) => api.tenantDocuments.upload(newDoc),
+    mutationFn: (formData: FormData) => api.tenantDocuments.upload(formData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenant-documents-list'] });
+      queryClient.invalidateQueries({ queryKey: ['docs-tenant'] });
       setIsOpen(false);
       setFileName('');
+      setSelectedFile(null);
       setFileCategory('Rental Agreement');
       setCustomCategory('');
     },
@@ -66,15 +97,19 @@ export const TenantDocumentsPage: React.FC = () => {
 
   const handleUploadSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (fileName) {
-      const finalCategory = fileCategory === 'Other' ? customCategory || 'Other' : fileCategory;
-      const randomSize = `${(Math.random() * 4 + 0.5).toFixed(1)} MB`;
-      uploadMutation.mutate({
-        name: fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`,
-        category: finalCategory,
-        size: randomSize,
-      });
+    if (!selectedFile && !fileName) return;
+
+    const finalCategory = fileCategory === 'Other' ? customCategory || 'Other' : fileCategory;
+    const finalName = fileName.trim() || selectedFile?.name || 'Tenant_Document.pdf';
+
+    const formData = new FormData();
+    if (selectedFile) {
+      formData.append('file', selectedFile);
     }
+    formData.append('name', finalName.endsWith('.pdf') ? finalName : `${finalName}.pdf`);
+    formData.append('category', finalCategory);
+
+    uploadMutation.mutate(formData);
   };
 
   const handleDropzoneClick = () => {
@@ -84,7 +119,10 @@ export const TenantDocumentsPage: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setFileName(file.name);
+      setSelectedFile(file);
+      if (!fileName) {
+        setFileName(file.name);
+      }
     }
   };
 
@@ -183,8 +221,8 @@ export const TenantDocumentsPage: React.FC = () => {
               accept=".pdf,.png,.jpg,.jpeg"
             />
             <UploadCloud className="w-8 h-8 text-muted-foreground mx-auto" />
-            <p className="font-bold">Drag and drop file here or click to browse</p>
-            <p className="text-[10px] text-muted-foreground">PDF, PNG, JPG up to 5MB</p>
+            <p className="font-bold">{selectedFile ? selectedFile.name : 'Drag and drop file here or click to browse'}</p>
+            <p className="text-[10px] text-muted-foreground">{selectedFile ? `${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB • Click to change file` : 'PDF, PNG, JPG up to 5MB'}</p>
           </div>
 
           <div className="space-y-1.5">

@@ -14,7 +14,7 @@ import { FormDialog } from '../../components/FormDialog';
 import { 
   Building2, Home, User, CreditCard, Wrench, FileText, ArrowLeft, 
   Plus, Upload, Loader2, Sparkles, Bed, Bath, DollarSign, Calendar,
-  RefreshCw, Edit
+  RefreshCw, Edit, Clock
 } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 
@@ -199,6 +199,18 @@ export const UnitDetailsPage: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-muted-foreground flex items-center gap-1"><Calendar className="w-4 h-4" /> Availability Date</span>
                 <span>{unit.availabilityDate ? String(unit.availabilityDate).split('T')[0] : ''}</span>
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t border-border">
+                <span className="text-muted-foreground flex items-center gap-1"><Clock className="w-4 h-4 text-amber-500" /> Late Fee Policy</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                  unit.isLateFeeEnabled 
+                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20' 
+                    : 'bg-muted text-muted-foreground'
+                }`}>
+                  {unit.isLateFeeEnabled 
+                    ? `${unit.lateFeeType === 'PERCENTAGE' ? `${unit.lateFeeAmount || 5}%` : `$${unit.lateFeeAmount || 50}`} (${unit.lateFeeGraceDays || 5}d grace)`
+                    : 'Disabled'}
+                </span>
               </div>
             </div>
           </Card>

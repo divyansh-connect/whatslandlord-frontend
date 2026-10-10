@@ -8,9 +8,10 @@ import { DataTable } from '../../components/DataTable';
 import { FilterBar } from '../../components/FilterBar';
 import { FormDialog } from '../../components/FormDialog';
 import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { StatusBadge } from '../../components/StatusBadge';
-import { Plus, Eye, UserPlus, Key, RefreshCw, Trash2, Edit, Loader2 } from 'lucide-react';
+import { Plus, Eye, UserPlus, Key, RefreshCw, Trash2, Edit, Loader2, Clock } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useNavigate } from '@tanstack/react-router';
 
@@ -32,6 +33,21 @@ export const UnitsPage: React.FC = () => {
   // Change status modal state
   const [statusUnitId, setStatusUnitId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<any>('Vacant');
+
+  // Quick Late Fee modal state
+  const [lateFeeUnit, setLateFeeUnit] = useState<any | null>(null);
+  const [modalLateFeeEnabled, setModalLateFeeEnabled] = useState<boolean>(false);
+  const [modalLateFeeType, setModalLateFeeType] = useState<string>('FLAT');
+  const [modalLateFeeAmount, setModalLateFeeAmount] = useState<number>(50);
+  const [modalLateFeeGraceDays, setModalLateFeeGraceDays] = useState<number>(5);
+
+  const openLateFeeModal = (unit: any) => {
+    setLateFeeUnit(unit);
+    setModalLateFeeEnabled(Boolean(unit.isLateFeeEnabled));
+    setModalLateFeeType(unit.lateFeeType || 'FLAT');
+    setModalLateFeeAmount(unit.lateFeeAmount !== null && unit.lateFeeAmount !== undefined ? Number(unit.lateFeeAmount) : 50);
+    setModalLateFeeGraceDays(unit.lateFeeGraceDays !== null && unit.lateFeeGraceDays !== undefined ? Number(unit.lateFeeGraceDays) : 5);
+  };
 
   // Queries
   const { data: units = [], isLoading, error } = useQuery({
@@ -82,6 +98,22 @@ export const UnitsPage: React.FC = () => {
     mutationFn: (id: string) => api.unit.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['units'] });
+    },
+  });
+
+  const lateFeeMutation = useMutation({
+    mutationFn: async () => {
+      if (!lateFeeUnit) return;
+      return api.unit.update(lateFeeUnit.id, {
+        isLateFeeEnabled: modalLateFeeEnabled,
+        lateFeeType: modalLateFeeType,
+        lateFeeAmount: modalLateFeeEnabled ? Number(modalLateFeeAmount) : null,
+        lateFeeGraceDays: modalLateFeeEnabled ? Number(modalLateFeeGraceDays) : null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['units'] });
+      setLateFeeUnit(null);
     },
   });
 
@@ -175,6 +207,15 @@ export const UnitsPage: React.FC = () => {
             title="Change Status"
           >
             <RefreshCw className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => openLateFeeModal(row.original)}
+            title="Late Fee Policy"
+            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+          >
+            <Clock className="w-4 h-4" />
           </Button>
         </div>
       ),
@@ -301,6 +342,115 @@ export const UnitsPage: React.FC = () => {
             >
               {statusMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
               Update Status
+            </Button>
+          </div>
+        </div>
+      </FormDialog>
+
+      {/* QUICK LATE FEE POLICY MODAL */}
+      <FormDialog
+        open={!!lateFeeUnit}
+        onOpenChange={(open) => !open && setLateFeeUnit(null)}
+        title={`Late Fee Policy — Unit ${lateFeeUnit?.unitNumber || ''}`}
+      >
+        <div className="space-y-4 pt-1">
+          <div className="p-3 bg-secondary/50 rounded-xl flex items-center justify-between border border-border">
+            <div>
+              <p className="text-xs font-extrabold text-foreground">{lateFeeUnit?.propertyName} • Unit {lateFeeUnit?.unitNumber}</p>
+              <p className="text-[11px] text-muted-foreground font-medium">Rent: ${lateFeeUnit?.rentAmount?.toLocaleString()} / mo</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-muted-foreground">
+                {modalLateFeeEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant={modalLateFeeEnabled ? 'default' : 'outline'}
+                onClick={() => setModalLateFeeEnabled(!modalLateFeeEnabled)}
+                className={`h-7 px-3 text-xs font-bold ${
+                  modalLateFeeEnabled 
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white' 
+                    : 'border-border text-muted-foreground'
+                }`}
+              >
+                {modalLateFeeEnabled ? 'ON' : 'OFF'}
+              </Button>
+            </div>
+          </div>
+
+          {modalLateFeeEnabled ? (
+            <div className="space-y-3 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wide">Type</label>
+                  <Select
+                    value={modalLateFeeType}
+                    onChange={(e) => setModalLateFeeType(e.target.value)}
+                    className="h-9 text-xs font-bold"
+                  >
+                    <option value="FLAT">Flat Fee ($)</option>
+                    <option value="PERCENTAGE">Percentage (%)</option>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wide">
+                    {modalLateFeeType === 'PERCENTAGE' ? 'Percentage (%)' : 'Amount ($)'}
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-xs font-bold text-muted-foreground">
+                      {modalLateFeeType === 'PERCENTAGE' ? '%' : '$'}
+                    </span>
+                    <Input
+                      type="number"
+                      min="0"
+                      step={modalLateFeeType === 'PERCENTAGE' ? '0.5' : '1'}
+                      value={modalLateFeeAmount}
+                      onChange={(e) => setModalLateFeeAmount(Number(e.target.value))}
+                      className="h-9 pl-7 text-xs font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wide">Grace Days</label>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      min="0"
+                      value={modalLateFeeGraceDays}
+                      onChange={(e) => setModalLateFeeGraceDays(Number(e.target.value))}
+                      className="h-9 text-xs font-bold"
+                    />
+                    <span className="absolute right-3 top-2 text-[10px] font-extrabold text-muted-foreground uppercase">
+                      Days
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-2.5 bg-amber-500/10 rounded-xl border border-amber-500/20 text-[11px] text-muted-foreground">
+                <span className="font-bold text-amber-600 dark:text-amber-400">Rule Preview: </span>
+                If unpaid after <strong>{modalLateFeeGraceDays} days</strong> of due date, charge{' '}
+                <strong>{modalLateFeeType === 'PERCENTAGE' ? `${modalLateFeeAmount}% of rent` : `$${modalLateFeeAmount}`}</strong> late fee.
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 bg-muted/40 rounded-xl text-center text-xs text-muted-foreground font-medium">
+              Late fee is currently turned off for this unit. No overdue penalty invoices will be generated by the automated cron job.
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-2 pt-2 border-t">
+            <Button variant="outline" onClick={() => setLateFeeUnit(null)}>Cancel</Button>
+            <Button
+              onClick={() => lateFeeMutation.mutate()}
+              disabled={lateFeeMutation.isPending}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+            >
+              {lateFeeMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Save Policy
             </Button>
           </div>
         </div>

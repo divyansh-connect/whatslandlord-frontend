@@ -56,6 +56,7 @@ import { NewTenantPage } from '../features/tenants/NewTenantPage';
 import { EditTenantPage } from '../features/tenants/EditTenantPage';
 import { TenantDetailsPage } from '../features/tenants/TenantDetailsPage';
 import { PortalPreviewPage } from '../features/tenants/PortalPreviewPage';
+import { ManagerTenantDocumentsPage } from '../features/tenants/ManagerTenantDocumentsPage';
 
 // Leasing & Applications Module (Phase 3)
 import { LeasesPage } from '../features/leasing/LeasesPage';
@@ -5221,50 +5222,7 @@ const LateFeesPage: React.FC = () => {
   );
 };
 
-// 7. TENANT DOCUMENTS VIEW
-const ManagerTenantDocumentsPage: React.FC = () => {
-  const { t } = useTranslation();
-  const documents = [
-    { name: 'Signed Rent Lease Agreement.pdf', category: 'Lease', size: '1.4 MB', tenant: 'Robert Johnson', date: '2026-07-20' },
-    { name: 'Income Verification Statement.pdf', category: 'Agreement', size: '850 KB', tenant: 'Michael Jordan', date: '2026-07-15' }
-  ];
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title={t('tenantDocumentsView.title')}
-        description={t('tenantDocumentsView.description')}
-        breadcrumbs={[{ label: t('nav.tenants'), href: '/tenants' }, { label: t('tenantDocumentsView.breadcrumb') }]}
-      />
-      <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-muted/50 border-b text-muted-foreground font-bold uppercase tracking-wider">
-                <th className="p-4">{t('tenantDocumentsView.table.fileName')}</th>
-                <th className="p-4">{t('tenantDocumentsView.table.category')}</th>
-                <th className="p-4">{t('tenantDocumentsView.table.fileSize')}</th>
-                <th className="p-4">{t('tenantDocumentsView.table.tenant')}</th>
-                <th className="p-4">{t('tenantDocumentsView.table.uploadedDate')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y font-medium text-foreground">
-              {documents.map((d, i) => (
-                <tr key={i} className="hover:bg-accent/40 transition">
-                  <td className="p-4 font-bold text-primary cursor-pointer hover:underline">{d.name}</td>
-                  <td className="p-4"><StatusBadge status={d.category} /></td>
-                  <td className="p-4 font-bold">{d.size}</td>
-                  <td className="p-4 font-bold">{d.tenant}</td>
-                  <td className="p-4 text-muted-foreground font-mono">{d.date}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // 8. OWNERS STATEMENTS PAGE
 const OwnersStatementsPage: React.FC = () => {

@@ -120,31 +120,43 @@ export const PaymentsPage: React.FC = () => {
     {
       id: 'actions',
       header: t('rentPaymentsPage.actions'),
-      cell: ({ row }) => (
-        <div className="flex space-x-1">
-          <Button variant="ghost" size="icon" onClick={() => navigate({ to: `/payments/${row.original.id}` })} title={t('rentPaymentsPage.viewReceipt')}>
-            <Eye className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setEditingPayment(row.original)}
-            className="text-blue-500 hover:bg-blue-500/10"
-            title="Edit Payment"
-          >
-            <Pencil className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setDeleteId(row.original.id)}
-            className="text-rose-500 hover:bg-rose-500/10"
-            title="Delete Payment"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const pay = row.original as any;
+        const isTenantOnline =
+          pay.createdBy === 'Tenant' ||
+          pay.createdBy === 'Tenant Portal' ||
+          ['Razorpay', 'Stripe', 'AuthorizeNet'].includes(pay.paymentMethod);
+
+        return (
+          <div className="flex space-x-1">
+            <Button variant="ghost" size="icon" onClick={() => navigate({ to: `/payments/${row.original.id}` })} title={t('rentPaymentsPage.viewReceipt')}>
+              <Eye className="w-4 h-4" />
+            </Button>
+            {!isTenantOnline && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setEditingPayment(row.original)}
+                className="text-blue-500 hover:bg-blue-500/10"
+                title="Edit Payment"
+              >
+                <Pencil className="w-4 h-4" />
+              </Button>
+            )}
+            {!isTenantOnline && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setDeleteId(row.original.id)}
+                className="text-rose-500 hover:bg-rose-500/10"
+                title="Delete Payment"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        );
+      },
     },
   ];
 

@@ -44,6 +44,12 @@ const unitFormSchema = zod.object({
   availabilityDate: zod.string().min(1, 'Availability Date is required'),
   status: zod.enum(['Occupied', 'Vacant', 'Reserved', 'Under Maintenance']),
 
+  // Late Fee Policy
+  isLateFeeEnabled: zod.boolean().optional(),
+  lateFeeType: zod.enum(['FLAT', 'PERCENTAGE']).optional(),
+  lateFeeAmount: zod.union([zod.number(), zod.literal('')]).optional(),
+  lateFeeGraceDays: zod.union([zod.number(), zod.literal('')]).optional(),
+
   // Vacant options
   wantToAdvertise: zod.enum(['yes', 'no']).nullable().optional(),
   advertiseTime: zod.enum(['now', 'later']).nullable().optional(),
@@ -130,6 +136,10 @@ export const EditUnitPage: React.FC = () => {
         propertyName: propObj ? propObj.name : undefined,
         buildingName: bldObj ? bldObj.name : undefined,
         advertiseListing: values.status === 'Vacant' && values.wantToAdvertise === 'yes' && values.advertiseTime === 'now',
+        isLateFeeEnabled: Boolean(values.isLateFeeEnabled),
+        lateFeeType: values.lateFeeType || 'FLAT',
+        lateFeeAmount: values.isLateFeeEnabled && values.lateFeeAmount !== '' && values.lateFeeAmount !== undefined ? Number(values.lateFeeAmount) : null,
+        lateFeeGraceDays: values.isLateFeeEnabled && values.lateFeeGraceDays !== '' && values.lateFeeGraceDays !== undefined ? Number(values.lateFeeGraceDays) : null,
       });
 
       // 2. If Occupied and Tenant info is provided
@@ -254,6 +264,7 @@ export const EditUnitPage: React.FC = () => {
                     status: isPartial ? 'Partially Paid' : 'Paid',
                     paymentMethod: isPartial ? 'Offline (Partial)' : 'Offline',
                     referenceNumber: `RCP-OCCUPIED-${Math.floor(100000 + Math.random() * 900000)}`,
+                    createdBy: 'Manager',
                   });
                 } catch (payErr) {
                   console.warn('Historical payment creation warning:', payErr);
@@ -304,6 +315,10 @@ export const EditUnitPage: React.FC = () => {
       securityDeposit: Number(unit.securityDeposit) || 0,
       availabilityDate: unit.availabilityDate ? (unit.availabilityDate.includes('T') ? unit.availabilityDate.split('T')[0] : unit.availabilityDate) : new Date().toISOString().split('T')[0],
       status: unit.status || 'Vacant',
+      isLateFeeEnabled: unit.isLateFeeEnabled ?? false,
+      lateFeeType: unit.lateFeeType || 'FLAT',
+      lateFeeAmount: unit.lateFeeAmount ?? 50,
+      lateFeeGraceDays: unit.lateFeeGraceDays ?? 5,
       wantToAdvertise: unit.wantToAdvertise || 'no',
       advertiseTime: unit.advertiseTime || 'now',
       provideTenantInfo: 'now',
@@ -340,6 +355,10 @@ export const EditUnitPage: React.FC = () => {
 
   const selectedPropertyId = watch('propertyId');
   const currentStatus = watch('status');
+  const isLateFeeEnabled = watch('isLateFeeEnabled');
+  const lateFeeType = watch('lateFeeType') || 'FLAT';
+  const lateFeeAmount = watch('lateFeeAmount');
+  const lateFeeGraceDays = watch('lateFeeGraceDays');
   const wantToAdvertise = watch('wantToAdvertise');
   const advertiseTime = watch('advertiseTime');
   const provideTenantInfo = watch('provideTenantInfo');
@@ -550,6 +569,112 @@ export const EditUnitPage: React.FC = () => {
                 <option value="Under Maintenance">Under Maintenance</option>
               </Select>
             </div>
+          </div>
+
+          {/* --- UNIT LATE FEE & GRACE PERIOD (OPTIONAL) --- */}
+          <div className="bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/15 pb-2.5">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-500/10 rounded-xl text-amber-600 dark:text-amber-400">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-xs uppercase tracking-wide text-foreground">
+                    Late Fee & Grace Period (Optional)
+                  </h4>
+                  <p className="text-[11px] text-muted-foreground font-medium">
+                    Set automated overdue penalty rules specifically for this unit
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-muted-foreground">
+                  {isLateFeeEnabled ? 'Enabled' : 'Disabled'}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={isLateFeeEnabled ? 'default' : 'outline'}
+                  onClick={() => setValue('isLateFeeEnabled', !isLateFeeEnabled, { shouldDirty: true })}
+                  className={`h-7 px-3 text-xs font-bold ${
+                    isLateFeeEnabled 
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white' 
+                      : 'border-border text-muted-foreground'
+                  }`}
+                >
+                  {isLateFeeEnabled ? 'ON' : 'OFF'}
+                </Button>
+              </div>
+            </div>
+
+            {isLateFeeEnabled && (
+              <div className="space-y-3 pt-1 animate-fade-in">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wide">
+                      Late Fee Type
+                    </label>
+                    <Select
+                      {...register('lateFeeType')}
+                      className="h-9 text-xs font-bold"
+                    >
+                      <option value="FLAT">Flat Fee ($)</option>
+                      <option value="PERCENTAGE">Percentage (%)</option>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wide">
+                      {lateFeeType === 'PERCENTAGE' ? 'Fee Percentage (%)' : 'Fee Amount ($)'}
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-xs font-bold text-muted-foreground">
+                        {lateFeeType === 'PERCENTAGE' ? '%' : '$'}
+                      </span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step={lateFeeType === 'PERCENTAGE' ? '0.5' : '1'}
+                        {...register('lateFeeAmount', { valueAsNumber: true })}
+                        className="h-9 pl-7 text-xs font-bold"
+                        placeholder="50"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wide">
+                      Grace Period (Days)
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min="0"
+                        {...register('lateFeeGraceDays', { valueAsNumber: true })}
+                        className="h-9 text-xs font-bold"
+                        placeholder="5"
+                      />
+                      <span className="absolute right-3 top-2.5 text-[10px] font-extrabold text-muted-foreground uppercase">
+                        Days
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-background/80 rounded-xl border border-amber-500/15 text-[11px] text-muted-foreground flex items-center gap-2">
+                  <span className="font-bold text-amber-600 dark:text-amber-400">Rule Preview:</span>
+                  <span>
+                    If rent remains unpaid after{' '}
+                    <strong className="text-foreground">{Number(lateFeeGraceDays || 5)} days</strong> of due date, an automated{' '}
+                    <strong className="text-foreground">
+                      {lateFeeType === 'PERCENTAGE' ? `${Number(lateFeeAmount || 5)}% of rent` : `$${Number(lateFeeAmount || 50)}`}
+                    </strong>{' '}
+                    late fee invoice will be charged to the tenant.
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* --- DYNAMIC FLOW 1: VACANT UNIT ADVERTISING SECTION --- */}
