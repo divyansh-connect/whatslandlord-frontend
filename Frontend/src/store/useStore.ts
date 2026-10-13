@@ -192,12 +192,33 @@ export const useNotificationStore = create<NotificationState>((set) => ({
     ]
   })),
   markAsRead: (id) => {
+    try {
+      const raw = localStorage.getItem('whatslandlord_ai_rent_notices');
+      if (raw) {
+        const list = JSON.parse(raw);
+        const item = list.find((n: any) => n.id === id);
+        if (item) {
+          item.read = true;
+          localStorage.setItem('whatslandlord_ai_rent_notices', JSON.stringify(list));
+          window.dispatchEvent(new Event('storage'));
+        }
+      }
+    } catch {}
     apiClient.put(`/notifications/${id}/read`).catch(() => {});
     set((state) => ({
       notifications: state.notifications.map((n) => n.id === id ? { ...n, read: true } : n)
     }));
   },
   markAllAsRead: (role) => {
+    try {
+      const raw = localStorage.getItem('whatslandlord_ai_rent_notices');
+      if (raw) {
+        const list = JSON.parse(raw);
+        list.forEach((n: any) => { n.read = true; });
+        localStorage.setItem('whatslandlord_ai_rent_notices', JSON.stringify(list));
+        window.dispatchEvent(new Event('storage'));
+      }
+    } catch {}
     const query = role ? `?role=${encodeURIComponent(role)}` : '';
     apiClient.put(`/notifications/read-all${query}`).catch(() => {});
     set((state) => ({
@@ -208,6 +229,10 @@ export const useNotificationStore = create<NotificationState>((set) => ({
     }));
   },
   clearAll: (role) => {
+    try {
+      localStorage.removeItem('whatslandlord_ai_rent_notices');
+      window.dispatchEvent(new Event('storage'));
+    } catch {}
     const query = role ? `?role=${encodeURIComponent(role)}` : '';
     apiClient.delete(`/notifications${query}`).catch(() => {});
     set((state) => ({

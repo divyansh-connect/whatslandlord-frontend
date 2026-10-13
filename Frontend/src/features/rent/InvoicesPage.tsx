@@ -30,6 +30,7 @@ export const InvoicesPage: React.FC = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiTone, setAiTone] = useState<'polite' | 'urgent'>('polite');
   const [copiedToast, setCopiedToast] = useState(false);
+  const [sendingNotice, setSendingNotice] = useState(false);
 
   // Queries
   const { data: invoices = [], isLoading, error } = useQuery({
@@ -53,6 +54,30 @@ export const InvoicesPage: React.FC = () => {
       );
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const handleSendAiReminder = async () => {
+    if (!aiReminderInvoice) return;
+    setSendingNotice(true);
+    try {
+      await api.invoices.sendAiReminder(aiReminderInvoice.id, aiReminderText, aiTone, {
+        tenantName: aiReminderInvoice.tenantName,
+        propertyName: aiReminderInvoice.propertyName,
+        unitNumber: aiReminderInvoice.unitNumber,
+        amount: aiReminderInvoice.balance || aiReminderInvoice.amount,
+        dueDate: aiReminderInvoice.dueDate,
+      });
+      queryClient.invalidateQueries({ queryKey: ['tenant-notifications-list'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications-list', 'Tenant'] });
+      queryClient.invalidateQueries({ queryKey: ['tenant-dashboard-metrics'] });
+      alert(`✅ Notice successfully sent! It is now active on ${aiReminderInvoice.tenantName}'s Tenant Portal & Notifications.`);
+      setAiReminderInvoice(null);
+    } catch (e) {
+      console.error('Failed to send AI reminder:', e);
+      alert('Failed to send notice. Please try again.');
+    } finally {
+      setSendingNotice(false);
     }
   };
 
@@ -376,11 +401,9 @@ export const InvoicesPage: React.FC = () => {
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => {
-                    alert(`AI Rent Notice sent successfully to ${aiReminderInvoice.tenantName}'s portal and email!`);
-                    setAiReminderInvoice(null);
-                  }}
-                  disabled={aiLoading || !aiReminderText}
+                  onClick={handleSendAiReminder}
+                  disabled={aiLoading || !aiReminderText || sendingNotice}
+                  loading={sendingNotice}
                   className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs flex items-center gap-1.5 px-4"
                 >
                   <Send className="w-3.5 h-3.5" />

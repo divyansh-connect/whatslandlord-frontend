@@ -12,20 +12,39 @@ export const TenantNotificationsPage: React.FC = () => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 
-  const { data: notifications = [], isLoading } = useQuery({
+  const { data: notifications = [], isLoading, refetch } = useQuery({
     queryKey: ['tenant-notifications-list'],
     queryFn: () => api.tenantNotifications.getAll(),
+    refetchInterval: 4000,
   });
 
   const markReadMutation = useMutation({
     mutationFn: (id: string) => api.tenantNotifications.markRead(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tenant-notifications-list'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tenant-notifications-list'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications-list', 'Tenant'] });
+    },
   });
 
   const clearAllMutation = useMutation({
     mutationFn: () => api.tenantNotifications.clearAll(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tenant-notifications-list'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tenant-notifications-list'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications-list', 'Tenant'] });
+    },
   });
+
+  React.useEffect(() => {
+    const handleSync = () => {
+      refetch();
+    };
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('ai-notice-sent', handleSync);
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('ai-notice-sent', handleSync);
+    };
+  }, [refetch]);
 
   if (isLoading) {
     return <LoadingSkeleton type="card" />;

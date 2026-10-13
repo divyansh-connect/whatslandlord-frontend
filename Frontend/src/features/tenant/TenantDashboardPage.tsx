@@ -1,17 +1,18 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import api from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
-import { CreditCard, Wrench, MessageSquare, BookOpen, Package, UserCheck, FileText, Upload, CheckCircle2, AlertCircle, Clock, ArrowRight } from 'lucide-react';
+import { CreditCard, Wrench, MessageSquare, BookOpen, Package, UserCheck, FileText, Upload, CheckCircle2, AlertCircle, Clock, ArrowRight, Sparkles, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export const TenantDashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
 
   // Queries
   const { data: metrics, isLoading } = useQuery({
@@ -29,11 +30,50 @@ export const TenantDashboardPage: React.FC = () => {
     queryFn: () => api.tenantProfile.get(),
   });
 
+  const { data: notifications = [], refetch: refetchNotifications } = useQuery({
+    queryKey: ['tenant-notifications-list'],
+    queryFn: () => api.tenantNotifications.getAll(),
+    refetchInterval: 4000,
+  });
+
+  const dismissNoticeMutation = useMutation({
+    mutationFn: (id: string) => api.tenantNotifications.markRead(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tenant-notifications-list'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications-list', 'Tenant'] });
+    },
+  });
+
+  useEffect(() => {
+    const handleSync = () => {
+      refetchNotifications();
+      queryClient.invalidateQueries({ queryKey: ['tenant-notifications-list'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications-list', 'Tenant'] });
+    };
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('ai-notice-sent', handleSync);
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('ai-notice-sent', handleSync);
+    };
+  }, [refetchNotifications, queryClient]);
+
   if (isLoading || !metrics) {
     return <LoadingSkeleton type="card" />;
   }
 
   const isPending = profile?.status === 'Pending';
+
+  const latestRentNotice = notifications.find((n: any) => 
+    !Boolean(n.read) && (
+      (n.id || '').startsWith('ai-notice') ||
+      (n.title || '').toLowerCase().includes('rent') ||
+      (n.title || '').toLowerCase().includes('notice') ||
+      (n.title || '').toLowerCase().includes('reminder') ||
+      (n.message || '').toLowerCase().includes('rent') ||
+      (n.type || '') === 'warning'
+    )
+  );
 
   return (
     <div className="space-y-6 text-foreground">
@@ -45,6 +85,56 @@ export const TenantDashboardPage: React.FC = () => {
           { label: t('tenant.nav.dashboard') },
         ]}
       />
+
+      {/* AI Rent Notice Alert Banner (Visible when Manager dispatches notice) */}
+      {latestRentNotice && (
+        <Card className="p-4 bg-gradient-to-r from-purple-500/10 via-indigo-500/5 to-rose-500/10 border-2 border-purple-500/40 rounded-2xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-3 animate-fade-in">
+          <div className="space-y-1 flex-1">
+            <div className="flex items-center space-x-2">
+              <span className="font-black text-xs text-purple-600 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-purple-500" /> {latestRentNotice.title}
+              </span>
+              <span className="text-[10px] bg-purple-500/20 text-purple-600 dark:text-purple-300 font-extrabold px-2 py-0.5 rounded-full">
+                New Management Notice
+              </span>
+            </div>
+            <p className="text-xs text-foreground font-semibold leading-relaxed">
+              {latestRentNotice.message}
+            </p>
+            <p className="text-[10px] text-muted-foreground font-medium">
+              Received: {latestRentNotice.timestamp || latestRentNotice.date || 'Recent'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              onClick={() => navigate({ to: '/tenant/payments' })}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs h-9 px-4 flex items-center gap-1.5 shadow"
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>Pay Rent Now</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => dismissNoticeMutation.mutate(latestRentNotice.id)}
+              disabled={dismissNoticeMutation.isPending}
+              className="text-xs font-bold h-9 flex items-center gap-1"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Dismiss</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => navigate({ to: '/tenant/notifications' })}
+              className="text-xs font-bold h-9"
+            >
+              All Alerts
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {/* Pending status warning */}
       {isPending && (
