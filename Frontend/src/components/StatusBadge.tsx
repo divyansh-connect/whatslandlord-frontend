@@ -42,6 +42,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className }) =
       case 'medium':
       case 'medio':
         return 'bg-amber-500/10 text-amber-500 border-amber-500/20 dark:bg-amber-500/20';
+      case 'late fee':
+        return 'bg-orange-500/10 text-orange-500 border-orange-500/20 dark:bg-orange-500/20';
       case 'vacant':
       case 'vacante':
       case 'new':

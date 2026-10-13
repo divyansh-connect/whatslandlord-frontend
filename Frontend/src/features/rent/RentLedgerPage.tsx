@@ -81,12 +81,12 @@ export const RentLedgerPage: React.FC = () => {
     // Sort items by date ascending
     const sorted = [...items].sort((a, b) => a.date.localeCompare(b.date));
     
-    // Recalculate running balance
+    // Recalculate running balance (includes Late Fee as a debit charge)
     let runningBalance = 0;
     return sorted.map((item) => {
-      let debit = item.debit;
-      let credit = item.credit;
-      if (item.transactionType === 'Rent Charge') {
+      const debit = item.debit;
+      const credit = item.credit;
+      if (item.transactionType === 'Rent Charge' || item.transactionType === 'Late Fee') {
         runningBalance += debit;
       } else if (item.transactionType === 'Payment') {
         runningBalance -= credit;
@@ -327,6 +327,7 @@ export const RentLedgerPage: React.FC = () => {
                 options: [
                   { label: 'Rent Charge', value: 'Rent Charge' },
                   { label: 'Payment', value: 'Payment' },
+                  { label: 'Late Fee', value: 'Late Fee' },
                 ],
               },
             ]}
@@ -426,6 +427,52 @@ export const RentLedgerPage: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Financial Summary Cards */}
+            {(() => {
+              const totalCharged = selectedTenantLedger.reduce((sum, e) => sum + (e.debit || 0), 0);
+              const totalPaid = selectedTenantLedger.reduce((sum, e) => sum + (e.credit || 0), 0);
+              const outstanding = totalCharged - totalPaid;
+              const lateFees = selectedTenantLedger
+                .filter((e) => e.transactionType === 'Late Fee')
+                .reduce((sum, e) => sum + (e.debit || 0), 0);
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                  <div className="bg-rose-500/8 border border-rose-500/20 rounded-xl p-4 text-center">
+                    <p className="text-[9px] uppercase font-extrabold text-rose-400 tracking-widest mb-1">Total Invoiced</p>
+                    <p className="text-lg font-black text-rose-500">${totalCharged.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">Rent + Late Fees</p>
+                  </div>
+                  <div className="bg-emerald-500/8 border border-emerald-500/20 rounded-xl p-4 text-center">
+                    <p className="text-[9px] uppercase font-extrabold text-emerald-400 tracking-widest mb-1">Total Paid</p>
+                    <p className="text-lg font-black text-emerald-500">${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">Payments Received</p>
+                  </div>
+                  <div className={`border rounded-xl p-4 text-center ${
+                    outstanding > 0
+                      ? 'bg-amber-500/8 border-amber-500/20'
+                      : outstanding < 0
+                      ? 'bg-purple-500/8 border-purple-500/20'
+                      : 'bg-emerald-500/8 border-emerald-500/20'
+                  }`}>
+                    <p className={`text-[9px] uppercase font-extrabold tracking-widest mb-1 ${
+                      outstanding > 0 ? 'text-amber-400' : outstanding < 0 ? 'text-purple-400' : 'text-emerald-400'
+                    }`}>Outstanding</p>
+                    <p className={`text-lg font-black ${
+                      outstanding > 0 ? 'text-amber-500' : outstanding < 0 ? 'text-purple-500' : 'text-emerald-500'
+                    }`}>${Math.abs(outstanding).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">
+                      {outstanding > 0 ? 'Balance Due' : outstanding < 0 ? 'Credit (Overpaid)' : '✓ Fully Cleared'}
+                    </p>
+                  </div>
+                  <div className="bg-orange-500/8 border border-orange-500/20 rounded-xl p-4 text-center">
+                    <p className="text-[9px] uppercase font-extrabold text-orange-400 tracking-widest mb-1">Late Fees</p>
+                    <p className="text-lg font-black text-orange-500">${lateFees.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">{lateFees > 0 ? 'Penalty Applied' : 'No Penalties'}</p>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Ledger Table */}
             <div className="overflow-x-auto">

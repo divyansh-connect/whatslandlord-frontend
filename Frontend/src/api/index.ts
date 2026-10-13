@@ -1293,11 +1293,31 @@ export const api = {
         const invoicesList = Array.isArray(invoicesRes) ? invoicesRes : ((invoicesRes as any)?.data || []);
         const paymentsList = Array.isArray(paymentsRes) ? paymentsRes : ((paymentsRes as any)?.data || []);
 
-        let runningBalance = 0;
+        // Per-tenant running balance map (fixes the global $131k+ bug)
+        const tenantRunningBalances: Record<string, number> = {};
         const ledgerItems: any[] = [];
         const allTransactions: any[] = [];
 
         invoicesList.forEach((inv: any) => {
+          // Extract month & year from dueDate for a meaningful description
+          const rawDate = inv.dueDate || inv.createdAt || '';
+          const invDate = rawDate ? new Date(rawDate) : new Date();
+          const isValidDate = !isNaN(invDate.getTime());
+          const monthName = isValidDate ? invDate.toLocaleString('en-US', { month: 'long' }) : 'Monthly';
+          const year = isValidDate ? invDate.getFullYear() : new Date().getFullYear();
+
+          // Detect late fee entries via notes or lineItems content
+          const lineItemsParsed = (() => { try { return JSON.parse(inv.lineItems || '[]'); } catch { return []; } })();
+          const isLateFee =
+            (inv.notes || '').toLowerCase().includes('late fee') ||
+            (inv.type || '').toLowerCase().includes('late') ||
+            lineItemsParsed.some((item: any) => (item.description || '').toLowerCase().includes('late fee'));
+
+          const description = isLateFee
+            ? `Late Fee — ${monthName} ${year}`
+            : `Monthly Rent Invoice — ${monthName} ${year}`;
+          const transactionType = isLateFee ? 'Late Fee' : 'Rent Charge';
+
           allTransactions.push({
             type: 'charge',
             date: inv.dueDate || inv.createdAt || '2026-08-01',
@@ -1306,14 +1326,21 @@ export const api = {
             tenantName: inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}` : (inv.tenantName || 'Resident'),
             propertyName: inv.propertyName || 'Property',
             unitNumber: inv.unitNumber || 'Unassigned',
-            description: 'Rent Assessment Charge',
-            transactionType: 'Rent Charge',
+            description,
+            transactionType,
+            invoiceId: inv.id,
+            invoiceStatus: inv.status,
+            invoicePaidAmount: Number(inv.paidAmount) || 0,
+            invoiceBalance: Number(inv.balance) || Number(inv.amount) || 0,
             id: `led-chg-${inv.id}`,
           });
         });
 
         paymentsList.forEach((pay: any) => {
           if (pay.status === 'Paid' || pay.status === 'Partially Paid' || pay.status === 'Cleared' || !pay.status || String(pay.status).toLowerCase().includes('paid') || String(pay.status).toLowerCase().includes('partial')) {
+            // Format payment description with method and reference
+            const method = pay.paymentMethod ? ` via ${pay.paymentMethod}` : '';
+            const ref = pay.referenceNumber ? ` · Ref# ${pay.referenceNumber}` : '';
             allTransactions.push({
               type: 'payment',
               date: pay.paidDate || pay.dueDate || pay.createdAt || '2026-08-01',
@@ -1322,7 +1349,7 @@ export const api = {
               tenantName: pay.tenant ? `${pay.tenant.firstName} ${pay.tenant.lastName}` : (pay.tenantName || 'Resident'),
               propertyName: pay.property?.name || pay.propertyName || 'Property',
               unitNumber: pay.unit?.unitNumber || pay.unitNumber || 'Unassigned',
-              description: `Payment Received - Ref ${pay.referenceNumber || 'N/A'}`,
+              description: `Payment Received${method}${ref}`,
               transactionType: 'Payment',
               id: `led-pay-${pay.id}`,
               paymentId: pay.id,
@@ -1334,13 +1361,16 @@ export const api = {
           }
         });
 
-        // Sort by date ascending
+        // Sort all transactions by date ascending
         allTransactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        // Apply running balance
+        // Apply PER-TENANT running balance (each tenant's balance is independent)
         allTransactions.forEach((tx) => {
+          const tenantKey = tx.tenantId || tx.tenantName || 'unknown';
+          if (tenantRunningBalances[tenantKey] === undefined) tenantRunningBalances[tenantKey] = 0;
+
           if (tx.type === 'charge') {
-            runningBalance += tx.amount;
+            tenantRunningBalances[tenantKey] += tx.amount;
             ledgerItems.push({
               id: tx.id,
               date: tx.date ? tx.date.split('T')[0] : 'N/A',
@@ -1351,11 +1381,15 @@ export const api = {
               description: tx.description,
               debit: tx.amount,
               credit: 0,
-              balance: runningBalance,
+              balance: tenantRunningBalances[tenantKey],
               transactionType: tx.transactionType,
+              invoiceId: tx.invoiceId,
+              invoiceStatus: tx.invoiceStatus,
+              invoicePaidAmount: tx.invoicePaidAmount,
+              invoiceBalance: tx.invoiceBalance,
             });
           } else {
-            runningBalance -= tx.amount;
+            tenantRunningBalances[tenantKey] -= tx.amount;
             ledgerItems.push({
               id: tx.id,
               date: tx.date ? tx.date.split('T')[0] : 'N/A',
@@ -1366,7 +1400,7 @@ export const api = {
               description: tx.description,
               debit: 0,
               credit: tx.amount,
-              balance: runningBalance,
+              balance: tenantRunningBalances[tenantKey],
               transactionType: tx.transactionType,
               paymentId: tx.paymentId,
               paymentMethod: tx.paymentMethod,
