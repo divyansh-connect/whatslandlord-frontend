@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "WhatsLandlord",
+    "slug": "whatslandlord",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.essencedivine.whatslandlord"
+    },
+    "android": {
+      "package": "com.essencedivine.whatslandlord"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-status-bar",
+      "expo-asset"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f155f302-3b4e-452f-b3c4-842f2f71695d"
+      }
+    },
+    "owner": "essence-divine"
+  }
+}

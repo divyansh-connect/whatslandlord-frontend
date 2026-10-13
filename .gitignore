@@ -22,7 +22,6 @@ npm-debug.log*
 
 # Sub-repositories / Other folders
 Doorloop-backend/
-app/
 whatslandlord-backend/
 
 yarn-debug.log*
