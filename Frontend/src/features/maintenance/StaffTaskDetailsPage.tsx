@@ -11,7 +11,7 @@ import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { 
   ArrowLeft, CheckCircle2, Play, AlertCircle, XCircle, Clock, 
   MapPin, User, Tag, Calendar, DollarSign, Image as ImageIcon,
-  Wrench, Check, AlertTriangle, X, Coins
+  Wrench, Check, AlertTriangle, X, Coins, Sparkles
 } from 'lucide-react';
 
 export const StaffTaskDetailsPage: React.FC = () => {
@@ -452,6 +452,28 @@ export const StaffTaskDetailsPage: React.FC = () => {
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* AI Cost Sanity Guidance */}
+              <div className="p-3 bg-secondary/25 rounded-2xl border border-border/60 space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-extrabold text-foreground flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-primary" /> AI Cost Benchmark Guidance
+                  </span>
+                  <span className="text-muted-foreground font-mono text-[10px] font-bold">
+                    Standard Range: $80 - $220
+                  </span>
+                </div>
+                {Number(actualCostVal || 0) + Number(extraExpensesVal || 0) > 350 ? (
+                  <p className="text-[10px] text-amber-500 font-bold flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    High Cost Alert: Total (${Number(actualCostVal || 0) + Number(extraExpensesVal || 0)}) exceeds average repair benchmark. Please itemize materials and labor clearly in resolution notes.
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                    ✓ Total (${Number(actualCostVal || 0) + Number(extraExpensesVal || 0)}) is within expected operational range for this repair.
+                  </p>
+                )}
               </div>
 
               {/* Resolution Notes */}

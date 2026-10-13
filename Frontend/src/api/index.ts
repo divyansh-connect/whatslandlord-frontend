@@ -705,6 +705,10 @@ export const api = {
       await apiClient.delete(`/invoices/${id}`);
       return true;
     },
+    getAiReminder: async (id: string, tone?: string) => {
+      const res: any = await apiClient.post(`/invoices/${id}/ai-reminder`, { tone });
+      return res.data;
+    },
   },
 
   charges: {

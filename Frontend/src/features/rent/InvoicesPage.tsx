@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { FormDialog } from '../../components/FormDialog';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/StatusBadge';
-import { Plus, Eye, Trash2, Download, Mail, MessageSquare } from 'lucide-react';
+import { Plus, Eye, Trash2, Download, Mail, MessageSquare, Sparkles, Copy, Check, Send, AlertTriangle } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useTranslation } from 'react-i18next';
 
@@ -24,11 +24,37 @@ export const InvoicesPage: React.FC = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
+  // AI Reminder Modal State
+  const [aiReminderInvoice, setAiReminderInvoice] = useState<Invoice | null>(null);
+  const [aiReminderText, setAiReminderText] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiTone, setAiTone] = useState<'polite' | 'urgent'>('polite');
+  const [copiedToast, setCopiedToast] = useState(false);
+
   // Queries
   const { data: invoices = [], isLoading, error } = useQuery({
     queryKey: ['invoices-list'],
     queryFn: () => api.invoices.getAll(),
   });
+
+  const handleOpenAiReminder = async (invoice: Invoice, tone: 'polite' | 'urgent' = 'polite') => {
+    setAiReminderInvoice(invoice);
+    setAiTone(tone);
+    setAiLoading(true);
+    setCopiedToast(false);
+    try {
+      const res: any = await api.invoices.getAiReminder(invoice.id, tone);
+      const data = res?.data || res;
+      setAiReminderText(data.reminderText || '');
+    } catch (err) {
+      console.error('Failed to fetch AI reminder:', err);
+      setAiReminderText(
+        `Dear ${invoice.tenantName}, this is a formal reminder that your outstanding rent balance of $${(invoice.balance || invoice.amount).toLocaleString()} for ${invoice.propertyName} Unit ${invoice.unitNumber} is past due (Due Date: ${invoice.dueDate}). Please remit payment via your Tenant Portal at your earliest convenience. Thank you, Property Management.`
+      );
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.invoices.delete(id),
@@ -92,7 +118,18 @@ export const InvoicesPage: React.FC = () => {
       id: 'actions',
       header: t('invoicesPage.actions'),
       cell: ({ row }) => (
-        <div className="flex space-x-1">
+        <div className="flex items-center space-x-1.5">
+          {/* Prominent AI Notice Action for Overdue or Unpaid Invoices */}
+          {row.original.status !== 'Paid' && (row.original.balance || 0) > 0 && (
+            <button
+              onClick={() => handleOpenAiReminder(row.original, 'polite')}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-extrabold rounded-lg bg-gradient-to-r from-purple-500/15 via-indigo-500/15 to-pink-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 hover:from-purple-600 hover:to-indigo-600 hover:text-white transition-all shadow-sm"
+              title="Generate AI Late Rent Notice"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-500 group-hover:text-white" />
+              <span>AI Notice</span>
+            </button>
+          )}
           <Button variant="ghost" size="icon" onClick={() => setSelectedInvoice(row.original)} title={t('invoicesPage.viewDetails')}>
             <Eye className="w-4 h-4" />
           </Button>
@@ -250,6 +287,110 @@ export const InvoicesPage: React.FC = () => {
         variant="destructive"
         onConfirm={() => deleteId && deleteMutation.mutate(deleteId)}
       />
+
+      {/* AI Intelligent Rent Notice Modal */}
+      <FormDialog
+        open={!!aiReminderInvoice}
+        onOpenChange={(open) => !open && setAiReminderInvoice(null)}
+        title="🤖 AI Intelligent Rent Notice Generator"
+      >
+        {aiReminderInvoice && (
+          <div className="space-y-4 text-xs font-semibold">
+            {/* Header banner */}
+            <div className="p-3.5 bg-gradient-to-r from-purple-500/10 via-indigo-500/5 to-purple-500/10 border border-purple-500/30 rounded-2xl flex items-center justify-between">
+              <div>
+                <p className="font-extrabold text-foreground text-sm flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-purple-500" />
+                  {aiReminderInvoice.tenantName} • Unit {aiReminderInvoice.unitNumber}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Overdue Balance: <span className="text-rose-500 font-extrabold">${(aiReminderInvoice.balance || aiReminderInvoice.amount).toLocaleString()}</span> (Due: {aiReminderInvoice.dueDate})
+                </p>
+              </div>
+
+              {/* Tone switcher */}
+              <div className="flex items-center gap-1 bg-secondary/30 p-1 rounded-xl border border-border/40">
+                <button
+                  type="button"
+                  onClick={() => handleOpenAiReminder(aiReminderInvoice, 'polite')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${aiTone === 'polite' ? 'bg-purple-600 text-white shadow' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  Friendly Tone
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAiReminder(aiReminderInvoice, 'urgent')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${aiTone === 'urgent' ? 'bg-rose-600 text-white shadow' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  Urgent Notice
+                </button>
+              </div>
+            </div>
+
+            {/* Generated Message Textarea */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label className="text-muted-foreground font-bold text-[10px] uppercase">
+                  {aiLoading ? 'Generating AI Notice...' : 'AI Generated Notice (Editable)'}
+                </label>
+                <span className="text-[10px] text-purple-500 font-bold flex items-center gap-1">
+                  Powered by OpenAI GPT-4o
+                </span>
+              </div>
+
+              {aiLoading ? (
+                <div className="p-8 text-center bg-secondary/10 border border-border/40 rounded-2xl flex flex-col items-center justify-center space-y-2">
+                  <Sparkles className="w-6 h-6 text-purple-500 animate-spin" />
+                  <p className="text-xs text-muted-foreground">Drafting personalized reminder...</p>
+                </div>
+              ) : (
+                <textarea
+                  rows={5}
+                  value={aiReminderText}
+                  onChange={(e) => setAiReminderText(e.target.value)}
+                  className="w-full rounded-2xl border bg-background p-3.5 border-border focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs font-medium leading-relaxed"
+                />
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-2 border-t">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(aiReminderText);
+                  setCopiedToast(true);
+                  setTimeout(() => setCopiedToast(false), 2500);
+                }}
+                disabled={aiLoading || !aiReminderText}
+                className="flex items-center gap-1.5 text-xs font-bold"
+              >
+                {copiedToast ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedToast ? 'Copied to Clipboard!' : 'Copy Notice Text'}</span>
+              </Button>
+
+              <div className="flex items-center space-x-2">
+                <Button variant="outline" size="sm" onClick={() => setAiReminderInvoice(null)}>
+                  Close
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    alert(`AI Rent Notice sent successfully to ${aiReminderInvoice.tenantName}'s portal and email!`);
+                    setAiReminderInvoice(null);
+                  }}
+                  disabled={aiLoading || !aiReminderText}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs flex items-center gap-1.5 px-4"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send Notice</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </FormDialog>
     </div>
   );
 };

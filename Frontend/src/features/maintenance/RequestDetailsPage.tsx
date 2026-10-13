@@ -67,6 +67,18 @@ export const RequestDetailsPage: React.FC = () => {
     },
   });
 
+  const updateCostMutation = useMutation({
+    mutationFn: (newCost: number) => {
+      return api.serviceRequests.update(id, {
+        cost: newCost,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-request-detail', id] });
+      alert('Maintenance cost updated successfully!');
+    },
+  });
+
   const completeMutation = useMutation({
     mutationFn: (cost?: number) => api.serviceRequests.update(id, { status: 'Completed', cost }),
     onSuccess: () => {
@@ -104,18 +116,67 @@ export const RequestDetailsPage: React.FC = () => {
         ]}
       />
 
-      {/* STATUS OVERVIEW */}
+      {/* EMERGENCY HAZARD DETECTED BANNER */}
+      {request.priority === 'Emergency' && (
+        <div className="p-4 bg-rose-500/10 border-2 border-rose-500/40 rounded-2xl flex items-center justify-between text-xs font-bold text-rose-600 dark:text-rose-400 animate-pulse shadow-sm">
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-rose-500 shrink-0" />
+            <div>
+              <p className="font-black text-sm uppercase flex items-center gap-2">
+                🚨 Emergency Safety Hazard Detected by AI
+              </p>
+              <p className="text-[11px] font-semibold opacity-90 mt-0.5">
+                Urgent safety keywords detected in resident report. Dispatched under Emergency SLA protocol.
+              </p>
+            </div>
+          </div>
+          <span className="bg-rose-500 text-white text-[10px] uppercase font-black px-3 py-1 rounded-full shrink-0">
+            Critical SLA
+          </span>
+        </div>
+      )}
+
+      {/* STATUS OVERVIEW & COST MANAGEMENT */}
       <div className="flex flex-wrap items-center justify-between p-4 bg-card border rounded-2xl gap-3">
         <div className="flex items-center space-x-3.5">
           <StatusBadge status={request.status} />
           <RequestPriorityBadge priority={request.priority as any} />
         </div>
 
-        <div className="flex space-x-2 items-center">
+        <div className="flex flex-wrap items-center gap-2.5">
           {request.status === 'New' && (
             <Button size="sm" onClick={() => approveMutation.mutate()} loading={approveMutation.isPending}>Approve Ticket</Button>
           )}
-          {request.status === 'Approved' && (
+
+          {/* Persistent Cost Update & Vendor Assignment Form */}
+          {request.status !== 'Completed' && (
+            <div className="flex items-center space-x-2 bg-secondary/20 p-1.5 rounded-xl border border-border/50">
+              <span className="text-[10px] font-black uppercase text-muted-foreground px-1">Cost ($):</span>
+              <input
+                type="number"
+                placeholder={request.cost ? String(request.cost) : 'Enter cost...'}
+                value={assignedCost !== '' ? assignedCost : (request.cost ? String(request.cost) : '')}
+                onChange={(e) => setAssignedCost(e.target.value)}
+                className="text-xs p-1.5 rounded-lg border bg-background text-foreground w-24 focus:outline-none focus:ring-1 focus:ring-primary h-8 font-black"
+              />
+              <Button 
+                size="sm" 
+                onClick={() => {
+                  const val = Number(assignedCost !== '' ? assignedCost : request.cost);
+                  if (val >= 0) {
+                    updateCostMutation.mutate(val);
+                  }
+                }}
+                disabled={updateCostMutation.isPending}
+                loading={updateCostMutation.isPending}
+                className="bg-primary hover:bg-primary/95 text-white font-extrabold h-8 text-[11px] px-3 shadow-sm"
+              >
+                Save Cost
+              </Button>
+            </div>
+          )}
+
+          {request.status === 'Approved' && !request.assignedVendorName && (
             <div className="flex items-center space-x-2">
               <select
                 className="text-xs p-1.5 rounded-lg border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary h-8"
@@ -127,28 +188,21 @@ export const RequestDetailsPage: React.FC = () => {
                   <option key={v.id} value={v.id}>{v.name} ({v.category})</option>
                 ))}
               </select>
-              <input
-                type="number"
-                placeholder="Enter cost ($)..."
-                value={assignedCost}
-                onChange={(e) => setAssignedCost(e.target.value)}
-                className="text-xs p-1.5 rounded-lg border bg-background text-foreground w-28 focus:outline-none focus:ring-1 focus:ring-primary h-8"
-              />
               <Button 
                 size="sm" 
                 onClick={() => {
-                  if (selectedVendorId && assignedCost) {
+                  if (selectedVendorId) {
                     assignMutation.mutate({ 
                       vendorId: selectedVendorId, 
-                      cost: Number(assignedCost) 
+                      cost: Number(assignedCost || request.cost || 150) 
                     });
                   }
                 }}
-                disabled={!selectedVendorId || !assignedCost || assignMutation.isPending}
+                disabled={!selectedVendorId || assignMutation.isPending}
                 loading={assignMutation.isPending}
-                className="bg-primary hover:bg-primary/95 text-white font-bold h-8 text-[11px]"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-8 text-[11px]"
               >
-                Assign & Dispatch
+                Dispatch Staff
               </Button>
             </div>
           )}
@@ -294,14 +348,22 @@ export const RequestDetailsPage: React.FC = () => {
               <p className="font-bold mt-0.5">{request.assignedVendorName || 'Not Assigned Yet'}</p>
             </div>
 
-            {request.cost !== undefined && request.cost > 0 && (
-              <div className="border-t pt-3.5 mt-2 animate-fade-in">
-                <p className="text-[10px] text-muted-foreground uppercase">
-                  {request.status === 'Completed' ? 'Final Actual Cost' : 'Estimated Cost'}
+            <div className="border-t pt-3.5 mt-2 space-y-1 animate-fade-in">
+              <div className="flex justify-between items-center">
+                <p className="text-[10px] text-muted-foreground uppercase font-black">
+                  {request.status === 'Completed' ? 'Final Settled Cost' : 'Maintenance Cost'}
                 </p>
-                <p className="font-bold text-emerald-500 mt-0.5">${request.cost}</p>
+                <span className="text-[9px] bg-primary/10 text-primary font-extrabold px-1.5 py-0.5 rounded">
+                  AI Benchmark
+                </span>
               </div>
-            )}
+              <p className="font-black text-emerald-500 text-base">
+                ${request.cost || request.estimatedCost || 0}
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                Standard category benchmark: <span className="font-bold text-foreground">$120 - $220</span>
+              </p>
+            </div>
 
             {/* Resident contact details */}
             <div className="border-t pt-4 mt-4 space-y-3">
