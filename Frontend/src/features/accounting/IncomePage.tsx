@@ -102,6 +102,7 @@ export const IncomePage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['income-list'] });
+      queryClient.invalidateQueries({ queryKey: ['coa-accounts-list'] });
       setIsOpen(false);
       setAmount(150);
       setPropertyId('');

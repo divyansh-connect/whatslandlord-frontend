@@ -27,6 +27,8 @@ interface TenantLayoutProps {
   navigate: (path: string) => void;
 }
 
+import { isNoticeForTenant } from '../utils/tenantNoticeHelper';
+
 export const TenantLayout: React.FC<TenantLayoutProps> = ({
   children,
   currentPath,
@@ -54,10 +56,28 @@ export const TenantLayout: React.FC<TenantLayoutProps> = ({
     refetchInterval: 15000,
   });
 
+  const { data: tenantProfile } = useQuery({
+    queryKey: ['tenant-profile'],
+    queryFn: () => api.tenantProfile.get(),
+  });
+
+  const tenantCtx = {
+    userId: user?.id,
+    userEmail: user?.email,
+    userName: user?.name,
+    profileId: tenantProfile?.id,
+    profileEmail: tenantProfile?.email,
+    profileFirstName: tenantProfile?.firstName,
+    profileLastName: tenantProfile?.lastName,
+    unitNumber: tenantProfile?.unitNumber,
+  };
+
   const localNotifications = notifications.filter((n) => !n.role || n.role === 'Tenant');
   const roleNotifications = Array.from(
     new Map(
-      [...(realTenantNotifications || []), ...localNotifications].map((n) => [n.id, n])
+      [...(realTenantNotifications || []), ...localNotifications]
+        .filter((n: any) => isNoticeForTenant(n, tenantCtx))
+        .map((n) => [n.id, n])
     ).values()
   );
 

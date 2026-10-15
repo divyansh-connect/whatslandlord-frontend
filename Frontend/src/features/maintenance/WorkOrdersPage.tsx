@@ -9,8 +9,9 @@ import { DataTable } from '../../components/DataTable';
 import { FilterBar } from '../../components/FilterBar';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/StatusBadge';
-import { Eye, Download } from 'lucide-react';
+import { Eye, Download, Clock } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
+import { extractPreferredVisit } from '../../utils/maintenanceHelpers';
 
 export const WorkOrdersPage: React.FC = () => {
   const { t } = useTranslation();
@@ -89,7 +90,19 @@ export const WorkOrdersPage: React.FC = () => {
       accessorKey: 'scheduledDate', 
       header: t('maintenanceWorkOrders.scheduledDate'), 
       id: 'date',
-      cell: ({ row }) => <span>{row.original.scheduledDate || 'N/A'}</span>
+      cell: ({ row }) => {
+        const pref = extractPreferredVisit(row.original);
+        return (
+          <div className="space-y-1">
+            <span>{row.original.scheduledDate || 'N/A'}</span>
+            {pref && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 whitespace-nowrap block w-fit">
+                <Clock className="w-2.5 h-2.5 text-amber-500" /> Pref: {pref}
+              </span>
+            )}
+          </div>
+        );
+      }
     },
     {
       accessorKey: 'estimatedCost',

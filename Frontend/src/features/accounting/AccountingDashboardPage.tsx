@@ -28,6 +28,10 @@ export const AccountingDashboardPage: React.FC = () => {
     queryKey: ['bills-list'], 
     queryFn: () => api.vendorBills.getAll() 
   });
+  const { data: income = [], isLoading: loadingIncome } = useQuery({ 
+    queryKey: ['income-list'], 
+    queryFn: () => api.income.getAll() 
+  });
   const { data: payments = [], isLoading: loadingPayments } = useQuery({ 
     queryKey: ['accounting-payments-list'], 
     queryFn: () => api.payments.getAll() 
@@ -37,7 +41,7 @@ export const AccountingDashboardPage: React.FC = () => {
     queryFn: () => api.expenses.getAll() 
   });
 
-  if (loadingAccounts || loadingBills) {
+  if (loadingAccounts || loadingBills || loadingIncome) {
     return <LoadingSkeleton type="card" />;
   }
 
@@ -46,14 +50,20 @@ export const AccountingDashboardPage: React.FC = () => {
   const accountsIncomeSum = accounts.filter(a => a.accountType === 'Income' || a.accountType === 'Revenue').reduce((sum, a) => sum + (a.balance || 0), 0);
   const accountsExpenseSum = accounts.filter(a => a.accountType === 'Expenses').reduce((sum, a) => sum + (a.balance || 0), 0);
 
-  // If CoA accounts balance is present, use it; otherwise use real payments & expenses sums
-  const paymentsSum = payments.filter((p: any) => p.status === 'Paid').reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
-  const expensesSum = expenses.reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+  // Sum of recorded income transactions from /accounting/income
+  const incomeSum = income.reduce((sum: number, i: any) => sum + (Number(i.amount) || 0), 0);
 
-  const cashBalance = accountsAssetSum > 0 ? accountsAssetSum : (paymentsSum > expensesSum ? paymentsSum - expensesSum : 0);
-  const totalIncome = accountsIncomeSum > 0 ? accountsIncomeSum : paymentsSum;
+  // Real tenant rent payments
+  const paymentsSum = payments.filter((p: any) => p.status === 'Paid').reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+
+  // Real recorded expenses from /accounting/expenses
+  const expensesSum = expenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
+
+  // Real aggregated totals
+  const totalIncome = accountsIncomeSum > 0 ? accountsIncomeSum : (incomeSum + paymentsSum);
   const totalExpenses = accountsExpenseSum > 0 ? accountsExpenseSum : expensesSum;
   const netProfit = totalIncome - totalExpenses;
+  const cashBalance = accountsAssetSum > 0 ? accountsAssetSum : (totalIncome > totalExpenses ? totalIncome - totalExpenses : totalIncome);
 
   // Real monthly data grouped by actual transaction dates
   const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -64,17 +74,21 @@ export const AccountingDashboardPage: React.FC = () => {
   });
 
   const monthlyData = last6Months.map(month => {
-    const mIncome = payments
+    const mRecordedIncome = income
+      .filter((i: any) => i.date && new Date(i.date).toLocaleString('en-US', { month: 'short' }) === month)
+      .reduce((sum: number, i: any) => sum + (Number(i.amount) || 0), 0);
+
+    const mPayments = payments
       .filter((p: any) => p.status === 'Paid' && p.paidDate && new Date(p.paidDate).toLocaleString('en-US', { month: 'short' }) === month)
-      .reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+      .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
 
     const mExpenses = expenses
       .filter((e: any) => e.date && new Date(e.date).toLocaleString('en-US', { month: 'short' }) === month)
-      .reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+      .reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
 
     return { 
       month, 
-      Income: mIncome, 
+      Income: mRecordedIncome + mPayments, 
       Expenses: mExpenses 
     };
   });

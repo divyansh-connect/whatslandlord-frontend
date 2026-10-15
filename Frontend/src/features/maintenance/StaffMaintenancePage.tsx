@@ -11,9 +11,10 @@ import { StatusBadge } from '../../components/StatusBadge';
 import {
   DollarSign, CheckCircle2, Clipboard,
   Search, Eye, Play, Check, X,
-  AlertTriangle, MapPin
+  AlertTriangle, MapPin, Clock
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { extractPreferredVisit, cleanDescription } from '../../utils/maintenanceHelpers';
 
 const formatDate = (dateStr?: string) => {
   if (!dateStr) return 'TBD';
@@ -63,6 +64,12 @@ export const StaffMaintenancePage: React.FC = () => {
       api.staffTasks.updateStatus(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['staff-work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-dashboard-work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-work-order-details-v2'] });
+      queryClient.invalidateQueries({ queryKey: ['work-orders-list'] });
+      queryClient.invalidateQueries({ queryKey: ['work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenance-metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-maintenance-requests'] });
     },
   });
 
@@ -86,7 +93,7 @@ export const StaffMaintenancePage: React.FC = () => {
   };
 
   const handleStartWork = (orderId: string) => {
-    updateStatusMutation.mutate({ id: orderId, status: 'In_Progress' });
+    updateStatusMutation.mutate({ id: orderId, status: 'In Progress' });
   };
 
   const handleRejectSubmit = (e: React.FormEvent) => {
@@ -211,65 +218,82 @@ export const StaffMaintenancePage: React.FC = () => {
                     </div>
 
                     {/* Row 2: Details */}
-                    <div className="grid grid-cols-1 md:grid-cols-10 gap-4 items-start">
-                      <div className="md:col-span-7 space-y-1">
-                        <h4 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors duration-200">
-                          {order.issue || 'Standard Maintenance Task'}
-                        </h4>
-                        <p className="text-xs text-muted-foreground/80 font-medium flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                          {order.propertyName} • <span className="text-foreground">{order.unitNumber}</span>
-                        </p>
-                        {order.description && (
-                          <p className="text-xs text-muted-foreground/60 line-clamp-2 mt-1.5 leading-relaxed">
-                            {order.description}
-                          </p>
-                        )}
-
-                        {/* Reject reason */}
-                        {order.status === 'Rejected' && order.rejectReason && (
-                          <div className="p-3 bg-rose-500/5 border border-rose-500/20 text-rose-500 rounded-xl text-[11px] font-semibold space-y-0.5 mt-2">
-                            <p className="uppercase text-[8px] text-muted-foreground font-bold tracking-wide">{t('staffMaintenance.reasonForRejection')}</p>
-                            <p className="leading-relaxed italic">"{order.rejectReason}"</p>
-                          </div>
-                        )}
-
-                        {/* Resolution notes */}
-                        {order.status === 'Completed' && order.resolutionNotes && (
-                          <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 text-emerald-600 rounded-xl text-[11px] font-semibold space-y-0.5 mt-2">
-                            <p className="uppercase text-[8px] text-muted-foreground font-bold tracking-wide">{t('staffMaintenance.resolutionNotes')}</p>
-                            <p className="leading-relaxed italic">"{order.resolutionNotes}"</p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Right: cost/date info */}
-                      <div className="md:col-span-3 text-[11px] space-y-3 shrink-0 md:pl-4">
-                        <div className="space-y-0.5">
-                          <span className="text-muted-foreground uppercase text-[8px] tracking-wider block font-bold leading-none">
-                            {t('staffMaintenance.scheduledDate')}
-                          </span>
-                          <span className="text-foreground font-black text-sm block">
-                            {formatDate(order.scheduledDate || order.dueDate)}
-                          </span>
-                        </div>
-                        <div className="space-y-0.5">
-                          <span className="text-muted-foreground uppercase text-[8px] tracking-wider block font-bold leading-none">
-                            {isCompletedView ? t('staffMaintenance.finalCost') : t('staffMaintenance.estimatedBudget')}
-                          </span>
-                          <span className="text-foreground font-black text-sm block">
-                            {isCompletedView ? (
-                              <span className="text-emerald-500">
-                                ${order.actualCost ?? 0}
-                                {order.extraExpenses && order.extraExpenses > 0 ? ` (+${order.extraExpenses} extra)` : ''}
-                              </span>
-                            ) : (
-                              `$${order.estimatedCost ?? 0}`
+                    {(() => {
+                      const prefVisit = extractPreferredVisit(order);
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-10 gap-4 items-start">
+                          <div className="md:col-span-7 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-bold text-sm text-foreground group-hover:text-primary transition-colors duration-200">
+                                {order.issue || 'Standard Maintenance Task'}
+                              </h4>
+                              {prefVisit && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 whitespace-nowrap">
+                                  <Clock className="w-2.5 h-2.5 text-amber-500" /> Pref: {prefVisit}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground/80 font-medium flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              {order.propertyName} • <span className="text-foreground">{order.unitNumber}</span>
+                            </p>
+                            {order.description && (
+                              <p className="text-xs text-muted-foreground/60 line-clamp-2 mt-1.5 leading-relaxed">
+                                {cleanDescription(order.description) || order.description}
+                              </p>
                             )}
-                          </span>
+
+                            {/* Reject reason */}
+                            {order.status === 'Rejected' && order.rejectReason && (
+                              <div className="p-3 bg-rose-500/5 border border-rose-500/20 text-rose-500 rounded-xl text-[11px] font-semibold space-y-0.5 mt-2">
+                                <p className="uppercase text-[8px] text-muted-foreground font-bold tracking-wide">{t('staffMaintenance.reasonForRejection')}</p>
+                                <p className="leading-relaxed italic">"{order.rejectReason}"</p>
+                              </div>
+                            )}
+
+                            {/* Resolution notes */}
+                            {order.status === 'Completed' && order.resolutionNotes && (
+                              <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 text-emerald-600 rounded-xl text-[11px] font-semibold space-y-0.5 mt-2">
+                                <p className="uppercase text-[8px] text-muted-foreground font-bold tracking-wide">{t('staffMaintenance.resolutionNotes')}</p>
+                                <p className="leading-relaxed italic">"{order.resolutionNotes}"</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Right: cost/date info */}
+                          <div className="md:col-span-3 text-[11px] space-y-3 shrink-0 md:pl-4">
+                            <div className="space-y-0.5">
+                              <span className="text-muted-foreground uppercase text-[8px] tracking-wider block font-bold leading-none">
+                                {t('staffMaintenance.scheduledDate')}
+                              </span>
+                              <span className="text-foreground font-black text-sm block">
+                                {formatDate(order.scheduledDate || order.dueDate)}
+                              </span>
+                              {prefVisit && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-600 dark:text-amber-400 mt-0.5">
+                                  <Clock className="w-2.5 h-2.5" /> Day: {prefVisit}
+                                </span>
+                              )}
+                            </div>
+                            <div className="space-y-0.5">
+                              <span className="text-muted-foreground uppercase text-[8px] tracking-wider block font-bold leading-none">
+                                {isCompletedView ? t('staffMaintenance.finalCost') : t('staffMaintenance.estimatedBudget')}
+                              </span>
+                              <span className="text-foreground font-black text-sm block">
+                                {isCompletedView ? (
+                                  <span className="text-emerald-500">
+                                    ${order.actualCost ?? 0}
+                                    {order.extraExpenses && order.extraExpenses > 0 ? ` (+${order.extraExpenses} extra)` : ''}
+                                  </span>
+                                ) : (
+                                  `$${order.estimatedCost ?? 0}`
+                                )}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                      );
+                    })()}
 
                     {/* Row 3: Actions */}
                     <div className="pt-2.5 border-t border-border/40 flex justify-between items-center gap-2">
@@ -295,18 +319,18 @@ export const StaffMaintenancePage: React.FC = () => {
                           </>
                         )}
 
-                        {(order.status === 'Assigned' || order.status === 'Scheduled' || order.status === 'Draft') && (
+                        {(['Assigned', 'Scheduled', 'Draft'].includes(order.status)) && (
                           <button
                             type="button"
                             disabled={isBusy}
                             onClick={() => handleStartWork(order.id)}
                             className="flex items-center gap-1.5 h-8 px-4 rounded-xl text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition-all shadow-sm shadow-amber-500/15 disabled:opacity-60"
                           >
-                            <Play className="w-3.5 h-3.5 fill-white" /> {t('staffMaintenance.startWork')}
+                            <Play className="w-3.5 h-3.5 fill-white" /> {isBusy ? 'Updating...' : t('staffMaintenance.startWork')}
                           </button>
                         )}
 
-                        {(order.status === 'In Progress' || order.status === 'In_Progress') && (
+                        {(['In Progress', 'InProgress', 'In_Progress'].includes(order.status)) && (
                           <button
                             type="button"
                             disabled={isBusy}
@@ -316,7 +340,7 @@ export const StaffMaintenancePage: React.FC = () => {
                             }}
                             className="flex items-center gap-1.5 h-8 px-4 rounded-xl text-xs font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-all shadow-sm shadow-emerald-500/15 disabled:opacity-60"
                           >
-                            <Check className="w-3.5 h-3.5" /> {t('staffMaintenance.markCompleted')}
+                            <Check className="w-3.5 h-3.5" /> {isBusy ? 'Updating...' : t('staffMaintenance.markCompleted')}
                           </button>
                         )}
 

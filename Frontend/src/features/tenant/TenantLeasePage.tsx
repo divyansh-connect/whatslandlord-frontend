@@ -5,6 +5,8 @@ import { PageHeader } from '../../components/PageHeader';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { downloadRealFile } from '../../utils/fileDownload';
 import { 
   BookOpen, 
   Award, 
@@ -64,6 +66,16 @@ export const TenantLeasePage: React.FC = () => {
     queryKey: ['tenant-leases-details'], 
     queryFn: () => api.tenantLeases.getAll() 
   });
+
+  const { data: tenantDocs = [] } = useQuery({
+    queryKey: ['tenant-documents-list'],
+    queryFn: () => api.tenantDocuments.getAll(),
+  });
+
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [dialogTitle, setDialogTitle] = useState('');
+  const [dialogDescription, setDialogDescription] = useState('');
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // Calculate dynamic end date based on selected months
   const calculatedEndDate = React.useMemo(() => {
@@ -138,6 +150,57 @@ export const TenantLeasePage: React.FC = () => {
       alert('Failed to decline renewal proposal.');
     }
     setActionLoading(false);
+  };
+
+  const handleDownloadLeaseAgreement = async () => {
+    setIsDownloading(true);
+    try {
+      let targetDoc: any = null;
+
+      // 1. Direct documentUrl from lease object
+      if (rawLease?.documentUrl) {
+        targetDoc = {
+          name: rawLease.documentName || `Lease_Agreement_${lease.tenantName || 'Unit'}`.replace(/\s+/g, '_'),
+          fileUrl: rawLease.documentUrl,
+        };
+      } 
+      // 2. Find in tenantDocs
+      else if (Array.isArray(tenantDocs) && tenantDocs.length > 0) {
+        const found = tenantDocs.find((d: any) => {
+          const cat = (d.category || '').toLowerCase();
+          const name = (d.name || '').toLowerCase();
+          return cat === 'lease' || cat === 'leasing' || cat === 'rental agreement' || name.includes('lease');
+        });
+        if (found && found.fileUrl) {
+          targetDoc = found;
+        } else {
+          const anyDoc = tenantDocs.find((d: any) => d.fileUrl);
+          if (anyDoc) {
+            targetDoc = anyDoc;
+          }
+        }
+      }
+
+      if (!targetDoc || !targetDoc.fileUrl) {
+        setDialogTitle('No Lease Document Uploaded');
+        setDialogDescription('No digital lease agreement file has been uploaded for this unit yet. Please reach out to your property management office to request an uploaded copy.');
+        setDownloadDialogOpen(true);
+        return;
+      }
+
+      const res = await downloadRealFile(targetDoc);
+      if (res.success) {
+        setDialogTitle('Download Started');
+        setDialogDescription(`The document "${res.filename}" is downloading. Please check your browser's download folder.`);
+        setDownloadDialogOpen(true);
+      } else {
+        setDialogTitle('Download Incomplete');
+        setDialogDescription('The file could not be retrieved from the server. Please verify your internet connection or contact the management office.');
+        setDownloadDialogOpen(true);
+      }
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
@@ -540,8 +603,18 @@ export const TenantLeasePage: React.FC = () => {
             </div>
 
             <div className="space-y-3">
-              <Button size="sm" className="w-full text-[11px] font-extrabold uppercase flex items-center justify-center gap-1.5 h-auto py-2.5 px-3 leading-tight text-center break-words text-primary-foreground" onClick={() => alert('Downloading Lease PDF...')}>
-                <Download className="w-3.5 h-3.5 shrink-0" /> <span>{t('tenantLease.download')}</span>
+              <Button 
+                size="sm" 
+                disabled={isDownloading}
+                className="w-full text-[11px] font-extrabold uppercase flex items-center justify-center gap-1.5 h-auto py-2.5 px-3 leading-tight text-center break-words text-primary-foreground" 
+                onClick={handleDownloadLeaseAgreement}
+              >
+                {isDownloading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                ) : (
+                  <Download className="w-3.5 h-3.5 shrink-0" />
+                )} 
+                <span>{t('tenantLease.download')}</span>
               </Button>
               <Button size="sm" variant="outline" className="w-full text-[11px] font-extrabold uppercase flex items-center justify-center gap-1.5 h-auto py-2.5 px-3 leading-tight text-center break-words" onClick={() => alert('Contacting leasing office...')}>
                 <Key className="w-3.5 h-3.5 shrink-0" /> <span>{t('tenantLease.requestRenewal')}</span>
@@ -552,6 +625,16 @@ export const TenantLeasePage: React.FC = () => {
         </div>
 
       </div>
+
+      <ConfirmDialog
+        open={downloadDialogOpen}
+        onOpenChange={setDownloadDialogOpen}
+        title={dialogTitle}
+        description={dialogDescription}
+        onConfirm={() => setDownloadDialogOpen(false)}
+        confirmText="OK"
+        cancelText="Close"
+      />
     </div>
   );
 };

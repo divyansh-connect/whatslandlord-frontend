@@ -14,6 +14,7 @@ import { FileTypeIcon } from '../../components/DocumentComponents';
 import { useNavigate } from '@tanstack/react-router';
 import { UploadDocumentModal } from './UploadDocumentModal';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { downloadRealFile } from '../../utils/fileDownload';
 
 const createFallbackDocumentBlob = (doc: any): Blob => {
   const title = (doc.name || 'Document').replace(/[()\\]/g, '');
@@ -91,74 +92,38 @@ export const DocsAllPage: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<'all' | 'owner' | 'tenant'>('all');
 
   // Download states
-  const [successDialogOpen, setSuccessDialogOpen] = useState(false);
-  const [downloadedDocName, setDownloadedDocName] = useState('');
+  const [dialogInfo, setDialogInfo] = useState<{ open: boolean; title: string; description: string }>({
+    open: false,
+    title: '',
+    description: '',
+  });
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const handleDownload = async (doc: any) => {
     try {
       setDownloadingId(doc.id);
-      let filename = doc.name || 'document.pdf';
-      if (!filename.includes('.')) {
-        filename += '.pdf';
+      if (!doc || !doc.fileUrl) {
+        setDialogInfo({
+          open: true,
+          title: 'No File Uploaded',
+          description: `No document file is attached to "${doc?.name || 'this record'}".`,
+        });
+        return;
       }
 
-      if (doc.fileUrl) {
-        let downloadUrl = doc.fileUrl;
-        if (downloadUrl.includes('res.cloudinary.com') && downloadUrl.includes('/upload/')) {
-          downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
-        }
-
-        try {
-          const response = await fetch(downloadUrl);
-          if (response.ok) {
-            const blob = await response.blob();
-            const blobUrl = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => {
-              window.URL.revokeObjectURL(blobUrl);
-              document.body.removeChild(a);
-            }, 100);
-            setDownloadedDocName(filename);
-            setSuccessDialogOpen(true);
-            return;
-          }
-        } catch (fetchErr) {
-          console.warn('Direct fetch failed, falling back to link click:', fetchErr);
-        }
-
-        // Direct anchor download fallback
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = filename;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          document.body.removeChild(a);
-        }, 100);
-        setDownloadedDocName(filename);
-        setSuccessDialogOpen(true);
+      const res = await downloadRealFile(doc);
+      if (res.success) {
+        setDialogInfo({
+          open: true,
+          title: 'Download Started',
+          description: `The file "${res.filename}" is downloading. Please check your browser's download folder.`,
+        });
       } else {
-        // Fallback for legacy documents where fileUrl was null in database
-        const fallbackBlob = createFallbackDocumentBlob(doc);
-        const blobUrl = window.URL.createObjectURL(fallbackBlob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          window.URL.revokeObjectURL(blobUrl);
-          document.body.removeChild(a);
-        }, 100);
-        setDownloadedDocName(filename);
-        setSuccessDialogOpen(true);
+        setDialogInfo({
+          open: true,
+          title: 'Download Error',
+          description: 'Failed to download the document. Please verify network access or try again.',
+        });
       }
     } catch (err) {
       console.error('Download error:', err);
@@ -451,14 +416,14 @@ export const DocsAllPage: React.FC = () => {
         type={modalType}
       />
 
-      {/* DOWNLOAD SUCCESS DIALOG */}
+      {/* DOWNLOAD / STATUS DIALOG */}
       <ConfirmDialog
-        open={successDialogOpen}
-        onOpenChange={setSuccessDialogOpen}
-        title="Download Started"
-        description={`The document "${downloadedDocName}" is being downloaded. Please check your browser's download folder.`}
-        onConfirm={() => setSuccessDialogOpen(false)}
-        confirmText="Great"
+        open={dialogInfo.open}
+        onOpenChange={(open) => setDialogInfo((prev) => ({ ...prev, open }))}
+        title={dialogInfo.title}
+        description={dialogInfo.description}
+        onConfirm={() => setDialogInfo((prev) => ({ ...prev, open: false }))}
+        confirmText="OK"
         cancelText="Close"
       />
     </div>

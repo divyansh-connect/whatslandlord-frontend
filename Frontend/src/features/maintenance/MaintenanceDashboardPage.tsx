@@ -18,6 +18,7 @@ import {
   Clipboard, Clock, CheckCircle2, XCircle, Search, Eye, Play, Check
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { extractPreferredVisit, cleanDescription } from '../../utils/maintenanceHelpers';
 
 const COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
 
@@ -59,6 +60,11 @@ export const MaintenanceDashboardPage: React.FC = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['staff-dashboard-work-orders'] });
       queryClient.invalidateQueries({ queryKey: ['staff-work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-work-order-details-v2'] });
+      queryClient.invalidateQueries({ queryKey: ['work-orders-list'] });
+      queryClient.invalidateQueries({ queryKey: ['work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenance-metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-maintenance-requests'] });
     },
   });
 
@@ -76,10 +82,10 @@ export const MaintenanceDashboardPage: React.FC = () => {
   });
 
   // Staff summary counts derived from real DB data
-  const assignedCount = allWorkOrders.filter((w: any) => w.status === 'New' || w.status === 'Assigned').length;
-  const inProgressCount = allWorkOrders.filter((w: any) => w.status === 'In Progress').length;
-  const completedCount = allWorkOrders.filter((w: any) => w.status === 'Completed' || w.status === 'Closed').length;
-  const rejectedCount = allWorkOrders.filter((w: any) => w.status === 'Rejected' || w.status === 'Cancelled').length;
+  const assignedCount = allWorkOrders.filter((w: any) => ['New', 'Assigned', 'Open', 'Submitted'].includes(w.status)).length;
+  const inProgressCount = allWorkOrders.filter((w: any) => ['In Progress', 'InProgress', 'In_Progress'].includes(w.status)).length;
+  const completedCount = allWorkOrders.filter((w: any) => ['Completed', 'Closed'].includes(w.status)).length;
+  const rejectedCount = allWorkOrders.filter((w: any) => ['Rejected', 'Cancelled'].includes(w.status)).length;
 
   if (isStaff) {
     if (loadingWorkOrders) {
@@ -187,7 +193,14 @@ export const MaintenanceDashboardPage: React.FC = () => {
                     </div>
 
                     <h4 className="font-bold text-sm text-foreground">{order.issue || 'Maintenance Task'}</h4>
-                    <p className="text-[11px] text-muted-foreground font-semibold">{order.propertyName} • Unit {order.unitNumber}</p>
+                    <p className="text-[11px] text-muted-foreground font-semibold flex items-center gap-2 flex-wrap">
+                      <span>{order.propertyName} • Unit {order.unitNumber}</span>
+                      {extractPreferredVisit(order) && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 whitespace-nowrap">
+                          <Clock className="w-2.5 h-2.5 text-amber-500" /> Pref Day: {extractPreferredVisit(order)}
+                        </span>
+                      )}
+                    </p>
                   </div>
 
                   <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-2 w-full md:w-auto border-t pt-3 md:pt-0 md:border-0 justify-between">
@@ -213,24 +226,24 @@ export const MaintenanceDashboardPage: React.FC = () => {
                       )}
 
                       {/* Start Work (Assigned orders) */}
-                      {(order.status === 'Assigned' || order.status === 'Scheduled' || order.status === 'Draft') && (
+                      {(['Assigned', 'Scheduled', 'Draft'].includes(order.status)) && (
                         <button
                           disabled={updateStatusMutation.isPending}
-                          onClick={() => updateStatusMutation.mutate({ id: order.id, status: 'In_Progress' })}
+                          onClick={() => updateStatusMutation.mutate({ id: order.id, status: 'In Progress' })}
                           className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-[10px] font-extrabold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 border border-amber-500/20 transition-all disabled:opacity-60"
                         >
-                          <Play className="w-3 h-3 fill-amber-500" /> {t('maintenance.startWork')}
+                          <Play className="w-3 h-3 fill-amber-500" /> {updateStatusMutation.isPending ? 'Updating...' : t('maintenance.startWork')}
                         </button>
                       )}
 
                       {/* Mark Complete (In Progress orders) */}
-                      {(order.status === 'In Progress' || order.status === 'In_Progress') && (
+                      {(['In Progress', 'InProgress', 'In_Progress'].includes(order.status)) && (
                         <button
                           disabled={updateStatusMutation.isPending}
                           onClick={() => updateStatusMutation.mutate({ id: order.id, status: 'Completed' })}
                           className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-[10px] font-extrabold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 border border-emerald-500/20 transition-all disabled:opacity-60"
                         >
-                          <Check className="w-3 h-3" /> {t('maintenance.complete')}
+                          <Check className="w-3 h-3" /> {updateStatusMutation.isPending ? 'Updating...' : t('maintenance.complete')}
                         </button>
                       )}
                     </div>

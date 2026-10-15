@@ -130,9 +130,8 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({
       return;
     }
     setFile(selectedFile);
-    // Remove extension from default doc name
-    const nameWithoutExt = selectedFile.name.replace(/\.[^/.]+$/, "");
-    setDocName(nameWithoutExt);
+    // Keep original file name including extension
+    setDocName(selectedFile.name);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -176,9 +175,15 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({
     setErrorMsg('');
 
     try {
+      let finalName = (docName || file.name).trim();
+      const fileExt = file.name.includes('.') ? file.name.split('.').pop() : '';
+      if (fileExt && !finalName.includes('.')) {
+        finalName = `${finalName}.${fileExt}`;
+      }
+
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('name', docName || file.name);
+      formData.append('name', finalName);
       formData.append('category', category);
       formData.append('propertyId', propertyId);
 

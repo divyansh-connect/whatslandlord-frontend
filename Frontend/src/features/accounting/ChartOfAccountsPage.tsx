@@ -105,11 +105,11 @@ export const ChartOfAccountsPage: React.FC = () => {
           { label: t('nav.accounting'), href: '/accounting' },
           { label: t('pmCoa.title') },
         ]}
-        /* action={{
-          label: t('pmCoa.addAccount'),
+        action={{
+          label: t('pmCoa.addAccount', 'Create Ledger Account'),
           onClick: () => setIsOpen(true),
           icon: <Plus className="w-4.5 h-4.5" />,
-        }} */
+        }}
       />
 
       <FilterBar
@@ -158,6 +158,9 @@ export const ChartOfAccountsPage: React.FC = () => {
           <div className="space-y-1">
             <label className="text-xs font-bold text-muted-foreground uppercase">Account Type</label>
             <Select value={type} onChange={(e: any) => setType(e.target.value)}>
+              <option value="Assets">Assets</option>
+              <option value="Liabilities">Liabilities</option>
+              <option value="Equity">Equity</option>
               <option value="Income">Income</option>
               <option value="Expenses">Expenses</option>
             </Select>

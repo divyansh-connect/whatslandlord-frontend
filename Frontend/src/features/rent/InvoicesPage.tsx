@@ -62,7 +62,9 @@ export const InvoicesPage: React.FC = () => {
     setSendingNotice(true);
     try {
       await api.invoices.sendAiReminder(aiReminderInvoice.id, aiReminderText, aiTone, {
-        tenantName: aiReminderInvoice.tenantName,
+        tenantId: aiReminderInvoice.tenantId,
+        tenantEmail: (aiReminderInvoice as any).tenantEmail || (aiReminderInvoice as any).tenant?.email || '',
+        tenantName: aiReminderInvoice.tenantName || (aiReminderInvoice as any).tenant ? `${(aiReminderInvoice as any).tenant?.firstName || ''} ${(aiReminderInvoice as any).tenant?.lastName || ''}`.trim() : '',
         propertyName: aiReminderInvoice.propertyName,
         unitNumber: aiReminderInvoice.unitNumber,
         amount: aiReminderInvoice.balance || aiReminderInvoice.amount,

@@ -69,6 +69,8 @@ startxref
   return new Blob([pdfString], { type: 'application/pdf' });
 };
 
+import { downloadRealFile } from '../../utils/fileDownload';
+
 export const ManagerTenantDocumentsPage: React.FC = () => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -80,8 +82,11 @@ export const ManagerTenantDocumentsPage: React.FC = () => {
   // Modal & Download states
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [successDialogOpen, setSuccessDialogOpen] = useState(false);
-  const [downloadedDocName, setDownloadedDocName] = useState('');
+  const [dialogInfo, setDialogInfo] = useState<{ open: boolean; title: string; description: string }>({
+    open: false,
+    title: '',
+    description: '',
+  });
 
   // Queries
   const { data: tenantDocs = [], isLoading: loadingDocs } = useQuery({
@@ -133,62 +138,28 @@ export const ManagerTenantDocumentsPage: React.FC = () => {
   const handleDownload = async (doc: any) => {
     try {
       setDownloadingId(doc.id);
-      const filename = doc.name.endsWith('.pdf') ? doc.name : `${doc.name}.pdf`;
+      if (!doc.fileUrl) {
+        setDialogInfo({
+          open: true,
+          title: 'No File Uploaded',
+          description: `No physical document or file has been uploaded for "${doc.name || 'this record'}".`,
+        });
+        return;
+      }
 
-      if (doc.fileUrl) {
-        let downloadUrl = doc.fileUrl;
-        if (downloadUrl.includes('res.cloudinary.com') && downloadUrl.includes('/upload/')) {
-          downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
-        }
-
-        try {
-          const response = await fetch(downloadUrl);
-          if (response.ok) {
-            const blob = await response.blob();
-            const blobUrl = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => {
-              window.URL.revokeObjectURL(blobUrl);
-              document.body.removeChild(a);
-            }, 100);
-            setDownloadedDocName(filename);
-            setSuccessDialogOpen(true);
-            return;
-          }
-        } catch (fetchErr) {
-          console.warn('Direct blob fetch failed, falling back to link click:', fetchErr);
-        }
-
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = filename;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          document.body.removeChild(a);
-        }, 100);
-        setDownloadedDocName(filename);
-        setSuccessDialogOpen(true);
+      const res = await downloadRealFile(doc);
+      if (res.success) {
+        setDialogInfo({
+          open: true,
+          title: 'Download Started',
+          description: `The file "${res.filename}" is downloading. Please check your browser's download folder.`,
+        });
       } else {
-        const fallbackBlob = createFallbackDocumentBlob(doc);
-        const blobUrl = window.URL.createObjectURL(fallbackBlob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          window.URL.revokeObjectURL(blobUrl);
-          document.body.removeChild(a);
-        }, 100);
-        setDownloadedDocName(filename);
-        setSuccessDialogOpen(true);
+        setDialogInfo({
+          open: true,
+          title: 'Download Error',
+          description: 'Failed to retrieve the file from storage. Please verify your connection or re-upload.',
+        });
       }
     } catch (err) {
       console.error('Download error:', err);
@@ -342,14 +313,14 @@ export const ManagerTenantDocumentsPage: React.FC = () => {
         }}
       />
 
-      {/* Download Success Dialog */}
+      {/* Download Status Dialog */}
       <ConfirmDialog
-        open={successDialogOpen}
-        onOpenChange={setSuccessDialogOpen}
-        title="Download Started"
-        description={`The tenant document "${downloadedDocName}" is being downloaded. Please check your browser's download folder.`}
-        onConfirm={() => setSuccessDialogOpen(false)}
-        confirmText="Great"
+        open={dialogInfo.open}
+        onOpenChange={(open) => setDialogInfo((prev) => ({ ...prev, open }))}
+        title={dialogInfo.title}
+        description={dialogInfo.description}
+        onConfirm={() => setDialogInfo((prev) => ({ ...prev, open: false }))}
+        confirmText="OK"
         cancelText="Close"
       />
     </div>

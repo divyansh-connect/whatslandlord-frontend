@@ -8,11 +8,14 @@ import { Button } from '../../components/ui/Button';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { CreditCard, Wrench, MessageSquare, BookOpen, Package, UserCheck, FileText, Upload, CheckCircle2, AlertCircle, Clock, ArrowRight, Sparkles, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '../../store/useStore';
+import { isNoticeForTenant } from '../../utils/tenantNoticeHelper';
 
 export const TenantDashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { user } = useAuthStore();
 
   // Queries
   const { data: metrics, isLoading } = useQuery({
@@ -64,16 +67,37 @@ export const TenantDashboardPage: React.FC = () => {
 
   const isPending = profile?.status === 'Pending';
 
-  const latestRentNotice = notifications.find((n: any) => 
-    !Boolean(n.read) && (
-      (n.id || '').startsWith('ai-notice') ||
-      (n.title || '').toLowerCase().includes('rent') ||
-      (n.title || '').toLowerCase().includes('notice') ||
-      (n.title || '').toLowerCase().includes('reminder') ||
-      (n.message || '').toLowerCase().includes('rent') ||
-      (n.type || '') === 'warning'
-    )
-  );
+  const hasOutstandingBalance =
+    Number(metrics.outstandingBalance || 0) > 0 ||
+    Number(metrics.currentRent || 0) > 0;
+
+  const tenantCtx = {
+    userId: user?.id,
+    userEmail: user?.email,
+    userName: user?.name,
+    profileId: profile?.id,
+    profileEmail: profile?.email,
+    profileFirstName: profile?.firstName,
+    profileLastName: profile?.lastName,
+    unitNumber: profile?.unitNumber,
+  };
+
+  // AI notice is strictly shown ONLY if the tenant has an outstanding balance AND the notice strictly belongs to this tenant
+  const latestRentNotice = hasOutstandingBalance
+    ? notifications.find((n: any) => {
+        if (Boolean(n.read)) return false;
+        if (!isNoticeForTenant(n, tenantCtx)) return false;
+
+        return (
+          (n.id || '').startsWith('ai-notice') ||
+          (n.title || '').toLowerCase().includes('rent') ||
+          (n.title || '').toLowerCase().includes('notice') ||
+          (n.title || '').toLowerCase().includes('reminder') ||
+          (n.message || '').toLowerCase().includes('rent') ||
+          (n.type || '') === 'warning'
+        );
+      })
+    : null;
 
   return (
     <div className="space-y-6 text-foreground">

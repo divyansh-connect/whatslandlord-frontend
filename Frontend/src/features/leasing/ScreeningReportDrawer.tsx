@@ -10,6 +10,8 @@ import {
   Download, FileText, Loader2, ArrowRight, X, Calendar, Play 
 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { downloadRealFile } from '../../utils/fileDownload';
 
 interface ScreeningReportDrawerProps {
   screening: ScreeningCheck | null;
@@ -19,6 +21,42 @@ interface ScreeningReportDrawerProps {
 export const ScreeningReportDrawer: React.FC<ScreeningReportDrawerProps> = ({ screening, onClose }) => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  const [dialogInfo, setDialogInfo] = React.useState<{ open: boolean; title: string; description: string }>({
+    open: false,
+    title: '',
+    description: '',
+  });
+
+  const handleDownloadReport = async (reportType: string) => {
+    if (!screening?.documentUrl) {
+      setDialogInfo({
+        open: true,
+        title: 'No Document Attached',
+        description: `No digital ${reportType} file has been uploaded for this applicant yet.`,
+      });
+      return;
+    }
+
+    const res = await downloadRealFile({
+      name: `${screening.applicantName || 'Applicant'}_${reportType.replace(/\s+/g, '_')}`,
+      fileUrl: screening.documentUrl,
+    });
+
+    if (res.success) {
+      setDialogInfo({
+        open: true,
+        title: 'Download Started',
+        description: `The file "${res.filename}" is downloading. Please check your browser's download folder.`,
+      });
+    } else {
+      setDialogInfo({
+        open: true,
+        title: 'Download Failed',
+        description: 'Unable to download file. Please check your network connection.',
+      });
+    }
+  };
 
   const generateReportMutation = useMutation({
     mutationFn: () => api.screening.generateReport(screening?.id || ''),
@@ -272,30 +310,30 @@ export const ScreeningReportDrawer: React.FC<ScreeningReportDrawerProps> = ({ sc
           <div className="space-y-2">
             <h4 className="font-extrabold text-[10px] text-muted-foreground uppercase tracking-wider border-b pb-1">Downloadable Reports</h4>
             <div className="grid grid-cols-3 gap-2 font-bold text-[10px]">
-              <a
-                href={`#`}
-                onClick={(e) => { e.preventDefault(); alert('Downloading mock Credit Report PDF...'); }}
-                className="flex items-center justify-between p-2.5 bg-secondary/20 hover:bg-secondary/45 border rounded-xl transition text-foreground"
+              <button
+                type="button"
+                onClick={() => handleDownloadReport('Credit Report')}
+                className="flex items-center justify-between p-2.5 bg-secondary/20 hover:bg-secondary/45 border rounded-xl transition text-foreground text-left"
               >
                 <span className="flex items-center gap-1.5"><FileText className="w-3.5 h-3.5 text-primary" /> Credit</span>
                 <Download className="w-3.5 h-3.5 text-muted-foreground" />
-              </a>
-              <a
-                href={`#`}
-                onClick={(e) => { e.preventDefault(); alert('Downloading mock Background Check PDF...'); }}
-                className="flex items-center justify-between p-2.5 bg-secondary/20 hover:bg-secondary/45 border rounded-xl transition text-foreground"
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadReport('Background Check')}
+                className="flex items-center justify-between p-2.5 bg-secondary/20 hover:bg-secondary/45 border rounded-xl transition text-foreground text-left"
               >
                 <span className="flex items-center gap-1.5"><FileText className="w-3.5 h-3.5 text-primary" /> Criminal</span>
                 <Download className="w-3.5 h-3.5 text-muted-foreground" />
-              </a>
-              <a
-                href={`#`}
-                onClick={(e) => { e.preventDefault(); alert('Downloading mock Eviction History PDF...'); }}
-                className="flex items-center justify-between p-2.5 bg-secondary/20 hover:bg-secondary/45 border rounded-xl transition text-foreground"
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadReport('Eviction History')}
+                className="flex items-center justify-between p-2.5 bg-secondary/20 hover:bg-secondary/45 border rounded-xl transition text-foreground text-left"
               >
                 <span className="flex items-center gap-1.5"><FileText className="w-3.5 h-3.5 text-primary" /> Evictions</span>
                 <Download className="w-3.5 h-3.5 text-muted-foreground" />
-              </a>
+              </button>
             </div>
           </div>
         )}
@@ -360,6 +398,15 @@ export const ScreeningReportDrawer: React.FC<ScreeningReportDrawerProps> = ({ sc
         </div>
       </div>
 
+      <ConfirmDialog
+        open={dialogInfo.open}
+        onOpenChange={(open) => setDialogInfo((prev) => ({ ...prev, open }))}
+        title={dialogInfo.title}
+        description={dialogInfo.description}
+        onConfirm={() => setDialogInfo((prev) => ({ ...prev, open: false }))}
+        confirmText="OK"
+        cancelText="Close"
+      />
     </div>
   );
 };

@@ -22,7 +22,33 @@ export const AuditLogsPage: React.FC = () => {
     : logs.filter((l) => l.module === moduleFilter);
 
   const handleExport = () => {
-    alert(t('platformSecurity.auditLogs.exportAlert'));
+    if (!filtered || filtered.length === 0) {
+      return;
+    }
+    const headers = ['ID', 'Timestamp', 'User', 'Action', 'Target Object', 'Module', 'IP Address', 'Status'];
+    const rows = filtered.map((l: any) => [
+      String(l.id || ''),
+      String(l.timestamp || ''),
+      `"${String(l.user || '').replace(/"/g, '""')}"`,
+      `"${String(l.action || '').replace(/"/g, '""')}"`,
+      `"${String(l.object || '').replace(/"/g, '""')}"`,
+      String(l.module || ''),
+      String(l.ip || ''),
+      String(l.status || '')
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Audit_Logs_${moduleFilter}_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    }, 150);
   };
 
   return (

@@ -53,7 +53,14 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
     enabled: open && (metricType === 'totalExpenses' || metricType === 'netProfit'),
   });
 
-  // 3. Fetch Real Payments (Income Inflow)
+  // 3. Fetch Real Recorded Income
+  const { data: income = [], isLoading: loadingIncome } = useQuery({
+    queryKey: ['income-list'],
+    queryFn: () => api.income.getAll(),
+    enabled: open && (metricType === 'totalIncome' || metricType === 'netProfit'),
+  });
+
+  // 4. Fetch Real Payments (Income Inflow)
   const { data: payments = [], isLoading: loadingPayments } = useQuery({
     queryKey: ['accounting-modal-payments'],
     queryFn: () => api.payments.getAll(),
@@ -94,7 +101,21 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
             status: a.isActive !== false ? 'Active' : 'Inactive',
           }));
 
-        const filtered = assetAccounts.filter((item: any) =>
+        const defaultCashRow = [
+          {
+            id: 'cash-net',
+            accountNumber: 'CASH-01',
+            accountName: 'Net Operating Cash Balance (Inflows - Outflows)',
+            accountType: 'Liquid Holding',
+            balance: `$${displayCashBalance.toLocaleString()}`,
+            numericBalance: displayCashBalance,
+            status: 'Active',
+          }
+        ];
+
+        const rows = assetAccounts.length > 0 ? assetAccounts : defaultCashRow;
+
+        const filtered = rows.filter((item: any) =>
           item.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.accountName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.accountType.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -109,7 +130,7 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
           count: `$${displayCashBalance.toLocaleString()}`,
           countLabel: 'Liquid Assets',
           data: filtered,
-          rawData: assetAccounts,
+          rawData: rows,
           reportTitle: 'CASH_ACCOUNT_BALANCE_REPORT',
           columns: [
             { header: 'Account #', accessorKey: 'accountNumber' },
@@ -135,7 +156,19 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
             status: a.isActive !== false ? 'Active' : 'Inactive',
           }));
 
-        const filtered = incomeAccounts.filter((item: any) =>
+        const recordedIncomeRows = income.map((i: any) => ({
+          id: i.id,
+          accountNumber: i.category || 'Income',
+          accountName: `${i.category} - ${i.propertyName || 'Property'} (${i.tenantName || 'Resident'})`,
+          accountType: i.sourceType || 'Revenue',
+          balance: `$${(Number(i.amount) || 0).toLocaleString()}`,
+          numericBalance: Number(i.amount) || 0,
+          status: i.status || 'Cleared',
+        }));
+
+        const rows = incomeAccounts.length > 0 ? incomeAccounts : recordedIncomeRows;
+
+        const filtered = rows.filter((item: any) =>
           item.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.accountName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.accountType.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -150,13 +183,13 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
           count: `$${displayIncome.toLocaleString()}`,
           countLabel: 'Total Income',
           data: filtered,
-          rawData: incomeAccounts,
+          rawData: rows,
           reportTitle: 'OPERATING_INCOME_YTD_REPORT',
           columns: [
-            { header: 'Account Code', accessorKey: 'accountNumber' },
-            { header: 'Revenue Stream Name', accessorKey: 'accountName' },
+            { header: 'Account Code / Category', accessorKey: 'accountNumber' },
+            { header: 'Revenue Stream / Source', accessorKey: 'accountName' },
             { header: 'Classification', accessorKey: 'accountType' },
-            { header: 'YTD Balance', accessorKey: 'balance' },
+            { header: 'Amount', accessorKey: 'balance' },
             { header: 'Status', accessorKey: 'status' },
           ],
         };
@@ -176,7 +209,19 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
             status: a.isActive !== false ? 'Active' : 'Inactive',
           }));
 
-        const filtered = expenseAccounts.filter((item: any) =>
+        const recordedExpenseRows = expenses.map((e: any) => ({
+          id: e.id,
+          accountNumber: e.category || 'Expense',
+          accountName: `${e.category} - ${e.vendorName || 'Vendor'} (${e.propertyName || 'Property'})`,
+          accountType: 'Operating Cost',
+          balance: `$${(Number(e.amount) || 0).toLocaleString()}`,
+          numericBalance: Number(e.amount) || 0,
+          status: e.status || 'Cleared',
+        }));
+
+        const rows = expenseAccounts.length > 0 ? expenseAccounts : recordedExpenseRows;
+
+        const filtered = rows.filter((item: any) =>
           item.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.accountName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.accountType.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -191,13 +236,13 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
           count: `$${displayExpenses.toLocaleString()}`,
           countLabel: 'Total Expenses',
           data: filtered,
-          rawData: expenseAccounts,
+          rawData: rows,
           reportTitle: 'OPERATING_EXPENSES_YTD_REPORT',
           columns: [
-            { header: 'Account Code', accessorKey: 'accountNumber' },
-            { header: 'Expense Category', accessorKey: 'accountName' },
+            { header: 'Account Code / Category', accessorKey: 'accountNumber' },
+            { header: 'Expense Category / Details', accessorKey: 'accountName' },
             { header: 'Classification', accessorKey: 'accountType' },
-            { header: 'YTD Balance', accessorKey: 'balance' },
+            { header: 'Amount', accessorKey: 'balance' },
             { header: 'Status', accessorKey: 'status' },
           ],
         };

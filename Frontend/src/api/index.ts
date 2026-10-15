@@ -1,6 +1,38 @@
 import { mockApi } from './mockApi';
 import { apiClient } from './client';
 
+const getActiveCompanyId = (): string | null => {
+  try {
+    const userStr = sessionStorage.getItem('user');
+    if (!userStr) return null;
+    const u = JSON.parse(userStr);
+    if (u.companyId) return u.companyId;
+    if (u.token) {
+      const parts = u.token.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(atob(parts[1]));
+        return payload.companyId || null;
+      }
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
+};
+
+const isDemoManager = (): boolean => {
+  try {
+    const userStr = sessionStorage.getItem('user');
+    if (!userStr) return false;
+    const u = JSON.parse(userStr);
+    const email = (u.email || '').toLowerCase();
+    const companyName = (u.companyName || localStorage.getItem('company_name') || '').toLowerCase();
+    return email === 'admin@apexpm.com' || email === 'manager@apexpm.com' || (companyName.includes('apex') && !email.includes('divine'));
+  } catch {
+    return false;
+  }
+};
+
 export const api = {
   ...mockApi,
 
@@ -557,25 +589,227 @@ export const api = {
       try {
         const res: any = await apiClient.get('/accounting/accounts');
         const data = res.data || [];
-        return data.map((a: any) => ({
+        const isDemo = isDemoManager();
+        const userCompanyId = getActiveCompanyId();
+
+        const DEMO_COA_NAMES = [
+          'Operating Checking Account',
+          'Security Deposit Escrow Account',
+          'Accounts Payable (AP)',
+          'Tenant Security Deposit Liability',
+          "Owner's Equity Capital",
+          'Rental Revenue Income',
+          'Late Fee & Penalty Income',
+          'Application & Screening Fee Income',
+          'Maintenance & Repair Expense',
+          'Property Insurance Expense',
+          'Management & Administrative Fee',
+        ];
+
+        const userCreatedIds: string[] = JSON.parse(localStorage.getItem('user_created_coa_ids') || '[]');
+        const deletedCoaIds: string[] = JSON.parse(localStorage.getItem('deleted_coa_ids') || '[]');
+
+        // If NOT demo manager, new managers/companies must see clean empty CoA until they create accounts
+        const filtered = data.filter((a: any) => {
+          if (deletedCoaIds.includes(a.id)) return false;
+          if (userCreatedIds.includes(a.id)) return true;
+          if (!isDemo && DEMO_COA_NAMES.includes(a.accountName)) return false;
+          if (userCompanyId && a.companyId && a.companyId !== userCompanyId) return false;
+          return true;
+        });
+
+        const mappedDbAccounts = filtered.map((a: any) => ({
           id: a.id,
+          companyId: a.companyId,
           accountNumber: a.accountCode || '',
           accountName: a.accountName || '',
           accountType: a.type === 'Asset' ? 'Assets' : a.type === 'Revenue' ? 'Income' : a.type === 'Expense' ? 'Expenses' : a.type,
-          balance: a.balance || 0,
+          balance: Number(a.balance) || 0,
           status: a.isActive !== false ? 'Active' : 'Inactive',
         }));
+
+        // Retrieve real recorded income transactions
+        let liveIncome: any[] = [];
+        try {
+          const incRes: any = await apiClient.get('/portal/income');
+          liveIncome = (incRes.data || []).filter((i: any) => {
+            let parsed: any = {};
+            try { parsed = JSON.parse(i.description); } catch { parsed = {}; }
+            if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
+            if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(parsed.propertyName) && !parsed.propertyId) return false;
+            return true;
+          });
+        } catch (err) {
+          console.warn('Could not fetch income for CoA:', err);
+        }
+
+        // Retrieve real tenant rent payments
+        let livePayments: any[] = [];
+        try {
+          const payRes: any = await apiClient.get('/portal/payments');
+          livePayments = (payRes.data || []).filter((p: any) => {
+            if (p.status !== 'Paid') return false;
+            if (userCompanyId && p.companyId && p.companyId !== userCompanyId) return false;
+            return true;
+          });
+        } catch (err) {
+          console.warn('Could not fetch payments for CoA:', err);
+        }
+
+        // Retrieve real recorded expense transactions
+        let liveExpenses: any[] = [];
+        try {
+          const expRes: any = await apiClient.get('/portal/expenses');
+          liveExpenses = (expRes.data || []).filter((e: any) => {
+            let parsed: any = {};
+            try { parsed = JSON.parse(e.description); } catch { parsed = {}; }
+            if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
+            if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(parsed.propertyName) && !parsed.propertyId) return false;
+            return true;
+          });
+        } catch (err) {
+          console.warn('Could not fetch expenses for CoA:', err);
+        }
+
+        // Standard category mappings to CoA codes and descriptive titles
+        const INCOME_MAPPINGS: Record<string, { code: string; name: string }> = {
+          'Rent': { code: '4010', name: 'Rental Revenue Income' },
+          'Late Fees': { code: '4020', name: 'Late Fees & Penalty Income' },
+          'Parking': { code: '4030', name: 'Parking Space Income' },
+          'Utilities': { code: '4040', name: 'Utilities Reimbursement' },
+          'Storage': { code: '4050', name: 'Storage Lockers Income' },
+          'Pet Fees': { code: '4060', name: 'Pet Rent Fee Income' },
+        };
+
+        const EXPENSE_MAPPINGS: Record<string, { code: string; name: string }> = {
+          'Maintenance': { code: '5010', name: 'General Maintenance Expense' },
+          'Repairs': { code: '5020', name: 'Repairs & Diagnostics Expense' },
+          'Utilities': { code: '5030', name: 'Public Utilities Expense' },
+          'Insurance': { code: '5040', name: 'Property Insurance Expense' },
+          'Property Taxes': { code: '5050', name: 'Property Taxes Expense' },
+          'Payroll': { code: '5060', name: 'Staff Payroll Expense' },
+          'Landscaping': { code: '5070', name: 'Landscaping Expense' },
+          'Office': { code: '5080', name: 'Office Supplies Expense' },
+        };
+
+        const incomeTotalsByCategory: Record<string, number> = {};
+        for (const inc of liveIncome) {
+          const cat = inc.category || 'Rent';
+          incomeTotalsByCategory[cat] = (incomeTotalsByCategory[cat] || 0) + (Number(inc.amount) || 0);
+        }
+        for (const pay of livePayments) {
+          incomeTotalsByCategory['Rent'] = (incomeTotalsByCategory['Rent'] || 0) + (Number(pay.amount) || 0);
+        }
+
+        const expenseTotalsByCategory: Record<string, number> = {};
+        for (const exp of liveExpenses) {
+          const cat = exp.category || 'Maintenance';
+          expenseTotalsByCategory[cat] = (expenseTotalsByCategory[cat] || 0) + (Number(exp.amount) || 0);
+        }
+
+        let dynamicIncomeCodeIdx = 100;
+        const derivedIncomeAccounts: any[] = [];
+        for (const [cat, totalAmount] of Object.entries(incomeTotalsByCategory)) {
+          if (totalAmount <= 0) continue;
+          const mapping = INCOME_MAPPINGS[cat];
+          const accNumber = mapping ? mapping.code : `4${dynamicIncomeCodeIdx++}`;
+          const accName = mapping ? mapping.name : (cat.toLowerCase().includes('income') ? cat : `${cat} Income`);
+          const accountId = `coa-income-${cat.toLowerCase().replace(/\s+/g, '-')}`;
+
+          if (deletedCoaIds.includes(accountId)) continue;
+
+          const existing = mappedDbAccounts.find((a: any) =>
+            a.accountNumber === accNumber ||
+            a.accountName.toLowerCase() === accName.toLowerCase() ||
+            a.accountName.toLowerCase() === cat.toLowerCase()
+          );
+
+          if (existing) {
+            existing.balance = (existing.balance || 0) + totalAmount;
+          } else {
+            derivedIncomeAccounts.push({
+              id: accountId,
+              accountNumber: accNumber,
+              accountName: accName,
+              accountType: 'Income',
+              balance: totalAmount,
+              status: 'Active',
+            });
+          }
+        }
+
+        let dynamicExpenseCodeIdx = 100;
+        const derivedExpenseAccounts: any[] = [];
+        for (const [cat, totalAmount] of Object.entries(expenseTotalsByCategory)) {
+          if (totalAmount <= 0) continue;
+          const mapping = EXPENSE_MAPPINGS[cat];
+          const accNumber = mapping ? mapping.code : `5${dynamicExpenseCodeIdx++}`;
+          const accName = mapping ? mapping.name : (cat.toLowerCase().includes('expense') ? cat : `${cat} Expense`);
+          const accountId = `coa-expense-${cat.toLowerCase().replace(/\s+/g, '-')}`;
+
+          if (deletedCoaIds.includes(accountId)) continue;
+
+          const existing = mappedDbAccounts.find((a: any) =>
+            a.accountNumber === accNumber ||
+            a.accountName.toLowerCase() === accName.toLowerCase() ||
+            a.accountName.toLowerCase() === cat.toLowerCase()
+          );
+
+          if (existing) {
+            existing.balance = (existing.balance || 0) + totalAmount;
+          } else {
+            derivedExpenseAccounts.push({
+              id: accountId,
+              accountNumber: accNumber,
+              accountName: accName,
+              accountType: 'Expenses',
+              balance: totalAmount,
+              status: 'Active',
+            });
+          }
+        }
+
+        const combinedAccounts = [...mappedDbAccounts, ...derivedIncomeAccounts, ...derivedExpenseAccounts];
+        combinedAccounts.sort((a, b) => (a.accountNumber || '').localeCompare(b.accountNumber || ''));
+
+        return combinedAccounts;
       } catch (e) {
         console.error('Accounts fetch failed:', e);
         return [];
       }
     },
     create: async (data: any) => {
-      const res: any = await apiClient.post('/accounting/accounts', data);
-      return res.data;
+      const payload = {
+        accountCode: data.accountCode || data.accountNumber,
+        accountName: data.accountName,
+        type: data.type || (data.accountType === 'Assets' ? 'Asset' : data.accountType === 'Income' ? 'Revenue' : data.accountType === 'Expenses' ? 'Expense' : data.accountType),
+        balance: Number(data.balance) || 0,
+      };
+      const res: any = await apiClient.post('/accounting/accounts', payload);
+      const created = res?.data;
+      if (created?.id) {
+        const existing: string[] = JSON.parse(localStorage.getItem('user_created_coa_ids') || '[]');
+        if (!existing.includes(created.id)) {
+          existing.push(created.id);
+          localStorage.setItem('user_created_coa_ids', JSON.stringify(existing));
+        }
+      }
+      return created;
     },
     delete: async (id: string) => {
-      await apiClient.delete(`/accounting/accounts/${id}`);
+      try {
+        await apiClient.delete(`/accounting/accounts/${id}`);
+      } catch (e) {
+        console.warn('Backend delete CoA failed:', e);
+      }
+      const existing: string[] = JSON.parse(localStorage.getItem('user_created_coa_ids') || '[]');
+      localStorage.setItem('user_created_coa_ids', JSON.stringify(existing.filter((x) => x !== id)));
+
+      const deleted: string[] = JSON.parse(localStorage.getItem('deleted_coa_ids') || '[]');
+      if (!deleted.includes(id)) {
+        deleted.push(id);
+        localStorage.setItem('deleted_coa_ids', JSON.stringify(deleted));
+      }
       return true;
     },
   },
@@ -585,7 +819,13 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/accounting/journal-entries');
-        return (res.data || []).map((je: any) => ({
+        const data = res.data || [];
+        const userCompanyId = getActiveCompanyId();
+        const filtered = userCompanyId
+          ? data.filter((je: any) => !je.companyId || je.companyId === userCompanyId)
+          : data;
+
+        return filtered.map((je: any) => ({
           id: je.id,
           entryNumber: je.entryNumber,
           date: je.date,
@@ -640,7 +880,12 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/accounting/bank-accounts');
-        return res.data || [];
+        const data = res.data || [];
+        const userCompanyId = getActiveCompanyId();
+        const filtered = userCompanyId
+          ? data.filter((b: any) => !b.companyId || b.companyId === userCompanyId)
+          : data;
+        return filtered;
       } catch (e) {
         console.error('Bank accounts fetch failed:', e);
         return [];
@@ -676,6 +921,7 @@ export const api = {
           id: i.id,
           tenantId: i.tenantId,
           tenantName: i.tenantName || (i.tenant ? `${i.tenant.firstName} ${i.tenant.lastName}` : 'Resident'),
+          tenantEmail: i.tenantEmail || i.tenant?.email || '',
           propertyName: i.propertyName || (i.property ? i.property.name : 'Property'),
           unitNumber: i.unitNumber || (i.unit ? i.unit.unitNumber : '101'),
           amount: i.amount || 0,
@@ -723,7 +969,9 @@ export const api = {
       const newNotice = {
         id: `ai-notice-${Date.now()}`,
         invoiceId: id,
-        tenantName: invoiceData?.tenantName || 'Resident',
+        tenantId: invoiceData?.tenantId || '',
+        tenantEmail: (invoiceData?.tenantEmail || '').toLowerCase().trim(),
+        tenantName: invoiceData?.tenantName || '',
         title: noticeTitle,
         message: reminderText,
         type: tone === 'urgent' ? 'warning' : 'info',
@@ -737,7 +985,8 @@ export const api = {
       try {
         const raw = localStorage.getItem('whatslandlord_ai_rent_notices');
         const list = raw ? JSON.parse(raw) : [];
-        const updated = [newNotice, ...list.filter((item: any) => item.id !== newNotice.id)];
+        const cleanedList = list.filter((item: any) => item.id !== 'ai-notice-seed-1');
+        const updated = [newNotice, ...cleanedList.filter((item: any) => item.id !== newNotice.id)];
         localStorage.setItem('whatslandlord_ai_rent_notices', JSON.stringify(updated));
         window.dispatchEvent(new Event('storage'));
         window.dispatchEvent(new CustomEvent('ai-notice-sent', { detail: newNotice }));
@@ -812,7 +1061,18 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/portal/expenses');
-        return (res.data || []).map((e: any) => {
+        const isDemo = isDemoManager();
+        const userCompanyId = getActiveCompanyId();
+
+        const filtered = (res.data || []).filter((e: any) => {
+          let parsed: any = {};
+          try { parsed = JSON.parse(e.description); } catch { parsed = {}; }
+          if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
+          if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(parsed.propertyName) && !parsed.propertyId) return false;
+          return true;
+        });
+
+        return filtered.map((e: any) => {
           let parsed = { vendorName: 'Vendor', propertyName: 'Property', propertyId: '', buildingId: '', unitId: '', payeeType: 'Vendor', payeeId: '' };
           try {
             parsed = JSON.parse(e.description);
@@ -1075,7 +1335,18 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/portal/income');
-        return (res.data || []).map((i: any) => {
+        const isDemo = isDemoManager();
+        const userCompanyId = getActiveCompanyId();
+
+        const filtered = (res.data || []).filter((i: any) => {
+          let parsed: any = {};
+          try { parsed = JSON.parse(i.description); } catch { parsed = {}; }
+          if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
+          if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(parsed.propertyName) && !parsed.propertyId) return false;
+          return true;
+        });
+
+        return filtered.map((i: any) => {
           let parsed = { propertyName: 'Property', tenantName: 'Resident', propertyId: '', buildingId: '', unitId: '', sourceType: 'Tenant', sourceId: '' };
           try {
             parsed = JSON.parse(i.description);
@@ -1263,7 +1534,17 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/payments');
-        return (res.data || []).map((p: any, idx: number) => ({
+        const isDemo = isDemoManager();
+        const userCompanyId = getActiveCompanyId();
+
+        const filtered = (res.data || []).filter((p: any) => {
+          if (userCompanyId && p.companyId && p.companyId !== userCompanyId) return false;
+          const pName = p.property?.name || p.propertyName || '';
+          if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(pName) && !p.propertyId) return false;
+          return true;
+        });
+
+        return filtered.map((p: any, idx: number) => ({
           ...p,
           id: p.id,
           receiptNumber: p.receiptNumber || `#${idx + 1}`,
@@ -1593,6 +1874,7 @@ export const api = {
         const res: any = await apiClient.get('/portal/tenant/metrics');
         return {
           currentRent: res.data?.currentRent || 0,
+          currentRentDue: res.data?.currentRentDue || res.data?.currentRent || 0,
           outstandingBalance: res.data?.outstandingBalance || 0,
           nextDueDate: res.data?.nextDueDate || 'N/A',
           unreadMessages: res.data?.unreadMessages || 0,
@@ -1604,6 +1886,7 @@ export const api = {
       } catch (e) {
         return {
           currentRent: 0,
+          currentRentDue: 0,
           outstandingBalance: 0,
           nextDueDate: 'N/A',
           unreadMessages: 0,
@@ -2534,24 +2817,14 @@ export const api = {
       try {
         const rawLocal = localStorage.getItem('whatslandlord_ai_rent_notices');
         let localNotices: any[] = [];
-        if (!rawLocal) {
-          const seedNotice = {
-            id: 'ai-notice-seed-1',
-            invoiceId: 'inv-seed-1',
-            tenantName: 'Divine Resident',
-            title: '🚨 Urgent Rent Payment Notice',
-            message: 'Dear Divine, this is a formal reminder that your outstanding rent balance of $1,850 for Sunset Villas Unit 101 is past due. Please remit payment via your Tenant Portal at your earliest convenience. Thank you, Property Management.',
-            type: 'warning',
-            role: 'Tenant',
-            read: false,
-            timestamp: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-            date: new Date().toISOString().split('T')[0],
-            createdAt: new Date().toISOString(),
-          };
-          localNotices = [seedNotice];
-          localStorage.setItem('whatslandlord_ai_rent_notices', JSON.stringify(localNotices));
-        } else {
-          localNotices = JSON.parse(rawLocal);
+        if (rawLocal) {
+          const parsed = JSON.parse(rawLocal);
+          if (Array.isArray(parsed)) {
+            localNotices = parsed.filter((n: any) => n.id !== 'ai-notice-seed-1');
+            if (localNotices.length !== parsed.length) {
+              localStorage.setItem('whatslandlord_ai_rent_notices', JSON.stringify(localNotices));
+            }
+          }
         }
         return [...localNotices, ...serverList];
       } catch {

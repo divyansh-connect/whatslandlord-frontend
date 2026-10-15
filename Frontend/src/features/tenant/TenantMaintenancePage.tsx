@@ -14,6 +14,7 @@ import { RequestPriorityBadge } from '../../components/MaintenanceComponents';
 import { Eye, Plus, Loader2, Phone, Mail, MessageSquare, Send } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useTranslation } from 'react-i18next';
+import { extractPreferredVisit, cleanDescription } from '../../utils/maintenanceHelpers';
 
 export const TenantMaintenancePage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -69,16 +70,26 @@ export const TenantMaintenancePage: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: () => {
+      const trimmedPref = preferredTime?.trim() || '';
+      const descWithPref = trimmedPref
+        ? `${description ? description.trim() + '\n\n' : ''}[Preferred Visit: ${trimmedPref}]`
+        : description;
+
       return api.tenantMaintenance.create({
         title,
         priority,
-        description,
-        preferredTime,
+        description: descWithPref,
+        preferredTime: trimmedPref,
+        scheduledDate: trimmedPref,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenant-maintenance-list'] });
       queryClient.invalidateQueries({ queryKey: ['tenant-dashboard-metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['service-requests-list'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-dashboard-work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['work-orders-list'] });
       setIsFormOpen(false);
       setTitle('');
       setDescription('');
@@ -176,7 +187,7 @@ export const TenantMaintenancePage: React.FC = () => {
 
             <div className="space-y-2">
               <p className="text-muted-foreground text-[10px] uppercase">{t('tenantMaintenance.description')}</p>
-              <p className="leading-relaxed bg-secondary/15 p-3 rounded-lg border font-medium">{selectedRequest.description}</p>
+              <p className="leading-relaxed bg-secondary/15 p-3 rounded-lg border font-medium">{cleanDescription(selectedRequest.description)}</p>
             </div>
 
             {selectedRequest.status === 'Completed' && (selectedRequest.notes || selectedRequest.resolutionNotes) && (
@@ -188,10 +199,10 @@ export const TenantMaintenancePage: React.FC = () => {
               </div>
             )}
 
-            {selectedRequest.preferredTime && (
+            {extractPreferredVisit(selectedRequest) && (
               <div>
                 <p className="text-muted-foreground text-[10px] uppercase">{t('tenantMaintenance.preferredTime')}</p>
-                <p className="font-bold">{selectedRequest.preferredTime}</p>
+                <p className="font-bold text-amber-600 dark:text-amber-400">{extractPreferredVisit(selectedRequest)}</p>
               </div>
             )}
 
@@ -303,7 +314,33 @@ export const TenantMaintenancePage: React.FC = () => {
 
             <div className="space-y-1">
               <label className="text-xs font-bold text-muted-foreground uppercase">{t('tenantMaintenance.preferredWindow')}</label>
-              <Input placeholder={t('tenantMaintenance.preferredPlaceholder')} value={preferredTime} onChange={(e) => setPreferredTime(e.target.value)} />
+              <Input 
+                list="preferred-visit-options"
+                placeholder={t('tenantMaintenance.preferredPlaceholder')} 
+                value={preferredTime} 
+                onChange={(e) => setPreferredTime(e.target.value)} 
+              />
+              <datalist id="preferred-visit-options">
+                <option value="Monday" />
+                <option value="Tuesday" />
+                <option value="Wednesday" />
+                <option value="Thursday" />
+                <option value="Friday" />
+                <option value="Saturday" />
+                <option value="Sunday" />
+                <option value="Monday (Morning 8am - 12pm)" />
+                <option value="Monday (Afternoon 12pm - 5pm)" />
+                <option value="Tuesday (Morning 8am - 12pm)" />
+                <option value="Tuesday (Afternoon 12pm - 5pm)" />
+                <option value="Wednesday (Morning 8am - 12pm)" />
+                <option value="Wednesday (Afternoon 12pm - 5pm)" />
+                <option value="Thursday (Morning 8am - 12pm)" />
+                <option value="Thursday (Afternoon 12pm - 5pm)" />
+                <option value="Friday (Morning 8am - 12pm)" />
+                <option value="Friday (Afternoon 12pm - 5pm)" />
+                <option value="Weekend (Flexible)" />
+                <option value="Anytime / Emergency" />
+              </datalist>
             </div>
           </div>
 

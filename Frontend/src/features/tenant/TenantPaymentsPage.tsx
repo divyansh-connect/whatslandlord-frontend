@@ -14,6 +14,8 @@ import { clsx } from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/Tabs';
 import { useCompanyStore } from '../../store/useStore';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export const TenantPaymentsPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -192,7 +194,45 @@ export const TenantPaymentsPage: React.FC = () => {
   };
 
   const handleDownloadPDF = () => {
-    window.print();
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+      // Title & Header
+      doc.setFontSize(16);
+      doc.setTextColor(30, 41, 59);
+      doc.text('TENANT PAYMENT LEDGER STATEMENT', 14, 18);
+
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Tenant: ${tenantName} | Outstanding Balance: $${outstandingBalance.toLocaleString()}`, 14, 25);
+      doc.text(`Generated on: ${new Date().toLocaleString()} | Total Records: ${filteredLedger.length}`, 14, 30);
+
+      const headers = ['Date', 'Type', 'Description', 'Ref No.', 'Inv. Amount', 'Payment', 'Balance', 'Status'];
+      const tableRows = filteredLedger.map((tx: any) => [
+        String(tx.date || 'N/A'),
+        String(tx.type || 'Charge'),
+        String(tx.desc || 'Rent'),
+        String(tx.ref || '—'),
+        `$${Number(tx.invoiceAmt || 0).toFixed(2)}`,
+        `$${Number(tx.paymentAmt || 0).toFixed(2)}`,
+        `$${Number(tx.balance || 0).toFixed(2)}`,
+        String(tx.status || 'Posted'),
+      ]);
+
+      autoTable(doc, {
+        startY: 35,
+        head: [headers],
+        body: tableRows,
+        theme: 'grid',
+        headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 3 },
+      });
+
+      doc.save(`tenant_ledger_${tenantName.replace(/\s+/g, '_').toLowerCase()}.pdf`);
+    } catch (err) {
+      console.warn('jsPDF export error, falling back to window.print:', err);
+      window.print();
+    }
   };
 
   // Form states

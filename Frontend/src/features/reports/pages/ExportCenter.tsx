@@ -7,6 +7,7 @@ import { Button } from '../../../components/ui/Button';
 import { Download, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { apiClient } from '../../../api/client';
+import { downloadRealFile } from '../../../utils/fileDownload';
 
 export const ExportCenter: React.FC = () => {
   const { data: exportsData, isLoading } = useQuery({
@@ -16,13 +17,15 @@ export const ExportCenter: React.FC = () => {
 
   const exports = exportsData?.data || [];
 
-  const handleDownload = (fileUrl: string | null) => {
+  const handleDownload = async (fileUrl: string | null, fileName?: string) => {
     if (!fileUrl) return;
-    // Resolve absolute path from backend base URL
-    const baseURL = import.meta.env.VITE_API_URL || 'https://doorloop-backend-production-5d5d.up.railway.app/api/v1';
-    const serverHost = baseURL.replace('/api/v1', '');
-    const downloadUrl = `${serverHost}${fileUrl}`;
-    window.open(downloadUrl, '_blank');
+    let downloadUrl = fileUrl.trim();
+    if (!downloadUrl.startsWith('http://') && !downloadUrl.startsWith('https://')) {
+      const baseURL = import.meta.env.VITE_API_URL || 'https://doorloop-backend-production-5d5d.up.railway.app/api/v1';
+      const serverHost = baseURL.replace('/api/v1', '');
+      downloadUrl = `${serverHost}${downloadUrl.startsWith('/') ? '' : '/'}${downloadUrl}`;
+    }
+    await downloadRealFile({ name: fileName, fileUrl: downloadUrl });
   };
 
   const columns: ColumnDef<any>[] = [
@@ -70,7 +73,7 @@ export const ExportCenter: React.FC = () => {
             variant="outline"
             size="sm"
             disabled={row.original.status !== 'Completed' || !row.original.fileUrl}
-            onClick={() => handleDownload(row.original.fileUrl)}
+            onClick={() => handleDownload(row.original.fileUrl, row.original.fileName)}
             className="text-xs font-semibold flex items-center gap-1"
           >
             <Download className="w-3.5 h-3.5" /> Download

@@ -11,8 +11,9 @@ import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { RequestPriorityBadge } from '../../components/MaintenanceComponents';
 import { StatusBadge } from '../../components/StatusBadge';
-import { Plus, Eye, Trash2, Download } from 'lucide-react';
+import { Plus, Eye, Trash2, Download, Clock } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
+import { extractPreferredVisit } from '../../utils/maintenanceHelpers';
 
 import { getFormattedRequestNumber } from '../../utils/format';
 
@@ -88,7 +89,24 @@ export const RequestsPage: React.FC = () => {
       id: 'status',
       cell: ({ row }) => <StatusBadge status={row.original.status} />,
     },
-    { accessorKey: 'createdAt', header: t('maintenanceRequests.submittedDate'), id: 'createdAt' },
+    {
+      accessorKey: 'createdAt',
+      header: t('maintenanceRequests.submittedDate'),
+      id: 'createdAt',
+      cell: ({ row }) => {
+        const pref = extractPreferredVisit(row.original);
+        return (
+          <div className="space-y-1">
+            <span className="text-xs font-semibold text-muted-foreground block">{row.original.createdAt}</span>
+            {pref && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 whitespace-nowrap">
+                <Clock className="w-2.5 h-2.5 text-amber-500" /> Pref: {pref}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
     {
       id: 'actions',
       header: t('maintenanceRequests.actions'),

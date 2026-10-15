@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import api from '../../api';
 import { PageHeader } from '../../components/PageHeader';
@@ -13,10 +13,12 @@ import {
   MapPin, User, Tag, Calendar, DollarSign, Image as ImageIcon,
   Wrench, Check, AlertTriangle, X, Coins, Sparkles
 } from 'lucide-react';
+import { extractPreferredVisit, cleanDescription } from '../../utils/maintenanceHelpers';
 
 export const StaffTaskDetailsPage: React.FC = () => {
   const { id } = useParams({ from: '/staff/tasks/$id' });
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: task, isLoading } = useQuery({
     queryKey: ['staff-work-order-details-v2', id],
@@ -37,6 +39,34 @@ export const StaffTaskDetailsPage: React.FC = () => {
   const [actualCostVal, setActualCostVal] = useState<string>('');
   const [extraExpensesVal, setExtraExpensesVal] = useState<string>('');
   const [resolutionNotesVal, setResolutionNotesVal] = useState('');
+
+  // Status mutation for real DB sync
+  const updateStatusMutation = useMutation({
+    mutationFn: async (payload: {
+      status: string;
+      actualCost?: number;
+      labourCost?: number;
+      extraExpenses?: number;
+      rejectReason?: string;
+      resolutionNotes?: string;
+    }) => {
+      try {
+        return await api.staffTasks.updateStatus(id, payload);
+      } catch (err) {
+        return await api.workOrders.update(id, payload);
+      }
+    },
+    onSuccess: (_, variables) => {
+      setLocalStatus(variables.status);
+      queryClient.invalidateQueries({ queryKey: ['staff-work-order-details-v2'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-dashboard-work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['staff-work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['work-orders-list'] });
+      queryClient.invalidateQueries({ queryKey: ['work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['maintenance-metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-maintenance-requests'] });
+    },
+  });
 
   useEffect(() => {
     if (task) {
@@ -75,56 +105,58 @@ export const StaffTaskDetailsPage: React.FC = () => {
 
   // Helper to determine step status colors
   const getStepIndex = (status: string) => {
-    if (status === 'New') return 0;
+    if (status === 'New' || status === 'Open' || status === 'Submitted') return 0;
     if (status === 'Assigned' || status === 'Scheduled' || status === 'Waiting' || status === 'Draft') return 1;
-    if (status === 'In Progress') return 2;
+    if (status === 'In Progress' || status === 'InProgress' || status === 'In_Progress') return 2;
     if (status === 'Completed' || status === 'Closed') return 3;
     return -1;
   };
 
   const currentStepIndex = getStepIndex(localStatus);
   const isRejected = localStatus === 'Rejected' || localStatus === 'Cancelled';
+  const preferredVisitDay = extractPreferredVisit(task);
 
-  // UI-only action triggers
+  // Action triggers with real API sync
   const handleAccept = () => {
-    setLocalStatus('Assigned');
+    updateStatusMutation.mutate({ status: 'Assigned' });
   };
 
   const handleStartWork = () => {
-    setLocalStatus('In Progress');
+    updateStatusMutation.mutate({ status: 'In Progress' });
   };
 
   // Reject Submit Handler
   const handleRejectSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setLocalStatus('Rejected');
-    setRejectReason(rejectReasonText || 'No reason provided');
+    const reason = rejectReasonText || 'No reason provided';
+    setRejectReason(reason);
     setIsRejectModalOpen(false);
+    updateStatusMutation.mutate({
+      status: 'Rejected',
+      rejectReason: reason,
+    });
   };
 
   // Completion Submit Handler
-  const handleCompleteSubmit = async (e: React.FormEvent) => {
+  const handleCompleteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const actual = actualCostVal ? Number(actualCostVal) : 0;
     const extra = extraExpensesVal ? Number(extraExpensesVal) : 0;
     const totalActual = actual + extra;
+    const notes = resolutionNotesVal || 'Repairs completed.';
 
-    setLocalStatus('Completed');
     setActualCost(actual);
     setExtraExpenses(extra);
-    setResolutionNotes(resolutionNotesVal || 'Repairs completed.');
+    setResolutionNotes(notes);
     setIsCompleteModalOpen(false);
 
-    try {
-      await api.workOrders.update(id, {
-        status: 'Completed',
-        actualCost: totalActual > 0 ? totalActual : actual,
-        extraCost: extra,
-        resolutionNotes: resolutionNotesVal || 'Repairs completed.',
-      });
-    } catch (err) {
-      console.error('Failed to update task completion in backend:', err);
-    }
+    updateStatusMutation.mutate({
+      status: 'Completed',
+      actualCost: totalActual > 0 ? totalActual : actual,
+      labourCost: actual,
+      extraExpenses: extra,
+      resolutionNotes: notes,
+    });
   };
 
   return (
@@ -166,9 +198,16 @@ export const StaffTaskDetailsPage: React.FC = () => {
                 </span>
                 <StatusBadge status={localStatus as any} />
               </div>
-              <h2 className="text-xl font-black mt-3 leading-snug">{task.issue || 'AC Repair & Diagnostics'}</h2>
+              <h2 className="text-xl font-black mt-3 leading-snug flex items-center justify-between flex-wrap gap-2">
+                <span>{task.issue || 'AC Repair & Diagnostics'}</span>
+                {preferredVisitDay && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                    <Clock className="w-3.5 h-3.5 text-amber-500" /> Preferred Day: {preferredVisitDay}
+                  </span>
+                )}
+              </h2>
               <p className="text-xs text-muted-foreground mt-2 leading-relaxed font-medium">
-                {task.description || 'No detailed instructions provided. Please inspect site, diagnose root cause, and complete standard repair procedure.'}
+                {cleanDescription(task.description) || task.description || 'No detailed instructions provided. Please inspect site, diagnose root cause, and complete standard repair procedure.'}
               </p>
             </div>
 
@@ -207,6 +246,16 @@ export const StaffTaskDetailsPage: React.FC = () => {
                     <p className="text-foreground mt-0.5">{task.scheduledDate || 'TBD'}</p>
                   </div>
                 </div>
+
+                {preferredVisitDay && (
+                  <div className="flex items-center space-x-3 text-muted-foreground">
+                    <Clock className="w-4.5 h-4.5 text-amber-500 shrink-0" />
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground/60">Preferred Visit Window / Day</p>
+                      <p className="text-amber-600 dark:text-amber-400 mt-0.5 font-black text-xs">{preferredVisitDay}</p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center space-x-3 text-muted-foreground">
                   <DollarSign className="w-4.5 h-4.5 text-primary shrink-0" />
@@ -276,15 +325,17 @@ export const StaffTaskDetailsPage: React.FC = () => {
                   <>
                     <Button
                       onClick={handleAccept}
+                      disabled={updateStatusMutation.isPending}
                       className="flex-1 rounded-xl h-10 font-bold bg-primary text-white"
                     >
-                      Accept Job
+                      {updateStatusMutation.isPending ? 'Updating...' : 'Accept Job'}
                     </Button>
                     <Button
                       onClick={() => {
                         setRejectReasonText('');
                         setIsRejectModalOpen(true);
                       }}
+                      disabled={updateStatusMutation.isPending}
                       className="flex-1 rounded-xl h-10 font-bold bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 border border-rose-500/20"
                     >
                       Reject Job
@@ -295,19 +346,21 @@ export const StaffTaskDetailsPage: React.FC = () => {
                 {(localStatus === 'Assigned' || localStatus === 'Scheduled' || localStatus === 'Draft') && (
                   <Button
                     onClick={handleStartWork}
-                    className="flex-1 rounded-xl h-10 font-bold bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center gap-1.5"
+                    disabled={updateStatusMutation.isPending}
+                    className="flex-1 rounded-xl h-10 font-bold bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center gap-1.5 disabled:opacity-60"
                   >
-                    <Play className="w-4 h-4 fill-white" /> Start Work
+                    <Play className="w-4 h-4 fill-white" /> {updateStatusMutation.isPending ? 'Starting Work...' : 'Start Work'}
                   </Button>
                 )}
 
-                {localStatus === 'In Progress' && (
+                {(localStatus === 'In Progress' || localStatus === 'InProgress' || localStatus === 'In_Progress') && (
                   <Button
                     onClick={() => {
-                      setActualCostVal(task.estimatedCost.toString());
+                      setActualCostVal(task.estimatedCost?.toString() || '0');
                       setIsCompleteModalOpen(true);
                     }}
-                    className="flex-1 rounded-xl h-10 font-bold bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center gap-1.5"
+                    disabled={updateStatusMutation.isPending}
+                    className="flex-1 rounded-xl h-10 font-bold bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center gap-1.5 disabled:opacity-60"
                   >
                     <Check className="w-4.5 h-4.5" /> Complete Work
                   </Button>

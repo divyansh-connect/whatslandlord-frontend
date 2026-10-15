@@ -11,7 +11,8 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { FormDialog } from '../../components/FormDialog';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
-import { Printer, Calendar, DollarSign, User, Wrench, ShieldAlert, Coins } from 'lucide-react';
+import { Printer, Calendar, DollarSign, User, Wrench, ShieldAlert, Coins, Clock } from 'lucide-react';
+import { extractPreferredVisit } from '../../utils/maintenanceHelpers';
 
 export const WorkOrderDetailsPage: React.FC = () => {
   const { id } = useParams({ from: '/maintenance/work-orders/$id' });
@@ -96,9 +97,14 @@ export const WorkOrderDetailsPage: React.FC = () => {
 
       {/* QUICK STATUS BAR */}
       <div className="flex flex-wrap items-center justify-between p-4 bg-card border rounded-2xl gap-3">
-        <div className="flex items-center space-x-3.5">
+        <div className="flex items-center space-x-3.5 flex-wrap gap-2">
           <StatusBadge status={wo.status} />
           <span className="text-xs font-bold text-muted-foreground font-mono">{wo.scheduledDate}</span>
+          {extractPreferredVisit(wo) && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-black text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
+              <Clock className="w-3 h-3 text-amber-500" /> Pref Day: {extractPreferredVisit(wo)}
+            </span>
+          )}
         </div>
 
         <div className="flex space-x-2">
@@ -156,6 +162,14 @@ export const WorkOrderDetailsPage: React.FC = () => {
                   <p className="font-bold text-sm mt-1">{wo.vendorName}</p>
                   <p className="text-muted-foreground">Technician: {wo.assignedTechnician}</p>
                 </div>
+                {extractPreferredVisit(wo) && (
+                  <div className="p-3.5 bg-amber-500/5 rounded-xl border border-amber-500/20 col-span-2">
+                    <p className="text-muted-foreground text-[10px] uppercase font-bold">Tenant Preferred Visit Window / Day</p>
+                    <p className="font-black text-sm mt-0.5 text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-amber-500" /> {extractPreferredVisit(wo)}
+                    </p>
+                  </div>
+                )}
               </div>
             </Card>
 

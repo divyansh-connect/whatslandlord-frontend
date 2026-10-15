@@ -9,6 +9,7 @@ import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { RequestPriorityBadge } from '../../components/MaintenanceComponents';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CheckCircle, AlertTriangle, User, Calendar, Clock, Lock, MessageSquare, Phone, Mail, Send } from 'lucide-react';
+import { extractPreferredVisit, cleanDescription } from '../../utils/maintenanceHelpers';
 
 import { getFormattedRequestNumber } from '../../utils/format';
 
@@ -98,6 +99,7 @@ export const RequestDetailsPage: React.FC = () => {
   });
 
   const recommendedVendor = aiRecommendation?.recommendedVendor || null;
+  const preferredVisitDay = extractPreferredVisit(request);
 
   if (isLoading || !request) {
     return <LoadingSkeleton type="details" />;
@@ -253,9 +255,16 @@ export const RequestDetailsPage: React.FC = () => {
         {/* Left Columns - Details */}
         <Card className="md:col-span-2 p-6 border bg-card space-y-6">
           <div className="space-y-2">
-            <h3 className="text-base font-extrabold uppercase tracking-wide border-b pb-2">{request.title}</h3>
+            <div className="flex flex-wrap justify-between items-center border-b pb-2 gap-2">
+              <h3 className="text-base font-extrabold uppercase tracking-wide">{request.title}</h3>
+              {preferredVisitDay && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  <Clock className="w-3.5 h-3.5 text-amber-500" /> Preferred Day: {preferredVisitDay}
+                </span>
+              )}
+            </div>
             <p className="text-xs font-semibold text-muted-foreground pt-2">Issue Description:</p>
-            <p className="text-xs leading-relaxed font-medium bg-secondary/10 p-3.5 border rounded-xl">{request.description}</p>
+            <p className="text-xs leading-relaxed font-medium bg-secondary/10 p-3.5 border rounded-xl">{cleanDescription(request.description) || request.description}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4 text-xs font-semibold">
@@ -328,10 +337,12 @@ export const RequestDetailsPage: React.FC = () => {
           
           <div className="space-y-3.5 text-xs font-semibold">
             <div className="flex items-center space-x-2">
-              <Clock className="w-4.5 h-4.5 text-muted-foreground" />
+              <Clock className="w-4.5 h-4.5 text-amber-500" />
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase">Preferred Visit Time</p>
-                <p>{request.preferredTime || 'Anytime'}</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-bold">Preferred Visit Day / Time</p>
+                <p className="font-extrabold text-foreground text-sm text-amber-600 dark:text-amber-400">
+                  {preferredVisitDay || (request.scheduledDate && !request.scheduledDate.includes('-') ? request.scheduledDate : null) || 'Flexible / Anytime'}
+                </p>
               </div>
             </div>
 
@@ -361,7 +372,18 @@ export const RequestDetailsPage: React.FC = () => {
                 ${request.cost || request.estimatedCost || 0}
               </p>
               <p className="text-[10px] text-muted-foreground">
-                Standard category benchmark: <span className="font-bold text-foreground">$120 - $220</span>
+                Category ({request.category || 'Standard'}) benchmark:{' '}
+                <span className="font-bold text-foreground">
+                  {(request.category || '').toLowerCase().includes('hvac') || (request.category || '').toLowerCase().includes('ac')
+                    ? '$250 - $600'
+                    : (request.category || '').toLowerCase().includes('electr')
+                    ? '$150 - $350'
+                    : (request.category || '').toLowerCase().includes('plumb')
+                    ? '$120 - $280'
+                    : (request.category || '').toLowerCase().includes('roof')
+                    ? '$400 - $850'
+                    : '$120 - $220'}
+                </span>
               </p>
             </div>
 

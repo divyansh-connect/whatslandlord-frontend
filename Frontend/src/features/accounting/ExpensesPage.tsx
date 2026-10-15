@@ -159,6 +159,8 @@ export const ExpensesPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['expenses-list'] });
+      queryClient.invalidateQueries({ queryKey: ['accounting-expenses-list'] });
+      queryClient.invalidateQueries({ queryKey: ['coa-accounts-list'] });
       setIsOpen(false);
       setAmount(250);
       setPropertyId('');

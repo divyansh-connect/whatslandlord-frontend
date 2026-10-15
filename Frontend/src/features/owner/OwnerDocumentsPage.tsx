@@ -13,6 +13,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Download, FileText, Plus, UploadCloud, Loader2 } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
+import { downloadRealFile } from '../../utils/fileDownload';
 
 export const OwnerDocumentsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -29,54 +30,35 @@ export const OwnerDocumentsPage: React.FC = () => {
   const [customCategory, setCustomCategory] = useState('');
 
   // Download states
-  const [successDialogOpen, setSuccessDialogOpen] = useState(false);
-  const [downloadedDocName, setDownloadedDocName] = useState('');
+  const [dialogInfo, setDialogInfo] = useState<{ open: boolean; title: string; description: string }>({
+    open: false,
+    title: '',
+    description: '',
+  });
 
   const handleDownload = async (doc: OwnerDocument) => {
-    if (doc.fileUrl) {
-      let downloadUrl = doc.fileUrl;
-      const filename = doc.name.endsWith('.pdf') ? doc.name : `${doc.name}.pdf`;
+    if (!doc || !doc.fileUrl) {
+      setDialogInfo({
+        open: true,
+        title: 'No Document File',
+        description: `No file is currently attached to "${doc?.name || 'this document'}". Please contact your property manager to upload a copy.`,
+      });
+      return;
+    }
 
-      if (downloadUrl.includes('res.cloudinary.com') && downloadUrl.includes('/upload/')) {
-        downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
-      }
-
-      try {
-        const response = await fetch(downloadUrl);
-        if (response.ok) {
-          const blob = await response.blob();
-          const blobUrl = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = blobUrl;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => {
-            window.URL.revokeObjectURL(blobUrl);
-            document.body.removeChild(a);
-          }, 100);
-          setDownloadedDocName(filename);
-          setSuccessDialogOpen(true);
-          return;
-        }
-      } catch (e) {
-        console.warn('Fetch blob download failed, falling back to direct link:', e);
-      }
-
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = filename;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        document.body.removeChild(a);
-      }, 100);
-      setDownloadedDocName(filename);
-      setSuccessDialogOpen(true);
+    const res = await downloadRealFile(doc);
+    if (res.success) {
+      setDialogInfo({
+        open: true,
+        title: 'Download Started',
+        description: `The file "${res.filename}" is downloading. Please check your browser's download folder.`,
+      });
     } else {
-      alert(`No download URL available for ${doc.name}`);
+      setDialogInfo({
+        open: true,
+        title: 'Download Error',
+        description: 'Unable to download file. Please check your internet connection or try again later.',
+      });
     }
   };
 
@@ -101,13 +83,17 @@ export const OwnerDocumentsPage: React.FC = () => {
     if (!selectedFile && !fileName) return;
 
     const finalCategory = fileCategory === 'Other' ? customCategory || 'Other' : fileCategory;
-    const finalName = fileName.trim() || selectedFile?.name || 'Owner_Document.pdf';
+    let finalName = fileName.trim() || selectedFile?.name || 'Owner_Document';
+    const fileExt = selectedFile?.name.includes('.') ? selectedFile.name.split('.').pop() : '';
+    if (fileExt && !finalName.includes('.')) {
+      finalName = `${finalName}.${fileExt}`;
+    }
 
     const formData = new FormData();
     if (selectedFile) {
       formData.append('file', selectedFile);
     }
-    formData.append('name', finalName.endsWith('.pdf') ? finalName : `${finalName}.pdf`);
+    formData.append('name', finalName);
     formData.append('category', finalCategory);
 
     uploadMutation.mutate(formData);
@@ -272,14 +258,14 @@ export const OwnerDocumentsPage: React.FC = () => {
         </form>
       </FormDialog>
 
-      {/* DOWNLOAD SUCCESS DIALOG */}
+      {/* DOWNLOAD / STATUS DIALOG */}
       <ConfirmDialog
-        open={successDialogOpen}
-        onOpenChange={setSuccessDialogOpen}
-        title="Download Started"
-        description={`The document "${downloadedDocName}" is being downloaded. Please check your browser's download folder.`}
-        onConfirm={() => setSuccessDialogOpen(false)}
-        confirmText="Great"
+        open={dialogInfo.open}
+        onOpenChange={(open) => setDialogInfo((prev) => ({ ...prev, open }))}
+        title={dialogInfo.title}
+        description={dialogInfo.description}
+        onConfirm={() => setDialogInfo((prev) => ({ ...prev, open: false }))}
+        confirmText="OK"
         cancelText="Close"
       />
     </div>
