@@ -26,13 +26,19 @@ import * as DocumentPicker from 'expo-document-picker';
 import { leadSchema, screeningSchema, leaseSchema, moveInSchema, moveOutSchema } from '../validations/mobile.validation';
 import { CustomDatePicker } from '../components/CustomDatePicker';
 
-export const LeadsScreen = ({ onNavigate }) => {
+export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
 
-  // Sub-tab selector: 'leads' | 'applications' | 'screening' | 'leases' | 'movein' | 'moveout' | 'templates'
-  const [activeTab, setActiveTab] = useState('leads');
+  // Sub-tab selector: 'leads' | 'applications' | 'screening' | 'leases' | 'renewals' | 'movein' | 'moveout' | 'templates'
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Lists state
   const [leadsList, setLeadsList] = useState([]);
@@ -359,7 +365,7 @@ export const LeadsScreen = ({ onNavigate }) => {
     if (activeTab === 'leads') fetchLeads();
     if (activeTab === 'applications') fetchApplications();
     if (activeTab === 'screening') fetchScreening();
-    if (activeTab === 'leases') fetchLeases();
+    if (activeTab === 'leases' || activeTab === 'renewals') fetchLeases();
     if (activeTab === 'movein') fetchMoveIns();
     if (activeTab === 'moveout') fetchMoveOuts();
     if (activeTab === 'templates') fetchTemplates();
@@ -370,7 +376,7 @@ export const LeadsScreen = ({ onNavigate }) => {
     if (activeTab === 'leads') fetchLeads(false);
     if (activeTab === 'applications') fetchApplications(false);
     if (activeTab === 'screening') fetchScreening(false);
-    if (activeTab === 'leases') fetchLeases(false);
+    if (activeTab === 'leases' || activeTab === 'renewals') fetchLeases(false);
     if (activeTab === 'movein') fetchMoveIns(false);
     if (activeTab === 'moveout') fetchMoveOuts(false);
     if (activeTab === 'templates') fetchTemplates(false);
@@ -894,6 +900,9 @@ export const LeadsScreen = ({ onNavigate }) => {
             <TouchableOpacity style={[styles.tabItem, activeTab === 'leases' && styles.tabItemActive]} onPress={() => setActiveTab('leases')}>
               <Text style={[styles.tabItemText, activeTab === 'leases' && styles.tabItemTextActive]} allowFontScaling={false}>Leases</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'renewals' && styles.tabItemActive]} onPress={() => setActiveTab('renewals')}>
+              <Text style={[styles.tabItemText, activeTab === 'renewals' && styles.tabItemTextActive]} allowFontScaling={false}>Renewals</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={[styles.tabItem, activeTab === 'movein' && styles.tabItemActive]} onPress={() => setActiveTab('movein')}>
               <Text style={[styles.tabItemText, activeTab === 'movein' && styles.tabItemTextActive]} allowFontScaling={false}>Move In</Text>
             </TouchableOpacity>
@@ -1118,6 +1127,42 @@ export const LeadsScreen = ({ onNavigate }) => {
                         <Text style={styles.recordSubText} allowFontScaling={false}>Monthly Base Rent</Text>
                         <Text style={[styles.recordValue, { color: '#38bdf8' }]} allowFontScaling={false}>
                           ${Number(item.monthlyRent).toLocaleString()}
+                        </Text>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
+
+            {/* 4.5 LEASE RENEWALS LIST */}
+            {activeTab === 'renewals' && (
+              <View>
+                {filteredLeases.length === 0 ? (
+                  <View style={styles.emptyView}>
+                    <Text style={styles.emptyText} allowFontScaling={false}>No upcoming renewals requiring attention</Text>
+                  </View>
+                ) : (
+                  filteredLeases.map((item) => (
+                    <View key={`renew-${item.id}`} style={styles.recordsCard}>
+                      <View style={styles.rowBetween}>
+                        <View style={{ flex: 1, marginRight: 10 }}>
+                          <Text style={styles.recordLabel} allowFontScaling={false}>{item.tenantName}</Text>
+                          <Text style={styles.recordSubText} allowFontScaling={false}>{item.propertyName} · Unit {item.unitNumber}</Text>
+                        </View>
+                        <View style={[styles.badge, { borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
+                          <Text style={[styles.badgeText, { color: '#f59e0b' }]} allowFontScaling={false}>Renewal Eligible</Text>
+                        </View>
+                      </View>
+                      <View style={styles.divider} />
+                      <View style={styles.rowBetween}>
+                        <Text style={styles.recordSubText} allowFontScaling={false}>Current Lease End</Text>
+                        <Text style={styles.recordSubTextVal} allowFontScaling={false}>{item.endDate || 'Dec 31, 2026'}</Text>
+                      </View>
+                      <View style={styles.rowBetween}>
+                        <Text style={styles.recordSubText} allowFontScaling={false}>Proposed Rent</Text>
+                        <Text style={[styles.recordValue, { color: '#10b981' }]} allowFontScaling={false}>
+                          ${Math.round(Number(item.monthlyRent || 2200) * 1.05).toLocaleString()}/mo (+5%)
                         </Text>
                       </View>
                     </View>

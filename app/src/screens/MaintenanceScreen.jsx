@@ -59,7 +59,7 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const MaintenanceScreen = () => {
+export const MaintenanceScreen = ({ initialTab = 'requests' }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
@@ -82,8 +82,14 @@ export const MaintenanceScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Manager Switcher Tab: 'requests' | 'work_orders' | 'violations' | 'staff'
-  const [activeTab, setActiveTab] = useState('requests');
+  // Manager Switcher Tab: 'dashboard' | 'requests' | 'work_orders' | 'violations' | 'staff'
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Filter pickers
   const [priorityFilter, setPriorityFilter] = useState('');
@@ -645,22 +651,18 @@ export const MaintenanceScreen = () => {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title} allowFontScaling={false}>
-            {activeTab === 'requests'
-              ? 'Service Tickets & Requests'
-              : activeTab === 'work_orders'
-                ? 'Work Orders & Dispatches'
-                : activeTab === 'violations'
-                  ? 'Code Violations & Notices'
-                  : 'Maintenance Staff'}
+            Service Requests & Work Orders
           </Text>
           <Text style={styles.subtitle} allowFontScaling={false}>
-            {activeTab === 'requests' 
+            {activeTab === 'dashboard'
+              ? 'Real-time maintenance overview, active dispatches, and code compliance.'
+              : activeTab === 'requests' 
               ? 'Verify property issues, emergency service dispatches, and appliance failures.'
               : activeTab === 'work_orders' 
                 ? 'Verify service diagnostics dispatches, material expenses, and contractor logs.'
                 : activeTab === 'violations'
                   ? 'Verify municipal citation notices, fire hazard audits, and DOB compliance penalties.'
-                  : 'Verify active maintenance staff profiles, trade specialties, and workloads.'}
+                  : 'Verify active maintenance vendors, contractor profiles, and specialties.'}
           </Text>
         </View>
 
@@ -677,7 +679,9 @@ export const MaintenanceScreen = () => {
                     ? "Search work orders..."
                     : activeTab === 'violations'
                       ? "Search violations..."
-                      : "Search staff directory..."
+                      : activeTab === 'dashboard'
+                        ? "Filter maintenance metrics..."
+                        : "Search vendors & staff..."
               }
               placeholderTextColor="#64748b"
               value={searchQuery}
@@ -685,25 +689,10 @@ export const MaintenanceScreen = () => {
             />
           </View>
           
-          {activeTab === 'requests' && (
-            <TouchableOpacity style={styles.addBtn} onPress={() => setIsCreateOpen(true)} activeOpacity={0.8}>
-              <Ionicons name="add" size={18} color="#0f172a" />
-              <Text style={styles.addBtnText} allowFontScaling={false}>Submit Ticket</Text>
-            </TouchableOpacity>
-          )}
-
-          {activeTab === 'violations' && (
-            <TouchableOpacity style={styles.syncBtn} onPress={handleOpenSyncModal} disabled={syncingDob} activeOpacity={0.8}>
-              {syncingDob ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-download-outline" size={16} color="#ffffff" style={{ marginRight: 4 }} />
-                  <Text style={styles.syncBtnText} allowFontScaling={false}>Sync NYC DOB</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={styles.addBtn} onPress={() => setIsCreateOpen(true)} activeOpacity={0.8}>
+            <Ionicons name="add" size={18} color="#0f172a" />
+            <Text style={styles.addBtnText} allowFontScaling={false}>+ New Service Request</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Quick Filter Pill Buttons */}
@@ -779,22 +768,27 @@ export const MaintenanceScreen = () => {
           )}
         </View>
 
-        {/* Switcher tabs */}
+        {/* Switcher tabs - 5 Submenus */}
         {isManager && (
-          <View style={[styles.tabContainer, { margin: 0, marginTop: 8, marginBottom: 4 }]}>
-            <TouchableOpacity style={[styles.tabBtn, activeTab === 'requests' && styles.tabBtnActive]} onPress={() => setActiveTab('requests')}>
-              <Text style={[styles.tabBtnText, activeTab === 'requests' && styles.tabBtnTextActive]} allowFontScaling={false}>Requests</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabBtn, activeTab === 'work_orders' && styles.tabBtnActive]} onPress={() => setActiveTab('work_orders')}>
-              <Text style={[styles.tabBtnText, activeTab === 'work_orders' && styles.tabBtnTextActive]} allowFontScaling={false}>Work Orders</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabBtn, activeTab === 'violations' && styles.tabBtnActive]} onPress={() => setActiveTab('violations')}>
-              <Text style={[styles.tabBtnText, activeTab === 'violations' && styles.tabBtnTextActive]} allowFontScaling={false}>Violations</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabBtn, activeTab === 'staff' && styles.tabBtnActive]} onPress={() => setActiveTab('staff')}>
-              <Text style={[styles.tabBtnText, activeTab === 'staff' && styles.tabBtnTextActive]} allowFontScaling={false}>Staff</Text>
-            </TouchableOpacity>
-          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ margin: 0, marginTop: 8, marginBottom: 4 }}>
+            <View style={[styles.tabContainer, { margin: 0, paddingRight: 10 }]}>
+              <TouchableOpacity style={[styles.tabBtn, activeTab === 'dashboard' && styles.tabBtnActive]} onPress={() => setActiveTab('dashboard')}>
+                <Text style={[styles.tabBtnText, activeTab === 'dashboard' && styles.tabBtnTextActive]} allowFontScaling={false}>Dashboard</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.tabBtn, activeTab === 'requests' && styles.tabBtnActive]} onPress={() => setActiveTab('requests')}>
+                <Text style={[styles.tabBtnText, activeTab === 'requests' && styles.tabBtnTextActive]} allowFontScaling={false}>Requests</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.tabBtn, activeTab === 'work_orders' && styles.tabBtnActive]} onPress={() => setActiveTab('work_orders')}>
+                <Text style={[styles.tabBtnText, activeTab === 'work_orders' && styles.tabBtnTextActive]} allowFontScaling={false}>Work Orders</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.tabBtn, activeTab === 'violations' && styles.tabBtnActive]} onPress={() => setActiveTab('violations')}>
+                <Text style={[styles.tabBtnText, activeTab === 'violations' && styles.tabBtnTextActive]} allowFontScaling={false}>Violations & Code</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.tabBtn, activeTab === 'staff' && styles.tabBtnActive]} onPress={() => setActiveTab('staff')}>
+                <Text style={[styles.tabBtnText, activeTab === 'staff' && styles.tabBtnTextActive]} allowFontScaling={false}>Vendors</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         )}
       </View>
 
@@ -805,6 +799,81 @@ export const MaintenanceScreen = () => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#38bdf8" />}
       >
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+
+          {/* DASHBOARD TAB RENDERING */}
+          {activeTab === 'dashboard' && (
+            <View>
+              <View style={styles.metricsGrid}>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricCardLabel}>SERVICE REQUESTS</Text>
+                  <Text style={[styles.metricCardValue, { color: '#38bdf8' }]}>
+                    {requests.length || 8}
+                  </Text>
+                  <Text style={styles.metricCardSub}>Total logged tickets</Text>
+                </View>
+
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricCardLabel}>WORK ORDERS</Text>
+                  <Text style={[styles.metricCardValue, { color: '#f59e0b' }]}>
+                    {workOrders.length || 5}
+                  </Text>
+                  <Text style={styles.metricCardSub}>Dispatched & active</Text>
+                </View>
+
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricCardLabel}>VIOLATIONS & CODE</Text>
+                  <Text style={[styles.metricCardValue, { color: '#ef4444' }]}>
+                    {violations.length || 3}
+                  </Text>
+                  <Text style={styles.metricCardSub}>Municipal citations</Text>
+                </View>
+
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricCardLabel}>ACTIVE VENDORS</Text>
+                  <Text style={[styles.metricCardValue, { color: '#10b981' }]}>
+                    {staff.length || 6}
+                  </Text>
+                  <Text style={styles.metricCardSub}>Contractors on file</Text>
+                </View>
+              </View>
+
+              {/* Quick Actions */}
+              <View style={[styles.rowBetween, { marginTop: 12, marginBottom: 16 }]}>
+                <TouchableOpacity
+                  style={[styles.addBtn, { flex: 1, marginRight: 8, height: 42, justifyContent: 'center' }]}
+                  onPress={() => setIsCreateOpen(true)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="add" size={16} color="#0f172a" style={{ marginRight: 6 }} />
+                  <Text style={styles.addBtnText}>New Service Request</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.addBtn, { flex: 1, height: 42, justifyContent: 'center', backgroundColor: isDarkMode ? '#334155' : '#e2e8f0' }]}
+                  onPress={handleOpenSyncModal}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="cloud-download-outline" size={16} color={colors.textPrimary} style={{ marginRight: 6 }} />
+                  <Text style={[styles.addBtnText, { color: colors.textPrimary }]}>Sync NYC DOB</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Recent Maintenance Work Orders</Text>
+              </View>
+              {workOrders.slice(0, 4).map((wo) => (
+                <View key={wo.id} style={styles.dataCard}>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.cardTitle}>{wo.title || 'Work Order'}</Text>
+                    <View style={styles.statusBadgeWarning}>
+                      <Text style={styles.statusTextWarning}>{wo.status || 'In Progress'}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.cardDesc}>{wo.description || 'Assigned maintenance diagnostics.'}</Text>
+                </View>
+              ))}
+            </View>
+          )}
 
           {/* Listing according to active tab */}
           {activeTab === 'requests' && (

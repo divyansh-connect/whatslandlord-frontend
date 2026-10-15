@@ -65,15 +65,21 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const PropertiesScreen = () => {
+export const PropertiesScreen = ({ initialTab = 'properties' }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
-  const [activeTab, setActiveTab] = useState('properties'); // properties, buildings, units
+  const [activeTab, setActiveTab] = useState(initialTab); // properties, units, drafts, buildings
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Data States
   const [properties, setProperties] = useState([]);
@@ -918,21 +924,21 @@ export const PropertiesScreen = () => {
       <View style={[styles.fixedHeader, { paddingTop: 16 }]}>
         <Text style={styles.headerTitle} allowFontScaling={false}>
           {activeTab === 'properties'
-            ? (language === 'es' ? 'Propiedades de la Cartera' : 'Portfolio Properties')
+            ? (language === 'es' ? 'Portafolio de Propiedades' : language === 'hi' ? 'संपत्ति पोर्टफोलियो' : 'Property Portfolio')
             : activeTab === 'buildings'
-              ? (language === 'es' ? 'Estructuras de Edificios' : 'Building Structures')
+              ? (language === 'es' ? 'Estructuras de Edificios' : language === 'hi' ? 'भवन संरचनाएं' : 'Building Structures')
               : activeTab === 'units'
-                ? (language === 'es' ? 'Directorio de Unidades' : 'Units Directory')
-                : (language === 'es' ? 'Borradores de Propiedades' : 'Property Drafts')}
+                ? (language === 'es' ? 'Unidades de Alquiler' : language === 'hi' ? 'किराये की इकाइयां' : 'Rental Units')
+                : (language === 'es' ? 'Borradores de Propiedades' : language === 'hi' ? 'ड्राफ्ट संपत्तियां' : 'Property Drafts')}
         </Text>
         <Text style={styles.headerSubtitle} allowFontScaling={false}>
           {activeTab === 'properties'
-            ? (language === 'es' ? 'Verifique activos inmobiliarios, métricas de ocupación y valoración.' : 'Verify real estate assets, occupancy metrics, and valuation.')
+            ? (language === 'es' ? 'Gestione activos residenciales, comerciales y multifamiliares' : language === 'hi' ? 'आवासीय, वाणिज्यिक और बहु-पारिवारिक संपत्तियों का प्रबंधन करें' : 'Manage residential, commercial, and multi-family assets')
             : activeTab === 'buildings'
-              ? (language === 'es' ? 'Verifique estructuras de edificios, complejos y recuentos de pisos.' : 'Verify building structures, complexes, and floor counts.')
+              ? (language === 'es' ? 'Gestione estructuras de edificios, complejos y pisos' : 'Manage building structures, complexes, and floor counts')
               : activeTab === 'units'
-                ? (language === 'es' ? 'Verifique inventario de unidades residenciales, habitaciones y renta.' : 'Verify residential unit inventory, bed/bath counts, and rent.')
-                : (language === 'es' ? 'Verifique, complete o publique borradores de propiedades.' : 'View, complete, publish or discard your saved property drafts.')}
+                ? (language === 'es' ? 'Gestione apartamentos individuales, suites y estados de alquiler' : language === 'hi' ? 'अलग-अलग अपार्टमेंट, सुइट्स और लीजिंग स्थिति प्रबंधित करें' : 'Manage individual apartments, suites, and leasing statuses')
+                : (language === 'es' ? 'Verifique, complete o publique borradores guardados' : 'View, complete, publish or discard saved property drafts')}
         </Text>
 
         {/* Search & Action Bar */}

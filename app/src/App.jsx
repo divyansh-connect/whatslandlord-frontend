@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SplashScreen } from './components/SplashScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { NavigationDrawer } from './components/NavigationDrawer';
+import { GlobalHeader } from './components/GlobalHeader';
 
 import { AdminDashboard } from './screens/AdminDashboard';
 import { ManagerDashboard } from './screens/ManagerDashboard';
@@ -50,20 +51,106 @@ import { WordPressInquiriesScreen } from './screens/WordPressInquiriesScreen';
 import { PlatformSettingsScreen } from './screens/PlatformSettingsScreen';
 import { InspectionTemplatesScreen } from './screens/InspectionTemplatesScreen';
 import { RolesPermissionsScreen } from './screens/RolesPermissionsScreen';
+import { CompanySettingsScreen } from './screens/CompanySettingsScreen';
 
 export default function App() {
   const { user, isAuthenticated, isLoaded, initializeAuth } = useAuthStore();
   const { theme, language } = useThemeStore();
   const [showSplash, setShowSplash] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeSubTab, setActiveSubTab] = useState(null);
   const [currentInspectionId, setCurrentInspectionId] = useState(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
 
-  const handleNavigate = (tabId, params) => {
-    if (tabId === 'inspection' && params && params.inspectionId) {
-      setCurrentInspectionId(params.inspectionId);
+  const handleNavigate = (tabId, paramsOrSubTab) => {
+    let subTab = typeof paramsOrSubTab === 'string' ? paramsOrSubTab : paramsOrSubTab?.tab || null;
+
+    if (tabId === 'inspection' && paramsOrSubTab && paramsOrSubTab.inspectionId) {
+      setCurrentInspectionId(paramsOrSubTab.inspectionId);
     }
-    setActiveTab(tabId);
+
+    // Direct route & sub-tab normalization
+    switch (tabId) {
+      case 'units':
+      case 'drafts':
+        setActiveTab('properties');
+        setActiveSubTab(tabId);
+        break;
+
+      case 'properties':
+        setActiveTab('properties');
+        setActiveSubTab(subTab || 'properties');
+        break;
+
+      case 'leads':
+      case 'applications':
+      case 'screening':
+      case 'leases':
+      case 'renewals':
+      case 'movein':
+      case 'moveout':
+        setActiveTab('leads');
+        setActiveSubTab(subTab || tabId);
+        break;
+
+      case 'payments':
+      case 'invoices':
+      case 'rent-ledger':
+      case 'ledger':
+        setActiveTab('rent');
+        setActiveSubTab(tabId === 'rent-ledger' ? 'ledger' : tabId);
+        break;
+
+      case 'rent':
+        setActiveTab('rent');
+        setActiveSubTab(subTab || 'payments');
+        break;
+
+      case 'chart-of-accounts':
+      case 'income':
+      case 'expenses':
+        setActiveTab('accounting');
+        setActiveSubTab(tabId === 'chart-of-accounts' ? 'coa' : tabId);
+        break;
+
+      case 'accounting':
+        setActiveTab('accounting');
+        setActiveSubTab(subTab || 'coa');
+        break;
+
+      case 'requests':
+      case 'maintenance-requests':
+      case 'work-orders':
+      case 'violations':
+      case 'vendors':
+        setActiveTab('maintenance');
+        setActiveSubTab(tabId === 'vendors' ? 'staff' : tabId === 'work-orders' ? 'work_orders' : tabId);
+        break;
+
+      case 'maintenance':
+        setActiveTab('maintenance');
+        setActiveSubTab(subTab || 'requests');
+        break;
+
+      case 'admin':
+      case 'company-settings':
+      case 'unit-deletion':
+      case 'late-fees':
+      case 'users':
+      case 'roles':
+      case 'payment-settings':
+      case 'billing':
+      case 'integrations':
+      case 'connected':
+        setActiveTab('company-settings');
+        setActiveSubTab(subTab || (tabId === 'admin' ? 'profile' : tabId));
+        break;
+
+      default:
+        setActiveTab(tabId);
+        setActiveSubTab(subTab);
+        break;
+    }
   };
 
   useEffect(() => {
@@ -75,6 +162,7 @@ export default function App() {
   useEffect(() => {
     if (isAuthenticated) {
       setActiveTab('dashboard');
+      setActiveSubTab(null);
     }
   }, [user?.email, isAuthenticated]);
 
@@ -179,11 +267,11 @@ export default function App() {
       break;
   }
 
-  // 1-to-1 Dashboard & Screen Router for ALL Web Menus
+  // 1-to-1 Dashboard & Screen Router for ALL 14 Web Menus
   const renderDashboardByRole = () => {
     switch (role) {
       case 'Super Admin':
-        return <AdminDashboard onNavigate={(screenId) => setActiveTab(screenId)} />;
+        return <AdminDashboard onNavigate={(screenId) => handleNavigate(screenId)} />;
       case 'Property Manager':
         return <ManagerDashboard onNavigate={handleNavigate} />;
       case 'Collection Manager':
@@ -223,14 +311,23 @@ export default function App() {
       case 'roles-permissions':
         return <RolesPermissionsScreen />;
       case 'integrations':
-        return <IntegrationsScreen onNavigate={handleNavigate} />;
+        return <CompanySettingsScreen initialTab="integrations" onNavigate={handleNavigate} />;
       case 'lease':
-        return role === 'Tenant' ? <TenantLeaseScreen /> : <LeadsScreen onNavigate={handleNavigate} />;
+        return role === 'Tenant' ? <TenantLeaseScreen /> : <LeadsScreen initialTab={activeSubTab || 'leases'} onNavigate={handleNavigate} />;
       case 'properties':
-        return <PropertiesScreen />;
+        return <PropertiesScreen initialTab={activeSubTab || 'properties'} />;
+      case 'units':
+        return <PropertiesScreen initialTab="units" />;
+      case 'drafts':
+        return <PropertiesScreen initialTab="drafts" />;
       case 'leads':
       case 'applications':
-        return <LeadsScreen onNavigate={handleNavigate} />;
+      case 'screening':
+      case 'leases':
+      case 'renewals':
+      case 'movein':
+      case 'moveout':
+        return <LeadsScreen initialTab={activeSubTab || activeTab} onNavigate={handleNavigate} />;
       case 'inspection':
         return <InspectionDetailsScreen inspectionId={currentInspectionId} onNavigate={handleNavigate} />;
       case 'tenants':
@@ -251,23 +348,43 @@ export default function App() {
       case 'reports':
         return <ReportsScreen />;
       case 'rent':
+      case 'payments':
         if (role === 'Owner') return <OwnerFinancialsScreen />;
-        if (role === 'Property Manager' || role === 'Collection Manager') return <ManagerRentPaymentsScreen />;
+        if (role === 'Property Manager' || role === 'Collection Manager') {
+          return <ManagerRentPaymentsScreen initialTab={activeSubTab || 'payments'} />;
+        }
         return <RentScreen />;
       case 'financials':
       case 'ledger':
-      case 'accounting':
+      case 'rent-ledger':
         if (role === 'Owner') return <OwnerFinancialsScreen />;
-        if (role === 'Property Manager' || role === 'Collection Manager') return <ManagerAccountingScreen />;
+        if (role === 'Property Manager' || role === 'Collection Manager') {
+          return <ManagerRentPaymentsScreen initialTab="ledger" />;
+        }
+        return <TenantLedgerScreen />;
+      case 'accounting':
+      case 'chart-of-accounts':
+      case 'income':
+      case 'expenses':
+        if (role === 'Owner') return <OwnerFinancialsScreen />;
+        if (role === 'Property Manager' || role === 'Collection Manager') {
+          return <ManagerAccountingScreen initialTab={activeSubTab || 'coa'} />;
+        }
         return <TenantLedgerScreen />;
       case 'maintenance':
-        return role === 'Owner' ? <OwnerMaintenanceScreen /> : <MaintenanceScreen />;
+      case 'work-orders':
+      case 'violations':
+      case 'vendors':
+        return role === 'Owner' ? <OwnerMaintenanceScreen /> : <MaintenanceScreen initialTab={activeSubTab || 'requests'} />;
       case 'companies':
         return <CompaniesScreen />;
       case 'distributions':
         return <DistributionsScreen />;
       case 'ai':
         return <AIAssistantScreen onNavigate={handleNavigate} />;
+      case 'company-settings':
+      case 'admin':
+        return <CompanySettingsScreen initialTab={activeSubTab || 'profile'} onNavigate={handleNavigate} />;
       case 'profile':
         return <ProfileScreen />;
       case 'more':
@@ -320,7 +437,7 @@ export default function App() {
     if (tabId === 'more' && role !== 'Tenant' && role !== 'Owner' && role !== 'Property Manager') {
       setDrawerVisible(true);
     } else {
-      setActiveTab(tabId);
+      handleNavigate(tabId);
     }
   };
 
@@ -328,16 +445,21 @@ export default function App() {
 
   return (
     <View style={[styles.container, { backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc' }]}>
-      <StatusBar style={isDarkMode ? "light" : "dark"} />
+      <StatusBar style={isDarkMode ? 'light' : 'dark'} />
 
+      {/* Top-Bar & Global Header Controls (Theme, Language EN/ES/HI, Notifications, Profile Pill) */}
+      <GlobalHeader
+        onOpenDrawer={() => setDrawerVisible(true)}
+        onNavigate={handleNavigate}
+      />
 
-
-      {/* Navigation Drawer Component */}
+      {/* 14 Menus Navigation Drawer Component */}
       <NavigationDrawer
         visible={drawerVisible}
         onClose={() => setDrawerVisible(false)}
         activeScreen={activeTab}
-        onSelectScreen={(screenId) => setActiveTab(screenId)}
+        activeTab={activeSubTab}
+        onSelectScreen={(screenId, subTab) => handleNavigate(screenId, subTab)}
       />
 
       {/* Main Screen Content */}
@@ -346,50 +468,70 @@ export default function App() {
       </View>
 
       {/* Fixed Bottom Navigation Bar */}
-      <View style={[
-        styles.bottomBarContainer,
-        (role === 'Maintenance Staff' || role === 'Tenant') && { paddingBottom: Platform.OS === 'ios' ? 24 : 16, paddingTop: 10 },
-        { backgroundColor: isDarkMode ? '#1e293b' : '#ffffff', borderTopColor: isDarkMode ? '#334155' : '#e2e8f0' }
-      ]}>
+      <View
+        style={[
+          styles.bottomBarContainer,
+          (role === 'Maintenance Staff' || role === 'Tenant') && {
+            paddingBottom: Platform.OS === 'ios' ? 24 : 16,
+            paddingTop: 10,
+          },
+          { backgroundColor: isDarkMode ? '#1e293b' : '#ffffff', borderTopColor: isDarkMode ? '#334155' : '#e2e8f0' },
+        ]}
+      >
         <View style={styles.fixedBottomBar}>
           {moduleTabs.map((tab) => {
             const isActive = activeTab === tab.id;
             const isStaff = role === 'Maintenance Staff';
             const isTenant = role === 'Tenant';
-            const useIonicon = typeof tab.icon === 'string' && (tab.icon.includes('-outline') || ['grid', 'clipboard', 'time', 'person', 'menu', 'card', 'hammer', 'document-text'].includes(tab.icon));
+            const useIonicon =
+              typeof tab.icon === 'string' &&
+              (tab.icon.includes('-outline') ||
+                ['grid', 'clipboard', 'time', 'person', 'menu', 'card', 'hammer', 'document-text'].includes(tab.icon));
             return (
               <TouchableOpacity
                 key={`bottom-${tab.id}`}
                 style={[
                   styles.bottomTabItem,
-                  (isActive && !useIonicon) && styles.bottomTabItemActive,
-                  (isActive && !useIonicon && !isDarkMode) && { backgroundColor: 'rgba(56, 189, 248, 0.08)' }
+                  isActive && !useIonicon && styles.bottomTabItemActive,
+                  isActive && !useIonicon && !isDarkMode && { backgroundColor: 'rgba(56, 189, 248, 0.08)' },
                 ]}
                 onPress={() => handleTabPress(tab.id)}
                 activeOpacity={0.7}
               >
                 {(isStaff || isTenant) && isActive && (
-                  <View style={{ height: 2.5, backgroundColor: '#38bdf8', position: 'absolute', top: -6, left: 16, right: 16, borderRadius: 1 }} />
+                  <View
+                    style={{
+                      height: 2.5,
+                      backgroundColor: '#38bdf8',
+                      position: 'absolute',
+                      top: -6,
+                      left: 16,
+                      right: 16,
+                      borderRadius: 1,
+                    }}
+                  />
                 )}
                 {useIonicon ? (
                   <Ionicons
                     name={isActive ? tab.activeIcon : tab.icon}
                     size={20}
-                    color={isActive ? '#38bdf8' : (isDarkMode ? '#cbd5e1' : '#64748b')}
+                    color={isActive ? '#38bdf8' : isDarkMode ? '#cbd5e1' : '#64748b'}
                     style={{ marginBottom: 2 }}
                   />
                 ) : (
-                  <Text style={[styles.bottomTabIcon, { color: isActive ? '#38bdf8' : (isDarkMode ? '#cbd5e1' : '#64748b') }]} allowFontScaling={false}>{tab.icon}</Text>
+                  <Text style={[styles.bottomTabIcon, { color: isActive ? '#38bdf8' : isDarkMode ? '#cbd5e1' : '#64748b' }]} allowFontScaling={false}>
+                    {tab.icon}
+                  </Text>
                 )}
                 <Text
                   style={[
                     styles.bottomTabText,
                     isActive && styles.bottomTabTextActive,
-                    { color: isActive ? '#38bdf8' : (isDarkMode ? '#94a3b8' : '#475569') }
+                    { color: isActive ? '#38bdf8' : isDarkMode ? '#94a3b8' : '#475569' },
                   ]}
                   allowFontScaling={false}
                 >
-                  {(isStaff || isTenant || role === 'Collection Manager') ? tab.label : (tab.label.split(' ')[1] || tab.label)}
+                  {isStaff || isTenant || role === 'Collection Manager' ? tab.label : tab.label.split(' ')[1] || tab.label}
                 </Text>
               </TouchableOpacity>
             );
@@ -404,7 +546,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0f172a',
-    paddingTop: Platform.OS === 'ios' ? 52 : Platform.OS === 'android' ? 38 : 0,
+    paddingTop: Platform.OS === 'ios' ? 44 : Platform.OS === 'android' ? 28 : 0,
   },
   loadingContainer: {
     flex: 1,
@@ -417,83 +559,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 13,
   },
-  topHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    height: 48,
-    paddingHorizontal: 14,
-    backgroundColor: '#1e293b',
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
-  },
-  brandContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  hamburgerBtn: {
-    paddingRight: 4,
-    paddingVertical: 4,
-  },
-  hamburgerIcon: {
-    color: '#38bdf8',
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  brandIcon: {
-    fontSize: 16,
-  },
-  headerTitle: {
-    color: '#f8fafc',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  headerRightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  bellBtn: {
-    position: 'relative',
-    padding: 4,
-  },
-  bellIcon: {
-    fontSize: 18,
-  },
-  bellBadge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: '#ef4444',
-    borderRadius: 7,
-    width: 14,
-    height: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bellBadgeText: {
-    color: '#ffffff',
-    fontSize: 9,
-    fontWeight: '900',
-  },
-  profileBadge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#38bdf8',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileBadgeText: {
-    color: '#0f172a',
-    fontWeight: '800',
-    fontSize: 13,
-  },
   content: {
     flex: 1,
-    paddingTop: Platform.OS === 'ios' ? 22 : 0,
   },
   bottomBarContainer: {
     backgroundColor: '#1e293b',

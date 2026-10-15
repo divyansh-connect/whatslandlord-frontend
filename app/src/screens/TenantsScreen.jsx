@@ -409,10 +409,14 @@ export const TenantsScreen = () => {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title} allowFontScaling={false}>
-            {language === 'es' ? 'Directorio de Inquilinos' : 'Tenant Directory'}
+            {language === 'es' ? 'Directorio de Inquilinos' : language === 'hi' ? 'किरायेदार डायरेक्टरी' : 'Tenant Directory'}
           </Text>
           <Text style={styles.subtitle} allowFontScaling={false}>
-            {language === 'es' ? 'Verifique canales de contacto de residentes, contratos activos y saldos.' : 'Verify occupant contact channels, active lease alignments, and rent balances.'}
+            {language === 'es'
+              ? 'Residentes activos, estados de contrato y registros de contacto'
+              : language === 'hi'
+              ? 'सक्रिय निवासी, लीज की स्थिति और संपर्क रिकॉर्ड'
+              : 'Active residents, lease statuses, and contact records'}
           </Text>
         </View>
 
@@ -422,7 +426,13 @@ export const TenantsScreen = () => {
             <Ionicons name="search-outline" size={18} color="#64748b" style={{ marginRight: 6 }} />
             <TextInput
               style={styles.searchInput}
-              placeholder={language === 'es' ? 'Buscar por nombre, correo o unidad...' : 'Search by name, email, or unit...'}
+              placeholder={
+                language === 'es'
+                  ? 'Buscar por nombre, correo o unidad...'
+                  : language === 'hi'
+                  ? 'किरायेदार का नाम, ईमेल या यूनिट से खोजें...'
+                  : 'Search by tenant name, email, or unit number...'
+              }
               placeholderTextColor="#64748b"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -431,7 +441,7 @@ export const TenantsScreen = () => {
           <TouchableOpacity style={styles.addBtn} onPress={() => setIsAddOpen(true)} activeOpacity={0.8}>
             <Ionicons name="add" size={18} color="#0f172a" />
             <Text style={styles.addBtnText} allowFontScaling={false}>
-              {language === 'es' ? 'Agregar Inquilino' : 'Add Tenant'}
+              {language === 'es' ? '+ Inquilino' : language === 'hi' ? '+ किरायेदार' : '+ Add Tenant'}
             </Text>
           </TouchableOpacity>
         </View>

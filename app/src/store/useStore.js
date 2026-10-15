@@ -63,7 +63,7 @@ export const useThemeStore = create((set) => ({
     const savedLang = await safeStorage.getItem('language');
     set({
       theme: (savedTheme === 'light' || savedTheme === 'dark') ? savedTheme : 'dark',
-      language: (savedLang === 'es' || savedLang === 'en') ? savedLang : 'en',
+      language: (savedLang === 'es' || savedLang === 'hi' || savedLang === 'en') ? savedLang : 'en',
     });
   },
 }));
