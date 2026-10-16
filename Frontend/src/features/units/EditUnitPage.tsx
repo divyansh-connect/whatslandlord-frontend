@@ -652,10 +652,10 @@ export const EditUnitPage: React.FC = () => {
                         type="number"
                         min="0"
                         {...register('lateFeeGraceDays', { valueAsNumber: true })}
-                        className="h-9 text-xs font-bold"
+                        className="h-9 pr-14 text-xs font-bold [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         placeholder="5"
                       />
-                      <span className="absolute right-3 top-2.5 text-[10px] font-extrabold text-muted-foreground uppercase">
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-extrabold text-muted-foreground uppercase pointer-events-none select-none">
                         Days
                       </span>
                     </div>

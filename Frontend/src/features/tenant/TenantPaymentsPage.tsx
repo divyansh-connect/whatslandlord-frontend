@@ -270,10 +270,11 @@ export const TenantPaymentsPage: React.FC = () => {
       : 4.99;
   const total = amountNum + fee;
 
-  // Active Gateway query for company-isolated payments
+  // Active Gateway query for property-wise payments (falls back to company)
+  const tenantPropertyId = profile?.propertyId || profile?.unit?.propertyId;
   const { data: activeGateway } = useQuery({
-    queryKey: ['active-tenant-gateway'],
-    queryFn: () => api.tenantPayments.getActiveGateway(),
+    queryKey: ['active-tenant-gateway', tenantPropertyId],
+    queryFn: () => api.tenantPayments.getActiveGateway(tenantPropertyId),
   });
 
   // Inject Razorpay JS SDK dynamically if Manager configured Razorpay
@@ -296,15 +297,19 @@ export const TenantPaymentsPage: React.FC = () => {
       if (activeGateway?.provider === 'RAZORPAY' && (window as any).Razorpay) {
         setStep('processing');
         setProcessingMsg('Creating Razorpay secure order...');
-        const orderData = await api.tenantPayments.createRazorpayOrder({ amount: total, currency: 'USD' });
+        const orderData = await api.tenantPayments.createRazorpayOrder({
+          amount: total,
+          currency: 'USD',
+          propertyId: tenantPropertyId,
+        });
         
         return new Promise((resolve, reject) => {
           const options = {
             key: orderData.keyId,
             amount: orderData.amount,
             currency: orderData.currency || 'USD',
-            name: profile?.companyName || 'Rental Payment',
-            description: 'Rent Payment Transaction',
+            name: activeGateway?.propertyName || profile?.companyName || 'Rental Payment',
+            description: `Rent Payment Transaction - ${profile?.unitDetails || 'Rent'}`,
             order_id: orderData.orderId,
             handler: async (response: any) => {
               try {
@@ -314,6 +319,7 @@ export const TenantPaymentsPage: React.FC = () => {
                   razorpayPaymentId: response.razorpay_payment_id,
                   razorpaySignature: response.razorpay_signature,
                   amount: total,
+                  propertyId: tenantPropertyId,
                 });
                 resolve(verifyRes);
               } catch (err) {
@@ -341,6 +347,7 @@ export const TenantPaymentsPage: React.FC = () => {
         amount: total,
         baseAmount: amountNum,
         method,
+        propertyId: tenantPropertyId,
       });
     },
     onSuccess: () => {
@@ -836,6 +843,26 @@ export const TenantPaymentsPage: React.FC = () => {
         {step === 'details' && (
           <form onSubmit={handlePaymentSubmit} className="space-y-4 pt-2 text-xs font-semibold text-foreground">
             
+            {/* Gateway Routing Indicator */}
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-secondary/30 border border-border text-xs">
+              <Shield className="w-4 h-4 text-emerald-500 shrink-0" />
+              <div className="flex-1">
+                <span className="font-bold text-foreground">
+                  {activeGateway?.source === 'PROPERTY' && activeGateway?.propertyName
+                    ? `Direct Property Gateway: ${activeGateway.propertyName}`
+                    : 'Company Gateway (Option 2 Fallback)'}
+                </span>
+                <span className="text-[10px] text-muted-foreground block">
+                  {activeGateway?.provider === 'MANUAL'
+                    ? 'Standard ACH & Card Direct Processing'
+                    : `Secured via ${activeGateway?.provider?.replace('_', '.')}`}
+                </span>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                Active
+              </span>
+            </div>
+
             {/* Payment Option Selector */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-muted-foreground uppercase block">{t('tenantPayments.paymentOption')}</label>

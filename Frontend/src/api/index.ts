@@ -90,6 +90,10 @@ export const api = {
           totalUnits: p.buildings?.[0]?.unitsCount || p.totalUnits || p.unitsCount || (p.units?.length || 0),
           floors: p.buildings?.[0]?.floors || p.totalFloors || p.floors || 1,
           buildings: p.buildings || [],
+          paymentProvider: p.paymentProvider || 'COMPANY_DEFAULT',
+          paymentAccountId: p.paymentAccountId || '',
+          hasPaymentToken: !!p.hasPaymentToken,
+          paymentStatus: p.paymentStatus || 'Active',
           createdAt: p.createdAt ? p.createdAt.split('T')[0] : '',
         }));
       } catch (e) {
@@ -330,15 +334,16 @@ export const api = {
 
   tenantPayments: {
     ...mockApi.tenantPayments,
-    getActiveGateway: async () => {
+    getActiveGateway: async (propertyId?: string) => {
       try {
-        const res: any = await apiClient.get('/payments/active-gateway');
+        const url = propertyId ? `/payments/active-gateway?propertyId=${encodeURIComponent(propertyId)}` : '/payments/active-gateway';
+        const res: any = await apiClient.get(url);
         return res.data;
       } catch (e) {
         return { provider: 'MANUAL', options: ['ACH', 'Credit Card', 'Debit Card'] };
       }
     },
-    createRazorpayOrder: async (data: { amount: number; currency?: string }) => {
+    createRazorpayOrder: async (data: { amount: number; currency?: string; propertyId?: string }) => {
       const res: any = await apiClient.post('/payments/razorpay-order', data);
       return res.data;
     },

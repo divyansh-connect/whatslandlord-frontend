@@ -14,7 +14,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/Ta
 import { ColumnDef } from '@tanstack/react-table';
 import { 
   Building2, Home, UserCheck, AlertCircle, Wrench, FileText, 
-  MapPin, Landmark, DollarSign, Calendar, Plus, Upload, Loader2, ArrowLeft 
+  MapPin, Landmark, DollarSign, Calendar, Plus, Upload, Loader2, ArrowLeft, CreditCard, ShieldCheck 
 } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
@@ -156,7 +156,7 @@ export const PropertyDetailsPage: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-2">
-          <Button variant="outline" size="sm" onClick={() => navigate({ to: '/properties' })}>
+          <Button variant="outline" size="sm" onClick={() => navigate({ to: '/properties/edit', search: { id: property.id } as any })}>
             Edit Property
           </Button>
           <Button size="sm" onClick={() => navigate({ to: '/properties/units/new' })} className="flex items-center gap-1">
@@ -278,6 +278,83 @@ export const PropertyDetailsPage: React.FC = () => {
                 <div>
                   <p className="text-muted-foreground">Current Valuation</p>
                   <p className="text-foreground mt-0.5">${property.currentValue.toLocaleString()}</p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Payment Integration & Merchant Account Card */}
+            <Card className="p-5 space-y-4 border-border text-foreground md:col-span-2 bg-card/80">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-border gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base uppercase tracking-wide">Payment Integration & Merchant Account</h3>
+                    <p className="text-xs text-muted-foreground">Routing configuration for tenant online rent payments</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                    !property.paymentProvider || property.paymentProvider === 'COMPANY_DEFAULT'
+                      ? 'bg-secondary text-muted-foreground border-border'
+                      : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                  }`}>
+                    <ShieldCheck className="w-4 h-4" />
+                    {!property.paymentProvider || property.paymentProvider === 'COMPANY_DEFAULT'
+                      ? 'Company Settings (Option 2 Fallback)'
+                      : `Custom Gateway: ${property.paymentProvider.replace('_', '.')} (Active - 1st Priority)`}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate({ to: '/properties/edit', search: { id: property.id } as any })}
+                    className="text-xs font-semibold h-8"
+                  >
+                    Configure Gateway
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-semibold">
+                <div>
+                  <p className="text-muted-foreground uppercase text-[10px] tracking-wider">Gateway Priority</p>
+                  <p className="text-foreground mt-1 text-sm font-bold flex items-center gap-1.5">
+                    {!property.paymentProvider || property.paymentProvider === 'COMPANY_DEFAULT' ? (
+                      <span className="text-muted-foreground">Option 2: Company Fallback</span>
+                    ) : (
+                      <span className="text-emerald-500">1st Priority: Property Custom</span>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {!property.paymentProvider || property.paymentProvider === 'COMPANY_DEFAULT'
+                      ? 'Rent paid by tenants of this property deposits into Company Settings merchant account.'
+                      : 'Rent paid by tenants of this property deposits directly into this property LLC account.'}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-muted-foreground uppercase text-[10px] tracking-wider">
+                    {property.paymentProvider === 'STRIPE' ? 'Publishable Key' : property.paymentProvider === 'AUTHORIZE_NET' ? 'API Login ID' : property.paymentProvider === 'RAZORPAY' ? 'Key ID' : 'Merchant Identifier'}
+                  </p>
+                  <p className="text-foreground mt-1 text-sm font-mono font-bold">
+                    {property.paymentAccountId ? property.paymentAccountId : <span className="text-muted-foreground italic font-normal">Inherited from Company Settings</span>}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-muted-foreground uppercase text-[10px] tracking-wider">Secret Credentials Status</p>
+                  <p className="text-foreground mt-1 text-sm flex items-center gap-1.5 font-mono">
+                    {property.hasPaymentToken ? (
+                      <span className="text-emerald-500 flex items-center gap-1">
+                        <ShieldCheck className="w-4 h-4" /> Encrypted & Verified
+                      </span>
+                    ) : !property.paymentProvider || property.paymentProvider === 'COMPANY_DEFAULT' ? (
+                      <span className="text-muted-foreground">Company Vault Key Active</span>
+                    ) : (
+                      <span className="text-amber-500">Token Not Set</span>
+                    )}
+                  </p>
                 </div>
               </div>
             </Card>

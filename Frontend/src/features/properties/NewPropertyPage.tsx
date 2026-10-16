@@ -12,7 +12,7 @@ import { FileUploader } from '../../components/FileUploader';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
-import { Loader2, ArrowLeft, ChevronDown, Plus } from 'lucide-react';
+import { Loader2, ArrowLeft, ChevronDown, Plus, CreditCard, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { QuickAddOwnerModal } from '../../components/QuickAddOwnerModal';
 import { mapBackendErrors } from '../../utils/errorMapping';
 
@@ -58,6 +58,13 @@ export const NewPropertyPage: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
   const [isAddOwnerModalOpen, setIsAddOwnerModalOpen] = useState(false);
+
+  // Property-Wise Payment Integration State
+  const [paymentProvider, setPaymentProvider] = useState<string>('COMPANY_DEFAULT');
+  const [paymentAccountId, setPaymentAccountId] = useState<string>('');
+  const [paymentAuthToken, setPaymentAuthToken] = useState<string>('');
+  const [paymentStatus, setPaymentStatus] = useState<string>('Active');
+  const [showSecret, setShowSecret] = useState<boolean>(false);
 
   // Query owners to select one
   const { data: owners = [] } = useQuery({
@@ -143,6 +150,10 @@ export const NewPropertyPage: React.FC = () => {
       currentValue: values.currentValue,
       monthlyExpenses: values.monthlyExpenses,
       image: imageFile || undefined,
+      paymentProvider,
+      paymentAccountId: paymentProvider === 'COMPANY_DEFAULT' ? undefined : paymentAccountId,
+      paymentAuthToken: paymentProvider === 'COMPANY_DEFAULT' ? undefined : paymentAuthToken,
+      paymentStatus,
     });
   };
 
@@ -177,6 +188,10 @@ export const NewPropertyPage: React.FC = () => {
         currentValue: formValues.currentValue || 0,
         monthlyExpenses: formValues.monthlyExpenses || 0,
         image: imageFile || undefined,
+        paymentProvider,
+        paymentAccountId: paymentProvider === 'COMPANY_DEFAULT' ? undefined : paymentAccountId,
+        paymentAuthToken: paymentProvider === 'COMPANY_DEFAULT' ? undefined : paymentAuthToken,
+        paymentStatus,
       });
       navigate({ to: '/properties/drafts' });
     })();
@@ -340,6 +355,188 @@ export const NewPropertyPage: React.FC = () => {
             <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">Management Company</label>
             <Input {...register('managementCompany')} placeholder="Enter management company name" className="h-10 text-sm font-medium" />
             {errors.managementCompany && <p className="text-rose-500 text-xs font-semibold">{errors.managementCompany.message}</p>}
+          </div>
+        </div>
+
+        {/* --- SECTION 4.5: PROPERTY-WISE PAYMENT INTEGRATION & MERCHANT ACCOUNT --- */}
+        <div className="space-y-4 pt-3 border-t border-border">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                  <CreditCard className="w-4 h-4" />
+                </div>
+                <h3 className="font-extrabold text-xs sm:text-sm uppercase text-primary tracking-wider">
+                  Payment Integration & Merchant Account
+                </h3>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Configure property-specific payment gateway to receive tenant rent in this account, or use Company Default as fallback.
+              </p>
+            </div>
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border self-start sm:self-auto ${
+              paymentProvider === 'COMPANY_DEFAULT'
+                ? 'bg-secondary text-muted-foreground border-border'
+                : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+            }`}>
+              <ShieldCheck className="w-3.5 h-3.5" />
+              {paymentProvider === 'COMPANY_DEFAULT' ? 'Company Default (Option 2 Fallback)' : `Custom Property Gateway: ${paymentProvider.replace('_', '.')}`}
+            </span>
+          </div>
+
+          <div className="bg-secondary/20 p-4 sm:p-5 rounded-2xl border border-border space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                  Payment Provider / Account Destination
+                </label>
+                <Select
+                  value={paymentProvider}
+                  onChange={(e) => setPaymentProvider(e.target.value)}
+                  className="h-10 text-sm font-medium"
+                >
+                  <option value="COMPANY_DEFAULT">🏢 Use Company Default (Fallback Option)</option>
+                  <option value="STRIPE">💳 Stripe (Credit/Debit/Apple Pay)</option>
+                  <option value="AUTHORIZE_NET">🔒 Authorize.Net (Credit Card & eCheck)</option>
+                  <option value="RAZORPAY">⚡ Razorpay (Cards, UPI & NetBanking)</option>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  {paymentProvider === 'COMPANY_DEFAULT'
+                    ? 'Tenant rent for this property will flow through the global gateway configured under Company Settings.'
+                    : '1st Priority: Tenant rent for this property will bypass Company Settings and deposit directly into this account.'}
+                </p>
+              </div>
+
+              {paymentProvider !== 'COMPANY_DEFAULT' && (
+                <div className="space-y-1.5 animate-fade-in">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                    Gateway Status
+                  </label>
+                  <Select
+                    value={paymentStatus}
+                    onChange={(e) => setPaymentStatus(e.target.value)}
+                    className="h-10 text-sm font-medium"
+                  >
+                    <option value="Active">Active (Accepting Tenant Payments)</option>
+                    <option value="Inactive">Inactive (Temporarily Disabled)</option>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Inactive status temporarily routes payments to Company Default until re-activated.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {paymentProvider === 'STRIPE' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/50 animate-fade-in">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                    Stripe Publishable Key
+                  </label>
+                  <Input
+                    placeholder="pk_live_... or pk_test_..."
+                    value={paymentAccountId}
+                    onChange={(e) => setPaymentAccountId(e.target.value)}
+                    className="h-10 text-sm font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                    Stripe Secret Key (Encrypted in DB)
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={showSecret ? 'text' : 'password'}
+                      placeholder="sk_live_... or sk_test_..."
+                      value={paymentAuthToken}
+                      onChange={(e) => setPaymentAuthToken(e.target.value)}
+                      className="h-10 text-sm font-mono pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecret(!showSecret)}
+                      className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
+                    >
+                      {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {paymentProvider === 'AUTHORIZE_NET' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/50 animate-fade-in">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                    API Login ID
+                  </label>
+                  <Input
+                    placeholder="e.g. 2Aja8R5p"
+                    value={paymentAccountId}
+                    onChange={(e) => setPaymentAccountId(e.target.value)}
+                    className="h-10 text-sm font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                    Transaction Key (Encrypted in DB)
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={showSecret ? 'text' : 'password'}
+                      placeholder="Enter 16-character Transaction Key"
+                      value={paymentAuthToken}
+                      onChange={(e) => setPaymentAuthToken(e.target.value)}
+                      className="h-10 text-sm font-mono pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecret(!showSecret)}
+                      className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
+                    >
+                      {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {paymentProvider === 'RAZORPAY' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/50 animate-fade-in">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                    Razorpay Key ID
+                  </label>
+                  <Input
+                    placeholder="rzp_live_... or rzp_test_..."
+                    value={paymentAccountId}
+                    onChange={(e) => setPaymentAccountId(e.target.value)}
+                    className="h-10 text-sm font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                    Razorpay Key Secret (Encrypted in DB)
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={showSecret ? 'text' : 'password'}
+                      placeholder="Enter Razorpay Key Secret"
+                      value={paymentAuthToken}
+                      onChange={(e) => setPaymentAuthToken(e.target.value)}
+                      className="h-10 text-sm font-mono pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecret(!showSecret)}
+                      className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
+                    >
+                      {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
