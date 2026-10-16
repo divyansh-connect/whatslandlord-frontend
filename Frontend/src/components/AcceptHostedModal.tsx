@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { ShieldCheck, Lock, X, Loader2, CheckCircle2, AlertCircle, CreditCard, ExternalLink } from 'lucide-react';
 import { Button } from './ui/Button';
 
+
+
 interface AcceptHostedModalProps {
   isOpen: boolean;
   onClose: () => void;
