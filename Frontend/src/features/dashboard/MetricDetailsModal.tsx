@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import api from '../../api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/Dialog';
 import { Button } from '../../components/ui/Button';
@@ -7,7 +8,8 @@ import { Input } from '../../components/ui/Input';
 import { StatusBadge } from '../../components/StatusBadge';
 import { 
   Building2, Home, UserCheck, AlertCircle, TrendingUp, DollarSign, 
-  Calendar, Wrench, Download, FileSpreadsheet, FileText, Search, X, CheckCircle, Clock 
+  Calendar, Wrench, Download, FileSpreadsheet, FileText, Search, X, CheckCircle, Clock,
+  ArrowRight, ExternalLink 
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -38,6 +40,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
   metricType,
   metricsSummary,
 }) => {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
 
   // 1. Fetch properties
@@ -637,7 +640,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
             { header: 'Unit #', accessorKey: 'unitNumber' },
             { header: 'Property Name', accessorKey: 'propertyName' },
             { header: 'Resident Name', accessorKey: 'tenantName' },
-            { header: 'Current Rent', accessorKey: 'monthlyRent' },
+            { header: 'Current Rent', accessorKey: 'rentAmount' },
             { header: 'Start Date', accessorKey: 'startDate' },
             { header: 'Expiration Date', accessorKey: 'endDate' },
             { header: 'Time Remaining', accessorKey: 'daysRemaining' },
@@ -855,17 +858,25 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
                           const isExpiring = val === 'Expiring Soon';
                           return (
                             <td key={col.accessorKey} className="px-4 py-3">
-                              <span
-                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onClose();
+                                  navigate({ to: '/leasing/renewals' });
+                                }}
+                                title="Review expiring leases and take action immediately in Renewals Directory"
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm group ${
                                   isImmediate
-                                    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                                    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20 ring-1 ring-rose-500/30'
                                     : isExpiring
-                                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                                    : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
+                                    : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/20'
                                 }`}
                               >
-                                {val}
-                              </span>
+                                <span>{val}</span>
+                                <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
+                              </button>
                             </td>
                           );
                         }
@@ -909,9 +920,26 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
                         }
 
                         if (col.accessorKey === 'propertyName' || col.accessorKey === 'unitNumber') {
+                          const isExpiringUnit = metricType === 'leasesExpiringSoon' && col.accessorKey === 'unitNumber';
                           return (
                             <td key={col.accessorKey} className="px-4 py-3 font-bold text-foreground">
-                              {val}
+                              {isExpiringUnit ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/leases/${row.id}` });
+                                  }}
+                                  className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left"
+                                  title="View Lease Contract"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-70" />
+                                </button>
+                              ) : (
+                                val
+                              )}
                             </td>
                           );
                         }
