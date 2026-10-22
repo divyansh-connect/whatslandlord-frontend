@@ -30,66 +30,55 @@ export const TenantLeaseScreen = () => {
   const fetchLiveLease = async () => {
     try {
       setLoading(true);
-      const res = await apiClient.get('/tenants', logout, refreshAccessToken);
-      if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
-        const item = res.data[0];
+      // Strictly call same endpoint as web frontend: GET /portal/tenant/leases
+      const [leasesRes, singleLeaseRes] = await Promise.all([
+        apiClient.get('/portal/tenant/leases', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/portal/tenant/lease', logout, refreshAccessToken).catch(() => null),
+      ]);
+
+      const rawLeases = Array.isArray(leasesRes?.data) ? leasesRes.data : (Array.isArray(leasesRes) ? leasesRes : []);
+      const single = singleLeaseRes?.data || singleLeaseRes;
+      const rawLease = rawLeases.length > 0 ? rawLeases[0] : (single && single.id ? single : null);
+
+      if (rawLease) {
         setLeaseData({
-          tenantName: item.name || `${item.firstName || ''} ${item.lastName || ''}`.trim() || 'Robert Johnson',
-          tenantEmail: item.email || 'tenant@apexpm.com',
-          tenantPhone: item.phone || '344232',
-          propertyName: item.property?.name || 'property 1',
-          unitNumber: item.unit?.unitNumber || 'room 1b',
-          bedrooms: item.unit?.bedrooms || 2,
-          bathrooms: item.unit?.bathrooms || 2,
-          squareFootage: item.unit?.squareFootage || 850,
-          floor: item.unit?.floor || 1,
-          streetAddress: item.property?.streetAddress || item.property?.address || 'Indore',
-          cityStateZip: `${item.property?.city || 'indore'}, ${item.property?.state || 'Mp'} ${item.property?.zip || '42342'}, USA`,
-          propertyType: item.property?.type || 'Apartment',
-          yearBuilt: item.property?.yearBuilt || 2010,
-          monthlyRent: item.lease?.rentAmount || item.unit?.rentAmount || 1000,
-          securityDeposit: item.lease?.depositAmount || item.unit?.securityDeposit || 1000,
-          startDate: item.lease?.startDate ? item.lease.startDate.split('T')[0] : '2026-08-01',
-          endDate: item.lease?.endDate ? item.lease.endDate.split('T')[0] : '2027-08-01',
-          status: item.lease?.status || 'Active',
-          ownerName: item.property?.owner?.name || 'William Anderson',
-          ownerEmail: item.property?.owner?.email || 'owner@apexpm.com',
-          ownerPhone: item.property?.owner?.phone || '23425245252',
-          managementCompany: item.property?.managementCompany || 'Apex Property Management',
+          id: rawLease.id,
+          tenantName: rawLease.tenant
+            ? `${rawLease.tenant.firstName || ''} ${rawLease.tenant.lastName || ''}`.trim()
+            : rawLease.tenantName || 'Resident',
+          tenantEmail: rawLease.tenant?.email || rawLease.tenantEmail || '',
+          tenantPhone: rawLease.tenant?.phone || rawLease.tenantPhone || '',
+          propertyName: rawLease.property?.name || rawLease.propertyName || 'Property',
+          unitNumber: rawLease.unit?.unitNumber ? `Unit ${rawLease.unit.unitNumber}` : rawLease.unitNumber || 'Unassigned',
+          bedrooms: rawLease.unit?.bedrooms || 0,
+          bathrooms: rawLease.unit?.bathrooms || 0,
+          squareFootage: rawLease.unit?.squareFootage || 0,
+          floor: rawLease.unit?.floor || 1,
+          streetAddress: rawLease.property?.streetAddress || rawLease.property?.address || '',
+          cityStateZip: `${rawLease.property?.city || ''}, ${rawLease.property?.state || ''} ${rawLease.property?.zip || ''}`.trim(),
+          propertyType: rawLease.property?.type || 'Residential',
+          yearBuilt: rawLease.property?.yearBuilt || 2020,
+          monthlyRent: Number(rawLease.rentAmount || 0),
+          securityDeposit: Number(rawLease.depositAmount !== undefined ? rawLease.depositAmount : (rawLease.securityDeposit || 0)),
+          startDate: rawLease.startDate ? String(rawLease.startDate).split('T')[0] : (rawLease.leaseStart || 'N/A'),
+          endDate: rawLease.endDate ? String(rawLease.endDate).split('T')[0] : (rawLease.leaseEnd || 'N/A'),
+          status: rawLease.status || 'Active',
+          ownerName: rawLease.property?.owner?.name || '',
+          ownerEmail: rawLease.property?.owner?.email || '',
+          ownerPhone: rawLease.property?.owner?.phone || '',
+          managementCompany: rawLease.property?.managementCompany || 'Property Management',
+          documentUrl: rawLease.documentUrl || rawLease.fileUrl || '',
         });
-        return;
+      } else {
+        // No active lease found matching Web UI exactly
+        setLeaseData(null);
       }
     } catch (e) {
       console.log('Error fetching live tenant lease:', e.message);
+      setLeaseData(null);
     } finally {
       setLoading(false);
     }
-
-    // Default fallback matching Railway DB record
-    setLeaseData({
-      tenantName: 'Robert Johnson',
-      tenantEmail: 'tenant@apexpm.com',
-      tenantPhone: '344232',
-      propertyName: 'property 1',
-      unitNumber: 'room 1b',
-      bedrooms: 2,
-      bathrooms: 2,
-      squareFootage: 850,
-      floor: 1,
-      streetAddress: 'Indore',
-      cityStateZip: 'indore, Mp 42342, USA',
-      propertyType: 'Apartment',
-      yearBuilt: 2010,
-      monthlyRent: 1000,
-      securityDeposit: 1000,
-      startDate: '2026-08-01',
-      endDate: '2027-08-01',
-      status: 'Active',
-      ownerName: 'William Anderson',
-      ownerEmail: 'owner@apexpm.com',
-      ownerPhone: '23425245252',
-      managementCompany: 'Apex Property Management',
-    });
   };
 
   useEffect(() => {
@@ -283,6 +272,30 @@ export const TenantLeaseScreen = () => {
           {es ? 'Cargando Datos del Contrato...' : 'Loading Live Lease Data...'}
         </Text>
       </View>
+    );
+  }
+
+  if (!leaseData) {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={styles.title} allowFontScaling={false}>
+            {es ? 'Mi Contrato de Arrendamiento' : 'My Lease Agreement'}
+          </Text>
+        </View>
+
+        <View style={styles.emptyCard}>
+          <Ionicons name="document-text-outline" size={48} color="#64748b" style={{ marginBottom: 12 }} />
+          <Text style={styles.emptyTitle} allowFontScaling={false}>
+            {es ? 'No se encontró ningún contrato activo.' : 'No active lease found.'}
+          </Text>
+          <Text style={styles.emptySubtitle} allowFontScaling={false}>
+            {es 
+              ? 'Actualmente no tiene un contrato de arrendamiento activo registrado en su portal.'
+              : 'You currently have no active residential lease recorded on your portal.'}
+          </Text>
+        </View>
+      </ScrollView>
     );
   }
 
@@ -590,5 +603,30 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '800',
+  },
+
+  emptyCard: {
+    backgroundColor: colors.surface,
+    padding: 36,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    marginTop: 12,
+  },
+  emptyTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    color: colors.textSecondary,
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: 'center',
+    maxWidth: 290,
   },
 });
