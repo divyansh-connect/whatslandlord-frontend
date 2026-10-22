@@ -12,7 +12,7 @@ import {
   Easing,
 } from 'react-native';
 import apiClient from '../api/client';
-import { useAuthStore } from '../store/useStore';
+import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 
 // Animated Touchable Wrapper Component
@@ -63,6 +63,7 @@ export const CollectionDashboard = () => {
   const [charts, setCharts] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [followUpTenants, setFollowUpTenants] = useState([]);
 
   // Animation Values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -87,26 +88,48 @@ export const CollectionDashboard = () => {
     ]).start();
   };
 
-  // Strictly call live Railway endpoints: GET /dashboard/metrics & GET /dashboard/charts
+  // Strictly call live Railway endpoints: GET /dashboard/metrics, /payments, /invoices
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [metricsRes, paymentsRes, expensesRes] = await Promise.all([
+      const [metricsRes, paymentsRes, expensesRes, invoicesRes] = await Promise.all([
         apiClient.get('/dashboard/metrics', logout, refreshAccessToken).catch(() => null),
-        apiClient.get('/payments', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/payments', logout, refreshAccessToken).catch(() => apiClient.get('/portal/payments', logout, refreshAccessToken).catch(() => null)),
         apiClient.get('/portal/expenses', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/invoices', logout, refreshAccessToken).catch(() => null),
       ]);
 
       const mData = metricsRes?.data || metricsRes || {};
       const rawPayments = Array.isArray(paymentsRes) ? paymentsRes : (paymentsRes?.data || []);
       const rawExpenses = Array.isArray(expensesRes) ? expensesRes : (expensesRes?.data || []);
+      const rawInvoices = Array.isArray(invoicesRes) ? invoicesRes : (invoicesRes?.data || []);
 
       const collectionsSum = rawPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
       const expensesSum = rawExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
+      // Process real overdue balances from invoices
+      const overdueList = rawInvoices
+        .filter((inv) => {
+          const bal = Number(inv.balance !== undefined ? inv.balance : inv.amount || 0);
+          const st = String(inv.status || '').toLowerCase();
+          return bal > 0 && st !== 'paid';
+        })
+        .map((inv, idx) => ({
+          id: inv.id || String(idx),
+          name:
+            inv.tenantName ||
+            (inv.tenant ? `${inv.tenant.firstName || ''} ${inv.tenant.lastName || ''}`.trim() : null) ||
+            'Tenant',
+          unit: inv.propertyName || (inv.unit ? `Unit ${inv.unit.unitNumber}` : 'Rental Unit'),
+          daysLate: inv.dueDate ? `Due ${inv.dueDate.split('T')[0]}` : 'Overdue',
+          balance: `$${Number(inv.balance !== undefined ? inv.balance : inv.amount || 0).toLocaleString()}`,
+        }));
+
+      setFollowUpTenants(overdueList.slice(0, 10));
+
       setMetrics({
         collections: collectionsSum || mData.collections || 0,
-        overdue: mData.overdue || 0,
+        overdue: mData.pendingRent || mData.overdue || 0,
         payouts: Math.max(0, collectionsSum - expensesSum),
         expenses: expensesSum || mData.expenses || 0,
         grossInflowGrowth: mData.grossInflowGrowth || '0%',
@@ -124,6 +147,7 @@ export const CollectionDashboard = () => {
         grossInflowGrowth: '0%',
         overdueChange: '0%',
       });
+      setFollowUpTenants([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -142,12 +166,6 @@ export const CollectionDashboard = () => {
     const title = language === 'es' ? 'Enviar Alerta' : 'Send Alert';
     Alert.alert(title, msg);
   };
-
-  const followUpTenants = [
-    { id: '1', name: 'Robert Johnson', unit: 'Unit 205', daysLate: language === 'es' ? '12 días de retraso' : '12 days late', balance: '$1450' },
-    { id: '2', name: 'Emily Davis', unit: 'Unit 104', daysLate: language === 'es' ? '8 días de retraso' : '8 days late', balance: '$850' },
-    { id: '3', name: 'Michael Chang', unit: 'Unit 310', daysLate: language === 'es' ? '5 días de retraso' : '5 days late', balance: '$1800' },
-  ];
 
   if (loading && !refreshing) {
     return (
@@ -201,7 +219,7 @@ export const CollectionDashboard = () => {
               </View>
             </View>
             <Text style={[styles.kpiVal, { color: colors.textPrimary }]} allowFontScaling={false}>
-              ${(metrics?.collections || 6000).toLocaleString()}
+              ${(metrics?.collections || 0).toLocaleString()}
             </Text>
             <View style={styles.kpiFooterRow}>
               <View style={styles.badgeGreen}>
@@ -292,29 +310,40 @@ export const CollectionDashboard = () => {
               : 'Tenants with outstanding balances requiring contact'}
           </Text>
 
-          {followUpTenants.map((t) => (
-            <View key={t.id} style={[styles.tenantRow, { borderBottomColor: colors.cardBorder }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.tenantNameText, { color: colors.textPrimary }]} allowFontScaling={false}>{t.name}</Text>
-                <Text style={[styles.tenantMetaText, { color: colors.textSecondary }]} allowFontScaling={false}>
-                  {t.unit} • <Text style={{ color: '#f87171', fontWeight: '800' }}>{t.daysLate}</Text>
-                </Text>
-              </View>
-
-              <View style={styles.tenantRightGroup}>
-                <Text style={[styles.tenantBalanceText, { color: colors.textPrimary }]} allowFontScaling={false}>{t.balance}</Text>
-                <TouchableOpacity
-                  style={styles.alertBtn}
-                  onPress={() => handleSendAlert(t.name, t.balance)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.alertBtnText} allowFontScaling={false}>
-                    {language === 'es' ? '✉ Enviar Alerta' : '✉ Send Alert'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+          {followUpTenants.length === 0 ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, color: '#10b981', fontWeight: '700', marginBottom: 4 }} allowFontScaling={false}>
+                ✓ All Accounts Paid in Full
+              </Text>
+              <Text style={{ fontSize: 11.5, color: colors.textSecondary, textAlign: 'center' }} allowFontScaling={false}>
+                There are no overdue rent balances requiring immediate follow-up.
+              </Text>
             </View>
-          ))}
+          ) : (
+            followUpTenants.map((t) => (
+              <View key={t.id} style={[styles.tenantRow, { borderBottomColor: colors.cardBorder }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.tenantNameText, { color: colors.textPrimary }]} allowFontScaling={false}>{t.name}</Text>
+                  <Text style={[styles.tenantMetaText, { color: colors.textSecondary }]} allowFontScaling={false}>
+                    {t.unit} • <Text style={{ color: '#f87171', fontWeight: '800' }}>{t.daysLate}</Text>
+                  </Text>
+                </View>
+
+                <View style={styles.tenantRightGroup}>
+                  <Text style={[styles.tenantBalanceText, { color: colors.textPrimary }]} allowFontScaling={false}>{t.balance}</Text>
+                  <TouchableOpacity
+                    style={styles.alertBtn}
+                    onPress={() => handleSendAlert(t.name, t.balance)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.alertBtnText} allowFontScaling={false}>
+                      {language === 'es' ? '✉ Enviar Alerta' : '✉ Send Alert'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
         </View>
       </Animated.View>
 
