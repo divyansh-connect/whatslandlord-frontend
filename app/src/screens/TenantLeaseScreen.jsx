@@ -7,11 +7,16 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export const TenantLeaseScreen = () => {
   const { logout, refreshAccessToken } = useAuthStore();
@@ -91,11 +96,176 @@ export const TenantLeaseScreen = () => {
     fetchLiveLease();
   }, []);
 
-  const handleDownloadLease = () => {
-    Alert.alert(
-      es ? 'Descargando PDF' : 'Downloading PDF',
-      es ? 'Descargando copia firmada de Contrato_Arrendamiento_Firmado.pdf...' : 'Downloading signed copy of Lease_Agreement_Signed.pdf...'
-    );
+  const [downloadingLease, setDownloadingLease] = useState(false);
+
+  const handleDownloadLease = async () => {
+    try {
+      setDownloadingLease(true);
+      const d = leaseData || {};
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Residential Lease Agreement</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; color: #0f172a; margin: 0; background: #ffffff; }
+              .header { border-bottom: 2px solid #38bdf8; padding-bottom: 20px; margin-bottom: 24px; text-align: center; }
+              h1 { font-size: 24px; color: #0f172a; margin: 0 0 8px 0; }
+              .badge { display: inline-block; padding: 4px 12px; background: #e0f2fe; color: #0284c7; border-radius: 6px; font-weight: 700; font-size: 12px; }
+              .section { margin-bottom: 24px; }
+              .section-title { font-size: 14px; font-weight: 700; color: #0369a1; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 12px; }
+              .info-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+              .info-box { flex: 1 1 45%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+              .info-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }
+              .info-val { font-size: 14px; font-weight: 600; color: #0f172a; }
+              .signatures { margin-top: 40px; border-top: 2px solid #e2e8f0; padding-top: 20px; display: flex; justify-content: space-between; }
+              .sig-block { width: 45%; }
+              .sig-line { border-bottom: 1px solid #0f172a; height: 40px; margin-bottom: 6px; display: flex; align-items: flex-end; font-family: cursive; font-size: 18px; color: #0284c7; }
+              .sig-label { font-size: 11px; color: #64748b; font-weight: 600; }
+              .footer { margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: center; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <span class="badge">OFFICIAL RESIDENTIAL LEASE AGREEMENT</span>
+              <h1>Lease Agreement - ${d.propertyName || 'Property'}</h1>
+              <p style="margin: 0; color: #64748b; font-size: 13px;">Unit: ${d.unit || 'Standard Unit'} | Status: Active & Signed</p>
+            </div>
+            
+            <div class="section">
+              <div class="section-title">1. Parties & Premises</div>
+              <div class="info-grid">
+                <div class="info-box">
+                  <div class="info-label">Tenant Name</div>
+                  <div class="info-val">${d.tenantName || 'Resident Tenant'}</div>
+                </div>
+                <div class="info-box">
+                  <div class="info-label">Property Name</div>
+                  <div class="info-val">${d.propertyName || 'Property'}</div>
+                </div>
+                <div class="info-box">
+                  <div class="info-label">Property Address</div>
+                  <div class="info-val">${d.propertyAddress || 'Address on file'}</div>
+                </div>
+                <div class="info-box">
+                  <div class="info-label">Management Company</div>
+                  <div class="info-val">${d.managementCompany || 'Apex Property Management'}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">2. Term & Financials</div>
+              <div class="info-grid">
+                <div class="info-box">
+                  <div class="info-label">Monthly Rent</div>
+                  <div class="info-val">$${Number(d.monthlyRent || 0).toLocaleString()} / month</div>
+                </div>
+                <div class="info-box">
+                  <div class="info-label">Security Deposit</div>
+                  <div class="info-val">$${Number(d.securityDeposit || 0).toLocaleString()}</div>
+                </div>
+                <div class="info-box">
+                  <div class="info-label">Start Date</div>
+                  <div class="info-val">${d.startDate || 'N/A'}</div>
+                </div>
+                <div class="info-box">
+                  <div class="info-label">End Date</div>
+                  <div class="info-val">${d.endDate || 'N/A'}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="signatures">
+              <div class="sig-block">
+                <div class="sig-line">${d.tenantName || 'Tenant'}</div>
+                <div class="sig-label">Tenant Electronic Signature</div>
+              </div>
+              <div class="sig-block">
+                <div class="sig-line">Apex Property Management</div>
+                <div class="sig-label">Landlord / Authorized Agent Signature</div>
+              </div>
+            </div>
+
+            <div class="footer">
+              WhatsLandlord Property Management ERP &copy; ${new Date().getFullYear()} &bull; Verified Electronic Document
+            </div>
+          </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+      const fileName = 'Lease_Agreement_Signed.pdf';
+
+      if (Platform.OS === 'android' && FileSystem.StorageAccessFramework) {
+        let dirUri = null;
+        try {
+          dirUri = await AsyncStorage.getItem('@app_download_directory_uri');
+        } catch (_) {}
+
+        let isValidDir = false;
+        if (dirUri) {
+          try {
+            const check = await FileSystem.StorageAccessFramework.readDirectoryAsync(dirUri);
+            if (check !== undefined) isValidDir = true;
+          } catch (_) {
+            isValidDir = false;
+            dirUri = null;
+          }
+        }
+
+        if (!isValidDir || !dirUri) {
+          try {
+            const initialSafUri = FileSystem.StorageAccessFramework.getUriForDirectoryInRoot('Download');
+            const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(initialSafUri);
+            if (perm && perm.granted && perm.directoryUri) {
+              dirUri = perm.directoryUri;
+              try {
+                await AsyncStorage.setItem('@app_download_directory_uri', dirUri);
+              } catch (_) {}
+              isValidDir = true;
+            }
+          } catch (_) {}
+        }
+
+        if (isValidDir && dirUri) {
+          const base64Content = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          const cleanName = 'Lease_Agreement_Signed';
+          const newSafUri = await FileSystem.StorageAccessFramework.createFileAsync(
+            dirUri,
+            cleanName,
+            'application/pdf'
+          );
+          await FileSystem.writeAsStringAsync(newSafUri, base64Content, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          Alert.alert(
+            'Download Complete',
+            'Signed Lease Agreement has been downloaded and saved directly to your phone\'s folder.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      }
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Save Lease_Agreement_Signed.pdf',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        Alert.alert('Download Complete', 'Signed Lease Agreement generated and saved.');
+      }
+    } catch (err) {
+      console.log('Error downloading lease:', err);
+      Alert.alert('Download Error', err?.message || 'Could not download lease agreement.');
+    } finally {
+      setDownloadingLease(false);
+    }
   };
 
   const handleRequestRenewal = () => {
@@ -306,10 +476,19 @@ export const TenantLeaseScreen = () => {
         </View>
 
         <View style={styles.actionsContainer}>
-          <TouchableOpacity style={styles.actionBtnPrimary} onPress={handleDownloadLease} activeOpacity={0.7}>
-            <Ionicons name="download-outline" size={16} color="#ffffff" style={{ marginRight: 8 }} />
+          <TouchableOpacity 
+            style={styles.actionBtnPrimary} 
+            onPress={handleDownloadLease} 
+            activeOpacity={0.7}
+            disabled={downloadingLease}
+          >
+            {downloadingLease ? (
+              <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />
+            ) : (
+              <Ionicons name="download-outline" size={16} color="#ffffff" style={{ marginRight: 8 }} />
+            )}
             <Text style={styles.actionBtnPrimaryText} allowFontScaling={false}>
-              {es ? 'DESCARGAR CONTRATO' : 'DOWNLOAD AGREEMENT'}
+              {downloadingLease ? (es ? 'DESCARGANDO...' : 'DOWNLOADING...') : (es ? 'DESCARGAR CONTRATO' : 'DOWNLOAD AGREEMENT')}
             </Text>
           </TouchableOpacity>
 
