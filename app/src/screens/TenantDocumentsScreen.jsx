@@ -96,6 +96,30 @@ export const TenantDocumentsScreen = () => {
   const [isTenantUploadOpen, setIsTenantUploadOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
+  const [downloadedDocIds, setDownloadedDocIds] = useState(new Set());
+
+  // Load previously downloaded documents on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem('@app_downloaded_doc_ids');
+        if (stored) {
+          const arr = JSON.parse(stored);
+          if (Array.isArray(arr)) setDownloadedDocIds(new Set(arr));
+        }
+      } catch (_) {}
+    })();
+  }, []);
+
+  const markAsDownloaded = (docId) => {
+    if (!docId) return;
+    setDownloadedDocIds((prev) => {
+      const next = new Set(prev);
+      next.add(String(docId));
+      AsyncStorage.setItem('@app_downloaded_doc_ids', JSON.stringify(Array.from(next))).catch(() => null);
+      return next;
+    });
+  };
 
   // --- Upload Owner Document Form States ---
   const [oDocName, setODocName] = useState('');
@@ -233,164 +257,134 @@ export const TenantDocumentsScreen = () => {
     }
   };
 
-  // Helper to save file directly to the device's Downloads directory (Android)
-  const saveFileToDeviceStorage = async (sourceLocalUri, fileName, mimeType = 'application/pdf') => {
-    try {
-      if (Platform.OS === 'android' && FileSystem.StorageAccessFramework) {
-        let dirUri = null;
-        try {
-          dirUri = await AsyncStorage.getItem('@app_download_directory_uri');
-        } catch (_) {}
-
-        let isValidDir = false;
-        if (dirUri) {
-          try {
-            const check = await FileSystem.StorageAccessFramework.readDirectoryAsync(dirUri);
-            if (check !== undefined) isValidDir = true;
-          } catch (_) {
-            isValidDir = false;
-            dirUri = null;
-          }
-        }
-
-        // If no directory previously selected, open system folder selector (defaults to Downloads)
-        if (!isValidDir || !dirUri) {
-          try {
-            const initialSafUri = FileSystem.StorageAccessFramework.getUriForDirectoryInRoot('Download');
-            const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(initialSafUri);
-            if (perm && perm.granted && perm.directoryUri) {
-              dirUri = perm.directoryUri;
-              try {
-                await AsyncStorage.setItem('@app_download_directory_uri', dirUri);
-              } catch (_) {}
-              isValidDir = true;
-            }
-          } catch (pickerErr) {
-            console.log('Folder permission request error/cancelled:', pickerErr?.message);
-          }
-        }
-
-        // If directory is granted, save directly into user's phone folder
-        if (isValidDir && dirUri) {
-          const base64Content = await FileSystem.readAsStringAsync(sourceLocalUri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-
-          // SAF auto-appends extension based on mimeType, so remove trailing extension from name
-          const cleanName = fileName.replace(/\.[^/.]+$/, '').trim() || 'document';
-          const newSafUri = await FileSystem.StorageAccessFramework.createFileAsync(
-            dirUri,
-            cleanName,
-            mimeType
-          );
-
-          await FileSystem.writeAsStringAsync(newSafUri, base64Content, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-
-          Alert.alert(
-            'Download Complete',
-            `"${fileName}" has been downloaded and saved directly to your phone's folder.`,
-            [{ text: 'OK' }]
-          );
-          return true;
-        }
-      }
-
-      // Fallback for iOS or if user cancelled folder selection on Android
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(sourceLocalUri, {
-          mimeType,
-          dialogTitle: `Save ${fileName}`,
-          UTI: mimeType === 'application/pdf' ? 'com.adobe.pdf' : undefined,
-        });
-        return true;
-      } else {
-        Alert.alert('Download Complete', `File "${fileName}" saved.`);
-        return true;
-      }
-    } catch (saveError) {
-      console.log('Error saving file to device storage:', saveError);
-      // Fallback to Sharing if SAF encounters an error
-      if (await Sharing.isAvailableAsync()) {
-        try {
-          await Sharing.shareAsync(sourceLocalUri, {
-            mimeType,
-            dialogTitle: `Save ${fileName}`,
-          });
-          return true;
-        } catch (_) {}
-      }
-      throw saveError;
-    }
-  };
-
-  const handleDownload = async (item) => {
+  const handleDownload = async (item, forceRedownload = false) => {
     if (!item) return;
     const docObj = typeof item === 'object' && item !== null ? item : { name: String(item) };
-    const docId = docObj.id || docObj.name || `doc-${Date.now()}`;
+    const docId = String(docObj.id || docObj.name || `doc-${Date.now()}`);
     const rawFileName = docObj.name || docObj.title || 'document';
     const fileName = rawFileName.trim().replace(/[/\\?%*:|"<>]/g, '_');
     const fileUrl = docObj.fileUrl || docObj.url || docObj.path || '';
 
+    const lowerName = fileName.toLowerCase();
+    const isPdf = lowerName.endsWith('.pdf');
+    const isJpeg = lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg');
+    const isPng = lowerName.endsWith('.png');
+    const isCsv = lowerName.endsWith('.csv');
+    const isXlsx = lowerName.endsWith('.xlsx');
+
+    let mimeType = 'application/octet-stream';
+    if (isPdf) mimeType = 'application/pdf';
+    else if (isJpeg) mimeType = 'image/jpeg';
+    else if (isPng) mimeType = 'image/png';
+    else if (isCsv) mimeType = 'text/csv';
+    else if (isXlsx) mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    const localDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
+    const localUri = localDir.endsWith('/') ? `${localDir}${fileName}` : `${localDir}/${fileName}`;
+
+    // If already downloaded and user didn't ask to re-download, give quick action sheet
+    if (downloadedDocIds.has(docId) && !forceRedownload) {
+      Alert.alert(
+        'Document Actions',
+        `"${fileName}" is already downloaded on your device. What would you like to do?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Download Again',
+            onPress: () => handleDownload(item, true),
+          },
+          {
+            text: 'Open / View File',
+            onPress: async () => {
+              try {
+                const info = await FileSystem.getInfoAsync(localUri);
+                if (info.exists && (await Sharing.isAvailableAsync())) {
+                  await Sharing.shareAsync(localUri, { mimeType });
+                  return;
+                }
+              } catch (_) {}
+              if (fileUrl && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://'))) {
+                await Linking.openURL(fileUrl);
+              } else {
+                handleDownload(item, true);
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     try {
       setDownloadingId(docId);
 
-      const lowerName = fileName.toLowerCase();
-      const isPdf = lowerName.endsWith('.pdf');
-      const isJpeg = lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg');
-      const isPng = lowerName.endsWith('.png');
-      const isCsv = lowerName.endsWith('.csv');
-      const isXlsx = lowerName.endsWith('.xlsx');
-
-      let mimeType = 'application/octet-stream';
-      if (isPdf) {
-        mimeType = 'application/pdf';
-      } else if (isJpeg) {
-        mimeType = 'image/jpeg';
-      } else if (isPng) {
-        mimeType = 'image/png';
-      } else if (isCsv) {
-        mimeType = 'text/csv';
-      } else if (isXlsx) {
-        mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-      }
-
       // 1. If remote file URL (Cloudinary, AWS, Railway or HTTPS)
       if (fileUrl && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://'))) {
-        try {
-          const localDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
-          const localUri = localDir.endsWith('/') ? `${localDir}${fileName}` : `${localDir}/${fileName}`;
-
-          // Download to local storage first
-          const downloadRes = await FileSystem.downloadAsync(fileUrl, localUri);
-
-          if (downloadRes && downloadRes.status === 200) {
-            await saveFileToDeviceStorage(downloadRes.uri, fileName, mimeType);
-            return;
-          } else {
-            await Linking.openURL(fileUrl);
-            return;
-          }
-        } catch (downloadErr) {
-          console.log('Direct download failed, falling back to browser URL:', downloadErr.message);
-          await Linking.openURL(fileUrl);
-          return;
+        let downloadUrl = fileUrl.trim();
+        // Force attachment header for Cloudinary so Android Download Manager saves directly to /storage/emulated/0/Download
+        if (downloadUrl.includes('res.cloudinary.com') && downloadUrl.includes('/upload/') && !downloadUrl.includes('/upload/fl_attachment/')) {
+          downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
         }
+
+        // Cache locally in background so user can also open it inside app
+        try {
+          await FileSystem.downloadAsync(downloadUrl, localUri);
+        } catch (cacheErr) {
+          console.log('Local cache download warning:', cacheErr?.message);
+        }
+
+        // Mark as downloaded in app UI & storage
+        markAsDownloaded(docId);
+
+        // Open via Android browser / system Download Manager
+        try {
+          await Linking.openURL(downloadUrl);
+        } catch (linkErr) {
+          console.log('Linking openURL failed:', linkErr?.message);
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(localUri, { mimeType });
+          }
+        }
+
+        Alert.alert(
+          'Download Started',
+          `"${fileName}" aapke phone ke Downloads folder me download ho rahi hai.\n\nNotification bar me progress check karein ya yaha se file direct open karein.`,
+          [
+            { text: 'OK' },
+            {
+              text: 'Open File',
+              onPress: async () => {
+                try {
+                  if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(localUri, { mimeType });
+                  }
+                } catch (_) {}
+              },
+            },
+          ]
+        );
+        return;
       }
 
       // 2. Base64 data URI
       if (fileUrl && fileUrl.startsWith('data:')) {
         const commaIdx = fileUrl.indexOf(',');
         const base64Data = commaIdx > -1 ? fileUrl.substring(commaIdx + 1) : fileUrl;
-        const localDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
-        const localUri = localDir.endsWith('/') ? `${localDir}${fileName}` : `${localDir}/${fileName}`;
 
         await FileSystem.writeAsStringAsync(localUri, base64Data, {
           encoding: FileSystem.EncodingType.Base64,
         });
 
-        await saveFileToDeviceStorage(localUri, fileName, mimeType);
+        markAsDownloaded(docId);
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(localUri, {
+            mimeType,
+            dialogTitle: `Save ${fileName}`,
+          });
+        } else {
+          Alert.alert('Download Complete', `File "${fileName}" saved.`);
+        }
         return;
       }
 
@@ -462,13 +456,23 @@ export const TenantDocumentsScreen = () => {
       `;
 
       const { uri } = await Print.printToFileAsync({ html: htmlContent });
-      const finalPdfName = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
-      await saveFileToDeviceStorage(uri, finalPdfName, 'application/pdf');
+      markAsDownloaded(docId);
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: `Save ${fileName}.pdf to My Files`,
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        Alert.alert('Download Complete', `Document "${docTitle}" saved.`);
+      }
     } catch (error) {
       console.log('Error downloading document:', error);
       if (fileUrl && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://'))) {
         try {
           await Linking.openURL(fileUrl);
+          markAsDownloaded(docId);
           return;
         } catch (_) {}
       }
@@ -705,11 +709,14 @@ export const TenantDocumentsScreen = () => {
             </View>
           ) : (
             filteredDocs.map((item, idx) => {
+              const docKey = String(item.id || item.name || `doc-${idx}`);
               const isPdf = String(item.name || '').toLowerCase().endsWith('.pdf');
+              const isDownloaded = downloadedDocIds.has(docKey);
+
               return (
-                <View key={item.id || `doc-${idx}`} style={styles.card}>
+                <View key={docKey} style={[styles.card, isDownloaded && styles.cardDownloaded]}>
                   <View style={styles.cardHeader}>
-                    <View style={styles.docIconWrapper}>
+                    <View style={[styles.docIconWrapper, isDownloaded && styles.docIconWrapperDownloaded]}>
                       <Ionicons 
                         name={isPdf ? "document-text" : "image"} 
                         size={20} 
@@ -717,21 +724,31 @@ export const TenantDocumentsScreen = () => {
                       />
                     </View>
                     <View style={styles.docInfo}>
-                      <Text style={styles.docName} allowFontScaling={false} numberOfLines={1}>
-                        {item.name || item.title || 'Statement.pdf'}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <Text style={styles.docName} allowFontScaling={false} numberOfLines={1}>
+                          {item.name || item.title || 'Statement.pdf'}
+                        </Text>
+                        {isDownloaded && (
+                          <View style={styles.downloadedBadge}>
+                            <Ionicons name="checkmark-circle" size={10} color="#10b981" />
+                            <Text style={styles.downloadedBadgeText} allowFontScaling={false}>Downloaded</Text>
+                          </View>
+                        )}
+                      </View>
                       <Text style={styles.docSubText} allowFontScaling={false}>
                         {item.size || item.fileSize || 'Standard'} · Uploaded: {formatDate(item.uploadedAt || item.createdAt || item.uploadedDate)}
                       </Text>
                     </View>
                     <TouchableOpacity 
-                      style={styles.downloadBtn} 
+                      style={[styles.downloadBtn, isDownloaded && styles.downloadBtnDownloaded]} 
                       onPress={() => handleDownload(item)}
                       activeOpacity={0.7}
-                      disabled={downloadingId === (item.id || item.name)}
+                      disabled={downloadingId === docKey}
                     >
-                      {downloadingId === (item.id || item.name) ? (
+                      {downloadingId === docKey ? (
                         <ActivityIndicator size="small" color="#38bdf8" />
+                      ) : isDownloaded ? (
+                        <Ionicons name="checkmark-circle" size={19} color="#10b981" />
                       ) : (
                         <Ionicons name="download-outline" size={18} color="#cbd5e1" />
                       )}
@@ -1060,6 +1077,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
 
   // Cards
   card: { backgroundColor: colors.surface, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.cardBorder },
+  cardDownloaded: { borderColor: 'rgba(16, 185, 129, 0.4)' },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   docIconWrapper: {
     width: 38,
@@ -1072,10 +1090,34 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.cardBorder,
   },
+  docIconWrapperDownloaded: {
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+  },
   docInfo: { flex: 1 },
   docName: { fontSize: 14.5, fontWeight: '800', color: colors.textPrimary },
   docSubText: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  downloadBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255, 255, 255, 0.05)', alignItems: 'center', justifyContent: 'center' },
+  downloadedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  downloadedBadgeText: {
+    color: '#10b981',
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  downloadBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255, 255, 255, 0.05)', alignItems: 'center', justifyContent: 'center' },
+  downloadBtnDownloaded: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
 
   divider: { height: 1, backgroundColor: colors.divider, marginVertical: 12 },
 
