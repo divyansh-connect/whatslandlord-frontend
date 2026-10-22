@@ -139,12 +139,12 @@ export const TenantLedgerScreen = () => {
       rawInvoices.forEach((inv) => {
         ledgerList.push({
           id: inv.id || `inv-${Math.random()}`,
-          date: inv.createdAt ? inv.createdAt.split('T')[0] : '2026-08-01',
-          tenantName: inv.tenantName || 'person 1',
-          propertyName: inv.propertyName || 'property 1',
-          unitNumber: inv.unitNumber || 'room 1b',
-          description: inv.lineItems?.[0]?.description || 'Rent Charge & Utilities',
-          debit: Number(inv.amount) || 1100,
+          date: inv.createdAt ? String(inv.createdAt).split('T')[0] : (inv.dueDate ? String(inv.dueDate).split('T')[0] : 'Recent'),
+          tenantName: inv.tenantName || (inv.tenant ? `${inv.tenant.firstName || ''} ${inv.tenant.lastName || ''}`.trim() : 'Resident'),
+          propertyName: inv.propertyName || inv.property?.name || 'Property',
+          unitNumber: inv.unitNumber || (inv.unit?.unitNumber ? `Unit ${inv.unit.unitNumber}` : 'N/A'),
+          description: inv.lineItems?.[0]?.description || inv.description || 'Rent Assessment',
+          debit: Number(inv.amount) || 0,
           credit: 0,
           transactionType: 'Rent Charge',
           status: inv.status || 'Active',
@@ -154,13 +154,13 @@ export const TenantLedgerScreen = () => {
       rawPayments.forEach((p) => {
         ledgerList.push({
           id: p.id || `pay-${Math.random()}`,
-          date: p.paidDate ? p.paidDate.split('T')[0] : '2026-08-01',
-          tenantName: p.tenant ? `${p.tenant.firstName || ''} ${p.tenant.lastName || ''}`.trim() : (p.tenantName || 'person 1'),
-          propertyName: p.property?.name || p.propertyName || 'property 1',
-          unitNumber: p.unitNumber || p.unit?.unitNumber || 'room 1b',
-          description: `Payment via ${p.paymentMethod || 'ACH Bank Transfer'}`,
+          date: p.paidDate ? String(p.paidDate).split('T')[0] : (p.date ? String(p.date).split('T')[0] : 'Recent'),
+          tenantName: p.tenant ? `${p.tenant.firstName || ''} ${p.tenant.lastName || ''}`.trim() : (p.tenantName || 'Resident'),
+          propertyName: p.property?.name || p.propertyName || 'Property',
+          unitNumber: p.unitNumber || (p.unit?.unitNumber ? `Unit ${p.unit.unitNumber}` : 'N/A'),
+          description: `Payment via ${p.paymentMethod || p.method || 'Online'}`,
           debit: 0,
-          credit: Number(p.amount) || 1068.1,
+          credit: Number(p.amount) || 0,
           transactionType: 'Payment',
           status: p.status || 'Paid',
         });

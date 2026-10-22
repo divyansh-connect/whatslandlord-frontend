@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,86 +6,150 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import apiClient from '../api/client';
+import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
-import { useThemeStore } from '../store/useStore';
+import { isNoticeForTenant } from '../utils/tenantNoticeHelper';
 
 export const TenantNotificationsScreen = () => {
   const { colors, isDarkMode } = useThemeColors();
   const { language } = useThemeStore();
+  const { user, logout, refreshAccessToken } = useAuthStore();
   const styles = getStyles(colors, isDarkMode);
   const es = language === 'es';
-  const [notifications, setNotifications] = useState([
-    {
-      id: '1',
-      title: 'Package Arrived at Front Desk',
-      description: 'A parcel from Amazon Logistics is waiting at reception.',
-      time: '06:41 AM',
-      tag: 'warning',
-      read: false,
-    },
-    {
-      id: '2',
-      title: 'Maintenance Request Scheduled',
-      description: 'Work order #WO-1042 for HVAC repair is assigned for Thursday at 10 AM.',
-      time: '06:41 AM',
-      tag: 'success',
-      read: false,
-    },
-    {
-      id: '3',
-      title: 'Monthly Rent Statement Ready',
-      description: 'Your monthly rent invoice for August 2026 is available for download.',
-      time: '06:41 AM',
-      tag: 'info',
-      read: false,
-    },
-  ]);
 
-  const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchLiveNotifications = useCallback(async () => {
+    try {
+      const [notifsRes, profileRes] = await Promise.all([
+        apiClient.get('/portal/tenant/notifications', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/portal/tenant/profile', logout, refreshAccessToken).catch(() => null),
+      ]);
+
+      const raw = notifsRes?.data !== undefined ? notifsRes.data : notifsRes;
+      const serverList = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+      const profile = profileRes?.data || profileRes || {};
+
+      const tenantCtx = {
+        userId: user?.id,
+        userEmail: user?.email,
+        userName: user?.name,
+        profileId: profile?.id,
+        profileEmail: profile?.email,
+        profileFirstName: profile?.firstName,
+        profileLastName: profile?.lastName,
+        unitNumber: profile?.unitNumber,
+      };
+
+      const isolated = serverList.filter((n) => isNoticeForTenant(n, tenantCtx));
+      setNotifications(isolated);
+    } catch (e) {
+      console.log('Error fetching live tenant notifications:', e.message);
+      setNotifications([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user, logout, refreshAccessToken]);
+
+  useEffect(() => {
+    fetchLiveNotifications();
+  }, [fetchLiveNotifications]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchLiveNotifications();
+  };
+
+  const handleMarkAllRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true, isRead: true })));
+    try {
+      await apiClient.patch('/portal/tenant/notifications/all/read', {}, logout, refreshAccessToken);
+    } catch (_) {}
     Alert.alert(
       es ? 'Éxito' : 'Success',
       es ? 'Todas las notificaciones marcadas como leídas' : 'All notifications marked as read'
     );
   };
 
-  const handleClearAll = () => {
-    setNotifications([]);
-  };
-
-  const toggleRead = (id) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: !n.read } : n))
+  const handleClearAll = async () => {
+    Alert.alert(
+      es ? 'Borrar Todo' : 'Clear All',
+      es ? '¿Está seguro de que desea borrar todas las notificaciones?' : 'Are you sure you want to clear all notifications?',
+      [
+        { text: es ? 'Cancelar' : 'Cancel', style: 'cancel' },
+        {
+          text: es ? 'Borrar' : 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            setNotifications([]);
+            try {
+              await apiClient.delete('/portal/tenant/notifications', logout, refreshAccessToken);
+            } catch (_) {}
+          },
+        },
+      ]
     );
   };
 
+  const handleToggleRead = async (item) => {
+    const newReadState = !(item.read || item.isRead);
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === item.id ? { ...n, read: newReadState, isRead: newReadState } : n))
+    );
+
+    if (newReadState) {
+      try {
+        await apiClient.patch(`/portal/tenant/notifications/${item.id}/read`, {}, logout, refreshAccessToken);
+      } catch (_) {}
+    }
+  };
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      {/* Header */}
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#38bdf8" />}
+    >
+      {/* Header matching Web */}
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.title} allowFontScaling={false}>
-          {es ? 'Notificaciones' : 'Notifications'}
-        </Text>
-          <TouchableOpacity style={styles.markAllBtn} onPress={handleMarkAllRead}>
-            <Ionicons name="checkmark-done-outline" size={16} color="#0f172a" style={{ marginRight: 4 }} />
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <Text style={styles.title} allowFontScaling={false}>
+              {es ? 'Centro de Notificaciones' : 'Tenant Notifications Center'}
+            </Text>
+            <Text style={styles.headerDesc} allowFontScaling={false}>
+              {es
+                ? 'Verifique actualizaciones recientes sobre su contrato, pagos y mantenimiento.'
+                : 'Verify recent updates regarding your lease, payments, maintenance orders, and announcements.'}
+            </Text>
+          </View>
+
+          <TouchableOpacity style={styles.markAllBtn} onPress={handleMarkAllRead} activeOpacity={0.8}>
+            <Ionicons name="checkmark-done-outline" size={15} color="#ffffff" style={{ marginRight: 5 }} />
             <Text style={styles.markAllBtnText} allowFontScaling={false}>
-              {es ? 'Marcar Todo Leído' : 'Mark All Read'}
+              {es ? 'Marcar Leído' : 'Mark All as Read'}
             </Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Section Subheader */}
+      {/* Section Subheader matching Web */}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle} allowFontScaling={false}>
           {es ? `ACTIVIDAD RECIENTE (${notifications.length})` : `RECENT ACTIVITY (${notifications.length})`}
         </Text>
         {notifications.length > 0 && (
-          <TouchableOpacity style={styles.clearAllBtn} onPress={handleClearAll}>
-            <Ionicons name="trash-outline" size={14} color="#f87171" style={{ marginRight: 4 }} />
+          <TouchableOpacity style={styles.clearAllBtn} onPress={handleClearAll} activeOpacity={0.7}>
+            <Ionicons name="trash-outline" size={13} color="#f43f5e" style={{ marginRight: 4 }} />
             <Text style={styles.clearAllText} allowFontScaling={false}>
               {es ? 'Borrar Todo' : 'Clear All'}
             </Text>
@@ -93,36 +157,52 @@ export const TenantNotificationsScreen = () => {
         )}
       </View>
 
-      {/* Empty State */}
-      {notifications.length === 0 ? (
+      {/* Loading state */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="small" color="#38bdf8" />
+          <Text style={styles.loadingText} allowFontScaling={false}>
+            {es ? 'Cargando notificaciones...' : 'Loading notifications...'}
+          </Text>
+        </View>
+      ) : notifications.length === 0 ? (
+        /* Empty State 100% synchronized with Web screenshot */
         <View style={styles.emptyCard}>
-          <Ionicons name="notifications-off-outline" size={48} color="#475569" style={{ marginBottom: 8 }} />
-          <Text style={styles.emptyText} allowFontScaling={false}>
-            {es ? 'No se encontraron notificaciones recientes.' : 'No recent notifications found.'}
+          <Ionicons name="notifications-outline" size={42} color={colors.textMuted} style={{ marginBottom: 12, opacity: 0.6 }} />
+          <Text style={styles.emptyTitle} allowFontScaling={false}>
+            {es ? 'No se encontraron alertas' : 'No alerts found'}
+          </Text>
+          <Text style={styles.emptySubtitle} allowFontScaling={false}>
+            {es
+              ? 'Está al día con las actualizaciones de su residencia.'
+              : 'You are all caught up on your residency updates.'}
           </Text>
         </View>
       ) : (
+        /* Notifications List */
         notifications.map((item) => {
-          let tagBg = 'rgba(245, 158, 11, 0.15)';
-          let tagColor = '#f59e0b';
+          const isRead = item.read || item.isRead;
+          const type = (item.type || item.tag || 'Notice').toLowerCase();
 
-          if (item.tag === 'success') {
+          let tagBg = 'rgba(56, 189, 248, 0.15)';
+          let tagColor = '#38bdf8';
+
+          if (type.includes('urgent') || type.includes('warning') || type.includes('overdue')) {
+            tagBg = 'rgba(239, 68, 68, 0.15)';
+            tagColor = '#ef4444';
+          } else if (type.includes('success') || type.includes('paid')) {
             tagBg = 'rgba(16, 185, 129, 0.15)';
             tagColor = '#10b981';
-          } else if (item.tag === 'info') {
-            tagBg = 'rgba(56, 189, 248, 0.15)';
-            tagColor = '#38bdf8';
           }
 
           return (
-            <TouchableOpacity 
-              key={item.id} 
+            <TouchableOpacity
+              key={item.id}
               style={[
-                styles.card, 
-                item.read && styles.cardRead,
-                !item.read && styles.cardUnreadHighlight
+                styles.card,
+                isRead ? styles.cardRead : styles.cardUnreadHighlight,
               ]}
-              onPress={() => toggleRead(item.id)}
+              onPress={() => handleToggleRead(item)}
               activeOpacity={0.8}
             >
               <View style={styles.cardMain}>
@@ -130,26 +210,34 @@ export const TenantNotificationsScreen = () => {
                   <Text style={styles.cardTitle} allowFontScaling={false}>
                     {item.title}
                   </Text>
-                  {!item.read && (
-                    <View style={styles.unreadDot} />
-                  )}
+                  {!isRead && <View style={styles.unreadDot} />}
                 </View>
-                <Text style={styles.cardDesc} allowFontScaling={false}>{item.description}</Text>
-                <Text style={styles.cardTime} allowFontScaling={false}>{item.time}</Text>
+                <Text style={styles.cardDesc} allowFontScaling={false}>
+                  {item.message || item.description || ''}
+                </Text>
+                <Text style={styles.cardTime} allowFontScaling={false}>
+                  {item.timestamp || item.date || item.time || 'Recent'}
+                </Text>
               </View>
 
               <View style={styles.cardRight}>
                 <View style={[styles.tagBadge, { backgroundColor: tagBg }]}>
                   <Text style={[styles.tagText, { color: tagColor }]} allowFontScaling={false}>
-                    {item.tag}
+                    {item.type || item.tag || 'Notice'}
                   </Text>
                 </View>
 
-                <TouchableOpacity style={styles.readActionBtn} onPress={() => toggleRead(item.id)}>
-                  <Text style={styles.readActionText} allowFontScaling={false}>
-                    {item.read ? (es ? 'No Leído' : 'Unread') : (es ? 'Marcar Leído' : 'Mark read')}
-                  </Text>
-                </TouchableOpacity>
+                {!isRead && (
+                  <TouchableOpacity
+                    style={styles.readActionBtn}
+                    onPress={() => handleToggleRead(item)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.readActionText} allowFontScaling={false}>
+                      {es ? 'Marcar Leído' : 'Mark Read'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </TouchableOpacity>
           );
@@ -159,51 +247,97 @@ export const TenantNotificationsScreen = () => {
   );
 };
 
-const getStyles = (colors, isDarkMode) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  contentContainer: { padding: 16, paddingBottom: 60 },
+const getStyles = (colors, isDarkMode) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    contentContainer: { padding: 16, paddingBottom: 60 },
 
-  header: { marginBottom: 20 },
-  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  title: { fontSize: 24, fontWeight: '800', color: colors.textPrimary, flex: 1 },
+    header: { marginBottom: 18 },
+    titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+    title: { fontSize: 22, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.3 },
+    headerDesc: { fontSize: 12, color: colors.textSecondary, marginTop: 4, lineHeight: 17 },
 
-  markAllBtn: { backgroundColor: '#38bdf8', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
-  markAllBtnText: { color: '#0f172a', fontSize: 11, fontWeight: '800' },
+    markAllBtn: {
+      backgroundColor: '#0284c7',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 2,
+    },
+    markAllBtnText: { color: '#ffffff', fontSize: 11, fontWeight: '800' },
 
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  sectionTitle: { fontSize: 11, fontWeight: '800', color: colors.textMuted, letterSpacing: 1 },
-  clearAllBtn: { flexDirection: 'row', alignItems: 'center' },
-  clearAllText: { color: '#f87171', fontSize: 12, fontWeight: '700' },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider || colors.cardBorder,
+      paddingBottom: 8,
+      marginBottom: 16,
+    },
+    sectionTitle: { fontSize: 11, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.8 },
+    clearAllBtn: { flexDirection: 'row', alignItems: 'center' },
+    clearAllText: { color: '#f43f5e', fontSize: 12, fontWeight: '700' },
 
-  emptyCard: { backgroundColor: colors.surface, padding: 32, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: colors.cardBorder },
-  emptyText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
+    loadingContainer: { padding: 30, alignItems: 'center', justifyContent: 'center' },
+    loadingText: { color: colors.textSecondary, fontSize: 12, marginTop: 8 },
 
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  cardRead: { opacity: 0.6 },
-  cardUnreadHighlight: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#38bdf8',
-  },
-  cardMain: { flex: 1, paddingRight: 10 },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  cardTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
-  unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#38bdf8', marginLeft: 6, alignSelf: 'center' },
-  cardDesc: { fontSize: 12, color: colors.textSecondary, marginTop: 4, lineHeight: 17 },
-  cardTime: { fontSize: 10.5, color: colors.textMuted, marginTop: 6 },
+    emptyCard: {
+      backgroundColor: colors.surface,
+      paddingVertical: 44,
+      paddingHorizontal: 24,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      marginTop: 8,
+    },
+    emptyTitle: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '800',
+      marginBottom: 4,
+      textAlign: 'center',
+    },
+    emptySubtitle: {
+      color: colors.textMuted,
+      fontSize: 11.5,
+      textAlign: 'center',
+      maxWidth: 260,
+      lineHeight: 16,
+    },
 
-  cardRight: { alignItems: 'flex-end', justifyContent: 'space-between' },
-  tagBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  tagText: { fontSize: 9.5, fontWeight: '800', textTransform: 'lowercase' },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    cardRead: { opacity: 0.75 },
+    cardUnreadHighlight: {
+      borderLeftWidth: 4,
+      borderLeftColor: '#0284c7',
+    },
+    cardMain: { flex: 1, paddingRight: 10 },
+    cardTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+    cardTitle: { fontSize: 13.5, fontWeight: '800', color: colors.textPrimary },
+    unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#0284c7', marginLeft: 6, alignSelf: 'center' },
+    cardDesc: { fontSize: 12, color: colors.textSecondary, marginTop: 4, lineHeight: 17 },
+    cardTime: { fontSize: 10, color: colors.textMuted, marginTop: 6 },
 
-  readActionBtn: { marginTop: 10, paddingVertical: 4 },
-  readActionText: { color: '#38bdf8', fontSize: 11, fontWeight: '700' },
-});
+    cardRight: { alignItems: 'flex-end', justifyContent: 'space-between' },
+    tagBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+    tagText: { fontSize: 9.5, fontWeight: '800', textTransform: 'capitalize' },
+
+    readActionBtn: { marginTop: 10, paddingVertical: 4 },
+    readActionText: { color: '#0284c7', fontSize: 11, fontWeight: '800' },
+  });
+
+export default TenantNotificationsScreen;

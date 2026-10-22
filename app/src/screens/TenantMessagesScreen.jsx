@@ -103,60 +103,7 @@ export const TenantMessagesScreen = () => {
     ]).start();
   };
 
-  const [chatHistory, setChatHistory] = useState({
-    'Property Manager': [
-      { id: '1', sender: 'manager', text: 'Hello! Welcome to WhatsLandlord Owner Portal. How can we assist with your portfolio today?', time: '09:30 AM' },
-      { id: '2', sender: 'user', text: 'Hi! I wanted to check on the monthly ledger statement.', time: '09:32 AM' },
-      { id: '3', sender: 'manager', text: 'Your monthly statements for Sky house and property 1 have been published.', time: '09:35 AM' },
-    ],
-    'Administrador de Propiedades': [
-      { id: '1', sender: 'manager', text: '¡Hola! Bienvenido al Portal del Propietario de WhatsLandlord. ¿Cómo podemos asistirle hoy con su cartera?', time: '09:30 AM' },
-      { id: '2', sender: 'user', text: '¡Hola! Quería verificar el estado de cuenta mensual.', time: '09:32 AM' },
-      { id: '3', sender: 'manager', text: 'Sus estados de cuenta mensuales para Sky house y property 1 han sido publicados.', time: '09:35 AM' },
-    ],
-    'Accountant': [
-      { id: '1', sender: 'manager', text: 'Accounting office here. Net owner distribution of $1,980.00 is queued.', time: 'Yesterday' },
-    ],
-    'Contador': [
-      { id: '1', sender: 'manager', text: 'Oficina de contabilidad aquí. La distribución neta del propietario de $1,980.00 está en cola.', time: 'Ayer' },
-    ],
-    'Leasing Lead': [
-      { id: '2', sender: 'manager', text: 'Leasing update: Tenant unit occupied with active lease contract.', time: '08:00 AM' },
-    ],
-    'Agente de Alquiler': [
-      { id: '2', sender: 'manager', text: 'Actualización de alquiler: Unidad del inquilino ocupada con contrato activo.', time: '08:00 AM' },
-    ],
-    'Resident Representative': [
-      { id: '3', sender: 'manager', text: 'Resident representative available for property inquiry.', time: 'Monday' },
-    ],
-    'Representante de Residentes': [
-      { id: '3', sender: 'manager', text: 'Representante de residentes disponible para consultas sobre la propiedad.', time: 'Lunes' },
-    ],
-    'Property Manager Office': [
-      { id: '1', sender: 'manager', text: 'Hello! Welcome to WhatsLandlord Property Management. How can we assist you today?', time: '09:30 AM' },
-    ],
-    'Oficina del Administrador': [
-      { id: '1', sender: 'manager', text: '¡Hola! Bienvenido a la administración de propiedades de WhatsLandlord. ¿Cómo podemos asistirle hoy?', time: '09:30 AM' },
-    ],
-    'Leasing Office': [
-      { id: '1', sender: 'manager', text: 'Leasing office here. Your lease agreement is active.', time: 'Yesterday' },
-    ],
-    'Oficina de Arrendamiento': [
-      { id: '1', sender: 'manager', text: 'Oficina de arrendamiento aquí. Su contrato de arrendamiento está activo.', time: 'Ayer' },
-    ],
-    'Maintenance Team': [
-      { id: '1', sender: 'manager', text: 'Work orders for your property units are currently completed.', time: '08:00 AM' },
-    ],
-    'Equipo de Mantenimiento': [
-      { id: '1', sender: 'manager', text: 'Las órdenes de trabajo para las unidades de su propiedad se encuentran completadas.', time: '08:00 AM' },
-    ],
-    'Accounting Office': [
-      { id: '1', sender: 'manager', text: 'Your account balance is currently clear.', time: 'Monday' },
-    ],
-    'Oficina de Contabilidad': [
-      { id: '1', sender: 'manager', text: 'El saldo de su cuenta se encuentra actualmente al día.', time: 'Lunes' },
-    ],
-  });
+  const [chatHistory, setChatHistory] = useState({});
 
   const contacts = isOwner
     ? [
@@ -172,11 +119,12 @@ export const TenantMessagesScreen = () => {
         { id: '4', name: es ? 'Oficina de Contabilidad' : 'Accounting Office', icon: 'book-outline', color: '#ec4899' },
       ];
 
-  // Strictly call live Railway backend endpoint: GET /portal/owner/messages OR GET /messages
+  // Strictly call live backend endpoint: GET /portal/tenant/messages for tenants
   const fetchMessages = async () => {
     try {
       setLoading(true);
-      const endpoint = isOwner ? '/portal/owner/messages' : '/messages';
+      const isTenant = user?.role === 'Tenant';
+      const endpoint = isOwner ? '/portal/owner/messages' : (isTenant ? '/portal/tenant/messages' : '/messages');
       const res = await apiClient.get(endpoint, logout, refreshAccessToken);
       const rawList = Array.isArray(res) ? res : (res?.data || []);
 
@@ -257,7 +205,8 @@ export const TenantMessagesScreen = () => {
     setInputText('');
 
     try {
-      const endpoint = isOwner ? '/portal/owner/messages' : '/messages';
+      const isTenant = user?.role === 'Tenant';
+      const endpoint = isOwner ? '/portal/owner/messages' : (isTenant ? '/portal/tenant/messages' : '/messages');
       await apiClient.post(
         endpoint,
         {
@@ -288,7 +237,8 @@ export const TenantMessagesScreen = () => {
     };
 
     try {
-      const endpoint = isOwner ? '/portal/owner/messages' : '/messages';
+      const isTenant = user?.role === 'Tenant';
+      const endpoint = isOwner ? '/portal/owner/messages' : (isTenant ? '/portal/tenant/messages' : '/messages');
       await apiClient.post(
         endpoint,
         {

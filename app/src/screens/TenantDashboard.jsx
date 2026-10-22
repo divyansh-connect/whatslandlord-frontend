@@ -17,6 +17,7 @@ import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import { isNoticeForTenant } from '../utils/tenantNoticeHelper';
 
 export const TenantDashboard = ({ onNavigate }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
@@ -120,10 +121,23 @@ export const TenantDashboard = ({ onNavigate }) => {
         : null;
       setScreeningReport(myReport);
 
+      const tenantCtx = {
+        userId: user?.id,
+        userEmail: user?.email,
+        userName: user?.name,
+        profileId: profile?.id,
+        profileEmail: profile?.email,
+        profileFirstName: profile?.firstName,
+        profileLastName: profile?.lastName,
+        unitNumber: profile?.unitNumber,
+      };
+
+      const isolatedNotifs = (Array.isArray(notifs) ? notifs : []).filter((n) => isNoticeForTenant(n, tenantCtx));
+
       // Check for unread management notices
-      if (Array.isArray(notifs) && notifs.length > 0) {
-        const unread = notifs.find((n) => !n.read && !n.isRead);
-        setLatestNotice(unread || notifs[0] || null);
+      if (isolatedNotifs.length > 0) {
+        const unread = isolatedNotifs.find((n) => !n.read && !n.isRead);
+        setLatestNotice(unread || isolatedNotifs[0] || null);
       } else {
         setLatestNotice(null);
       }

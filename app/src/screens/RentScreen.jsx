@@ -125,17 +125,19 @@ export const RentScreen = () => {
       : 4.99;
   const totalCharge = amountNum + convenienceFee;
 
-  // Strictly fetch from live Railway endpoints: GET /payments & GET /invoices
+  // Strictly fetch from live Railway endpoints: GET /payments & GET /invoices & GET /portal/tenant/metrics
   const fetchLiveFinancials = async () => {
     try {
       setLoading(true);
-      const [paymentsRes, invoicesRes] = await Promise.all([
+      const [paymentsRes, invoicesRes, metricsRes] = await Promise.all([
         apiClient.get('/payments', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/invoices', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/portal/tenant/metrics', logout, refreshAccessToken).catch(() => null),
       ]);
 
       const rawPayments = Array.isArray(paymentsRes) ? paymentsRes : (paymentsRes?.data || []);
       const rawInvoices = Array.isArray(invoicesRes) ? invoicesRes : (invoicesRes?.data || []);
+      const metrics = metricsRes?.data || metricsRes || {};
 
       const list = [];
       
@@ -143,11 +145,11 @@ export const RentScreen = () => {
       rawInvoices.forEach((inv) => {
         list.push({
           id: inv.id,
-          date: inv.dueDate ? inv.dueDate.split('T')[0] : '2026-08-01',
+          date: inv.dueDate ? String(inv.dueDate).split('T')[0] : 'Recent',
           type: 'Invoice',
-          desc: 'Monthly Rent Assessment',
-          ref: `INV-${inv.id.substring(0, 8).toUpperCase()}`,
-          invoiceAmt: Number(inv.amount) || 1100,
+          desc: inv.description || inv.lineItems?.[0]?.description || 'Monthly Rent Assessment',
+          ref: `INV-${String(inv.id || '').substring(0, 8).toUpperCase()}`,
+          invoiceAmt: Number(inv.amount) || 0,
           paymentAmt: 0,
           additionalChg: 0,
           status: inv.status === 'PAID' || inv.status === 'Paid' ? 'Paid' : 'Unpaid',
@@ -158,12 +160,12 @@ export const RentScreen = () => {
       rawPayments.forEach((pay) => {
         list.push({
           id: pay.id,
-          date: pay.paidDate ? pay.paidDate.split('T')[0] : pay.dueDate ? pay.dueDate.split('T')[0] : '2026-08-01',
+          date: pay.paidDate ? String(pay.paidDate).split('T')[0] : (pay.dueDate ? String(pay.dueDate).split('T')[0] : 'Recent'),
           type: 'Payment',
-          desc: `Rent Payment - ${pay.paymentMethod || 'ACH'}`,
-          ref: `PAY-${pay.id.substring(0, 8).toUpperCase()}`,
+          desc: `Rent Payment - ${pay.paymentMethod || pay.method || 'Online'}`,
+          ref: `PAY-${String(pay.id || '').substring(0, 8).toUpperCase()}`,
           invoiceAmt: 0,
-          paymentAmt: Number(pay.amount) || 1068.1,
+          paymentAmt: Number(pay.amount) || 0,
           additionalChg: 0,
           status: 'Cleared',
         });
@@ -185,10 +187,12 @@ export const RentScreen = () => {
           };
         });
         setLedger(mapped);
-        setOutstandingBalance(Math.max(0, runningBalance));
+        const serverBalance = metrics.outstandingBalance !== undefined ? Number(metrics.outstandingBalance) : null;
+        setOutstandingBalance(serverBalance !== null ? Math.max(0, serverBalance) : Math.max(0, runningBalance));
       } else {
         setLedger([]);
-        setOutstandingBalance(0);
+        const serverBalance = metrics.outstandingBalance !== undefined ? Number(metrics.outstandingBalance) : 0;
+        setOutstandingBalance(Math.max(0, serverBalance));
       }
     } catch (e) {
       console.log('Error fetching GET /payments & GET /invoices:', e.message);

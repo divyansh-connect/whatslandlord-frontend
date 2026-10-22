@@ -220,13 +220,13 @@ export const TenantDocumentsScreen = () => {
         const res = await apiClient.get('/portal/owner/documents', logout, refreshAccessToken).catch(() => null);
         setDocuments(res?.data || []);
       } else {
-        const [tenantDocsRes, allDocsRes] = await Promise.all([
+        const [portalDocsRes, tenantDocsRes] = await Promise.all([
+          apiClient.get('/portal/tenant/documents', logout, refreshAccessToken).catch(() => null),
           apiClient.get('/documents/tenant', logout, refreshAccessToken).catch(() => null),
-          apiClient.get('/documents', logout, refreshAccessToken).catch(() => null),
         ]);
-        const tDocs = tenantDocsRes?.data || [];
-        const aDocs = allDocsRes?.data || [];
-        setDocuments([...tDocs, ...aDocs]);
+        const pDocs = Array.isArray(portalDocsRes?.data) ? portalDocsRes.data : (Array.isArray(portalDocsRes) ? portalDocsRes : []);
+        const tDocs = Array.isArray(tenantDocsRes?.data) ? tenantDocsRes.data : (Array.isArray(tenantDocsRes) ? tenantDocsRes : []);
+        setDocuments(pDocs.length > 0 ? pDocs : tDocs);
       }
     } catch (e) {
       console.log('Error fetching documents:', e.message);
@@ -548,7 +548,8 @@ export const TenantDocumentsScreen = () => {
         type: 'application/pdf',
       });
 
-      await apiClient.post('/documents/tenant/upload', formData, logout, refreshAccessToken, {
+      const uploadEndpoint = isTenantPortal ? '/portal/tenant/documents' : '/documents/tenant/upload';
+      await apiClient.post(uploadEndpoint, formData, logout, refreshAccessToken, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
