@@ -87,6 +87,7 @@ export const TenantDocumentsScreen = () => {
   
   // Tabs for Manager: 'all', 'owner', 'tenant'
   const [activeTab, setActiveTab] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('All');
 
   // Trigger dropdown for Manager upload button
   const [showUploadDropdown, setShowUploadDropdown] = useState(false);
@@ -566,9 +567,10 @@ export const TenantDocumentsScreen = () => {
     }
   };
 
-  // Filters for Manager view tabs and search term
+  // Filters for Manager view tabs, category pills, and search term
   const filteredDocs = documents.filter((doc) => {
-    const matchesSearch = (doc.name || doc.title || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const docName = (doc.name || doc.title || '').toLowerCase();
+    const matchesSearch = docName.includes(searchTerm.toLowerCase());
     
     let matchesTab = true;
     if (isManager) {
@@ -576,7 +578,13 @@ export const TenantDocumentsScreen = () => {
       if (activeTab === 'tenant') matchesTab = doc.type === 'tenant';
     }
 
-    return matchesSearch && matchesTab;
+    let matchesCat = true;
+    if (categoryFilter !== 'All') {
+      const cat = (doc.category || doc.type || '').toLowerCase();
+      matchesCat = cat.includes(categoryFilter.toLowerCase());
+    }
+
+    return matchesSearch && matchesTab && matchesCat;
   });
 
   const oCatOptions = ['Statement', 'Tax', 'Contracts', 'Other'];
@@ -685,6 +693,39 @@ export const TenantDocumentsScreen = () => {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Category Filter Pills (Horizontal Scroll) */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 0, paddingVertical: 8, gap: 8 }}
+          style={{ marginBottom: 2 }}
+        >
+          {['All', 'Lease', 'Statement', 'Receipt', 'Notice', 'Tax', 'Contracts', 'Other'].map((cat) => {
+            const isCatActive = categoryFilter === cat;
+            return (
+              <TouchableOpacity
+                key={cat}
+                onPress={() => setCategoryFilter(cat)}
+                style={[
+                  styles.catPill,
+                  isCatActive && styles.catPillActive
+                ]}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.catPillText,
+                    isCatActive && styles.catPillTextActive
+                  ]}
+                  allowFontScaling={false}
+                >
+                  {cat === 'All' ? 'All Categories' : cat}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <ScrollView
@@ -1208,4 +1249,89 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   submitBtn: { backgroundColor: '#38bdf8', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, minWidth: 110, alignItems: 'center', justifyContent: 'center' },
   submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { color: '#0f172a', fontSize: 12.5, fontWeight: '800' },
+
+  // Category Pills
+  catPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catPillActive: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: '#38bdf8',
+  },
+  catPillText: {
+    color: colors.textSecondary,
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  catPillTextActive: {
+    color: '#38bdf8',
+    fontWeight: '800',
+  },
+
+  // Sharing Badges
+  sharedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    marginTop: 2,
+    alignSelf: 'flex-start',
+  },
+  sharedBadgeText: {
+    color: '#10b981',
+    fontSize: 9.5,
+    fontWeight: '700',
+  },
+  sharedBadgeOwner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+    marginTop: 2,
+    alignSelf: 'flex-start',
+  },
+  sharedBadgeOwnerText: {
+    color: '#38bdf8',
+    fontSize: 9.5,
+    fontWeight: '700',
+  },
+
+  // Share toggle row in upload modal
+  shareToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.inputBackground,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    marginVertical: 10,
+  },
+  shareToggleTitle: {
+    color: colors.textPrimary,
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  shareToggleSub: {
+    color: colors.textMuted,
+    fontSize: 10.5,
+    marginTop: 2,
+  },
 });

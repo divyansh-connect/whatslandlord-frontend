@@ -541,59 +541,7 @@ export const ManagerDashboard = ({ onNavigate }) => {
         </TouchableOpacity>
       </View>
 
-      {/* =========================================================================
-          2. QUICK ACTIONS (Simple 1-Tap Pills)
-          ========================================================================= */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.shortcutsRow}
-      >
-        <TouchableOpacity
-          style={[styles.shortcutPill, { backgroundColor: '#2563eb' }]}
-          onPress={() => onNavigate && onNavigate('properties')}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="add" size={16} color="#ffffff" style={{ marginRight: 4 }} />
-          <Text style={styles.shortcutPillText} allowFontScaling={false}>+ Property</Text>
-        </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.shortcutPill, { backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9', borderColor: colors.cardBorder, borderWidth: 1 }]}
-          onPress={() => onNavigate && onNavigate('leasing')}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="document-text-outline" size={15} color={colors.textPrimary} style={{ marginRight: 5 }} />
-          <Text style={[styles.shortcutPillTextOutline, { color: colors.textPrimary }]} allowFontScaling={false}>+ Lease</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.shortcutPill, { backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9', borderColor: colors.cardBorder, borderWidth: 1 }]}
-          onPress={() => onNavigate && onNavigate('tenants')}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="person-add-outline" size={15} color={colors.textPrimary} style={{ marginRight: 5 }} />
-          <Text style={[styles.shortcutPillTextOutline, { color: colors.textPrimary }]} allowFontScaling={false}>+ Tenant</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.shortcutPill, { backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9', borderColor: colors.cardBorder, borderWidth: 1 }]}
-          onPress={() => onNavigate && onNavigate('maintenance')}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="hammer-outline" size={15} color={colors.textPrimary} style={{ marginRight: 5 }} />
-          <Text style={[styles.shortcutPillTextOutline, { color: colors.textPrimary }]} allowFontScaling={false}>+ Work Order</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.shortcutPill, { backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9', borderColor: colors.cardBorder, borderWidth: 1 }]}
-          onPress={() => onNavigate && onNavigate('rent')}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="card-outline" size={15} color={colors.textPrimary} style={{ marginRight: 5 }} />
-          <Text style={[styles.shortcutPillTextOutline, { color: colors.textPrimary }]} allowFontScaling={false}>Collect Rent</Text>
-        </TouchableOpacity>
-      </ScrollView>
 
       {/* =========================================================================
           3. HERO REVENUE CARD (Monthly Contracted Revenue + Live DB Data)

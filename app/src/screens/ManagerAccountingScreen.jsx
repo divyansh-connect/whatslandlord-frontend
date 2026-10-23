@@ -1397,81 +1397,81 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa' }) => {
         </Text>
 
         {/* Tab Selection Row - 4 Submenus */}
-        <View style={styles.tabRow}>
-          <TouchableOpacity style={[styles.tabItem, activeTab === 'dashboard' && styles.tabItemActive]} onPress={() => setActiveTab('dashboard')}>
-            <Text style={[styles.tabItemText, activeTab === 'dashboard' && styles.tabItemTextActive]} allowFontScaling={false}>
-              {language === 'es' ? 'Panel' : language === 'hi' ? 'डैशबोर्ड' : 'Dashboard'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.tabItem, activeTab === 'coa' && styles.tabItemActive]} onPress={() => setActiveTab('coa')}>
-            <Text style={[styles.tabItemText, activeTab === 'coa' && styles.tabItemTextActive]} allowFontScaling={false}>
-              {language === 'es' ? 'Cuentas' : language === 'hi' ? 'खाते' : 'Chart of Accounts'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.tabItem, activeTab === 'income' && styles.tabItemActive]} onPress={() => setActiveTab('income')}>
-            <Text style={[styles.tabItemText, activeTab === 'income' && styles.tabItemTextActive]} allowFontScaling={false}>
-              {language === 'es' ? 'Ingresos' : language === 'hi' ? 'आय' : 'Income'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.tabItem, activeTab === 'expenses' && styles.tabItemActive]} onPress={() => setActiveTab('expenses')}>
-            <Text style={[styles.tabItemText, activeTab === 'expenses' && styles.tabItemTextActive]} allowFontScaling={false}>
-              {language === 'es' ? 'Gastos' : language === 'hi' ? 'व्यय' : 'Expenses'}
-            </Text>
-          </TouchableOpacity>
+        <View style={{ marginTop: 10 }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingRight: 10 }}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled={true}
+          >
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'dashboard' && styles.tabItemActive]} onPress={() => setActiveTab('dashboard')}>
+              <Text style={[styles.tabItemText, activeTab === 'dashboard' && styles.tabItemTextActive]} allowFontScaling={false}>
+                {language === 'es' ? 'Panel' : language === 'hi' ? 'डैशबोर्ड' : 'Dashboard'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'coa' && styles.tabItemActive]} onPress={() => setActiveTab('coa')}>
+              <Text style={[styles.tabItemText, activeTab === 'coa' && styles.tabItemTextActive]} allowFontScaling={false}>
+                {language === 'es' ? 'Plan de Cuentas' : language === 'hi' ? 'खातों का चार्ट' : 'Chart of Accounts'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'income' && styles.tabItemActive]} onPress={() => setActiveTab('income')}>
+              <Text style={[styles.tabItemText, activeTab === 'income' && styles.tabItemTextActive]} allowFontScaling={false}>
+                {language === 'es' ? 'Ingresos' : language === 'hi' ? 'आय' : 'Income'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'expenses' && styles.tabItemActive]} onPress={() => setActiveTab('expenses')}>
+              <Text style={[styles.tabItemText, activeTab === 'expenses' && styles.tabItemTextActive]} allowFontScaling={false}>
+                {language === 'es' ? 'Gastos' : language === 'hi' ? 'व्यय' : 'Expenses'}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
 
-        {/* Quick Filter Controls row */}
-        <View style={[styles.searchBarRow, { marginTop: 10 }]}>
-          <View style={styles.searchContainer}>
-            <Ionicons name="search-outline" size={16} color="#64748b" style={{ marginRight: 6 }} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder={activeTab === 'coa'
-                ? (language === 'es' ? 'Buscar cuenta...' : 'Search accounts...')
-                : activeTab === 'income'
-                  ? (language === 'es' ? 'Buscar ingresos...' : 'Search income...')
-                  : activeTab === 'dashboard'
-                    ? (language === 'es' ? 'Filtrar métricas...' : 'Filter accounting...')
+        {/* Quick Filter Controls row for CoA, Income, Expenses */}
+        {activeTab !== 'dashboard' && (
+          <View style={[styles.searchBarRow, { marginTop: 10 }]}>
+            <View style={styles.searchContainer}>
+              <Ionicons name="search-outline" size={16} color="#64748b" style={{ marginRight: 6 }} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder={activeTab === 'coa'
+                  ? (language === 'es' ? 'Buscar cuenta...' : 'Search accounts...')
+                  : activeTab === 'income'
+                    ? (language === 'es' ? 'Buscar ingresos...' : 'Search income...')
                     : (language === 'es' ? 'Buscar gastos...' : 'Search expenses...')}
-              placeholderTextColor="#64748b"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
+                placeholderTextColor="#64748b"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+            </View>
 
-          {activeTab === 'coa' && (
-            <TouchableOpacity style={styles.addBtn} onPress={() => setCreateCoaOpen(true)} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color="#0f172a" />
-              <Text style={styles.addBtnText} allowFontScaling={false}>
-                {language === 'es' ? '+ Cuenta' : language === 'hi' ? '+ खाता' : '+ Create Ledger Account'}
-              </Text>
-            </TouchableOpacity>
-          )}
-          {activeTab === 'income' && (
-            <TouchableOpacity style={styles.addBtn} onPress={() => setCreateIncomeOpen(true)} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color="#0f172a" />
-              <Text style={styles.addBtnText} allowFontScaling={false}>
-                {language === 'es' ? '+ Ingreso' : language === 'hi' ? '+ आय दर्ज करें' : '+ Record Income'}
-              </Text>
-            </TouchableOpacity>
-          )}
-          {activeTab === 'expenses' && (
-            <TouchableOpacity style={styles.addBtn} onPress={() => setCreateExpenseOpen(true)} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color="#0f172a" />
-              <Text style={styles.addBtnText} allowFontScaling={false}>
-                {language === 'es' ? '+ Gasto' : language === 'hi' ? '+ खर्च दर्ज करें' : '+ Record Expense'}
-              </Text>
-            </TouchableOpacity>
-          )}
-          {activeTab === 'dashboard' && (
-            <TouchableOpacity style={styles.addBtn} onPress={() => setCreateIncomeOpen(true)} activeOpacity={0.8}>
-              <Ionicons name="add" size={16} color="#0f172a" />
-              <Text style={styles.addBtnText} allowFontScaling={false}>
-                {language === 'es' ? '+ Transacción' : '+ Record Entry'}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
+            {activeTab === 'coa' && (
+              <TouchableOpacity style={styles.addBtn} onPress={() => setCreateCoaOpen(true)} activeOpacity={0.8}>
+                <Ionicons name="add" size={16} color="#0f172a" />
+                <Text style={styles.addBtnText} allowFontScaling={false}>
+                  {language === 'es' ? 'Cuenta' : language === 'hi' ? 'खाता' : 'New Account'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {activeTab === 'income' && (
+              <TouchableOpacity style={styles.addBtn} onPress={() => setCreateIncomeOpen(true)} activeOpacity={0.8}>
+                <Ionicons name="add" size={16} color="#0f172a" />
+                <Text style={styles.addBtnText} allowFontScaling={false}>
+                  {language === 'es' ? 'Ingreso' : language === 'hi' ? 'आय दर्ज करें' : 'Record Income'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {activeTab === 'expenses' && (
+              <TouchableOpacity style={styles.addBtn} onPress={() => setCreateExpenseOpen(true)} activeOpacity={0.8}>
+                <Ionicons name="add" size={16} color="#0f172a" />
+                <Text style={styles.addBtnText} allowFontScaling={false}>
+                  {language === 'es' ? 'Gasto' : language === 'hi' ? 'खर्च दर्ज करें' : 'Record Expense'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </View>
 
       {/* SCROLLABLE LIST OF ITEMS */}
@@ -1500,15 +1500,23 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa' }) => {
                 <View>
                   <View style={styles.metricsGrid}>
                     <View style={styles.metricCard}>
-                      <Text style={styles.metricCardLabel}>NET PROFIT</Text>
+                      <View style={styles.metricCardTop}>
+                        <Text style={styles.metricCardLabel}>NET PROFIT</Text>
+                        <Ionicons name="trending-up" size={14} color={netProfit >= 0 ? '#10b981' : '#ef4444'} />
+                      </View>
                       <Text style={[styles.metricCardValue, { color: netProfit >= 0 ? '#10b981' : '#ef4444' }]}>
-                        ${netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {netProfit < 0
+                          ? `-$${Math.abs(netProfit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : `$${netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       </Text>
                       <Text style={styles.metricCardSub}>Operating Net Yield</Text>
                     </View>
 
                     <View style={styles.metricCard}>
-                      <Text style={styles.metricCardLabel}>TOTAL CASH</Text>
+                      <View style={styles.metricCardTop}>
+                        <Text style={styles.metricCardLabel}>TOTAL CASH</Text>
+                        <Ionicons name="wallet-outline" size={14} color="#38bdf8" />
+                      </View>
                       <Text style={[styles.metricCardValue, { color: '#38bdf8' }]}>
                         $128,400.00
                       </Text>
@@ -1516,15 +1524,21 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa' }) => {
                     </View>
 
                     <View style={styles.metricCard}>
-                      <Text style={styles.metricCardLabel}>TOTAL REVENUE</Text>
-                      <Text style={[styles.metricCardValue, { color: '#38bdf8' }]}>
+                      <View style={styles.metricCardTop}>
+                        <Text style={styles.metricCardLabel}>TOTAL REVENUE</Text>
+                        <Ionicons name="arrow-down-circle-outline" size={14} color="#10b981" />
+                      </View>
+                      <Text style={[styles.metricCardValue, { color: '#10b981' }]}>
                         ${totalIncome.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                       <Text style={styles.metricCardSub}>Current Fiscal Period</Text>
                     </View>
 
                     <View style={styles.metricCard}>
-                      <Text style={styles.metricCardLabel}>TOTAL EXPENSES</Text>
+                      <View style={styles.metricCardTop}>
+                        <Text style={styles.metricCardLabel}>TOTAL EXPENSES</Text>
+                        <Ionicons name="arrow-up-circle-outline" size={14} color="#ef4444" />
+                      </View>
                       <Text style={[styles.metricCardValue, { color: '#ef4444' }]}>
                         ${totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
@@ -1549,22 +1563,26 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa' }) => {
                     </View>
 
                     <View style={styles.chartBarsArea}>
-                      {[
-                        { m: 'May', inc: 54000, exp: 12000 },
-                        { m: 'Jun', inc: 58000, exp: 14500 },
-                        { m: 'Jul', inc: 61000, exp: 13000 },
-                        { m: 'Aug', inc: 59000, exp: 15500 },
-                        { m: 'Sep', inc: 63000, exp: 16000 },
-                        { m: 'Oct', inc: totalIncome || 64250, exp: totalExpenses || 14800 },
-                      ].map((bar, i) => (
-                        <View key={i} style={styles.barGroup}>
-                          <View style={styles.barPair}>
-                            <View style={[styles.bar, { height: Math.max(8, Math.min(85, (bar.inc / 70000) * 85)), backgroundColor: '#10b981' }]} />
-                            <View style={[styles.bar, { height: Math.max(8, Math.min(85, (bar.exp / 70000) * 85)), backgroundColor: '#ef4444' }]} />
+                      {(() => {
+                        const chartData = [
+                          { m: 'May', inc: 54000, exp: 12000 },
+                          { m: 'Jun', inc: 58000, exp: 14500 },
+                          { m: 'Jul', inc: 61000, exp: 13000 },
+                          { m: 'Aug', inc: 59000, exp: 15500 },
+                          { m: 'Sep', inc: 63000, exp: 16000 },
+                          { m: 'Oct', inc: totalIncome || 64250, exp: totalExpenses || 14800 },
+                        ];
+                        const maxVal = Math.max(...chartData.map(d => Math.max(d.inc, d.exp)), 10000);
+                        return chartData.map((bar, i) => (
+                          <View key={i} style={styles.barGroup}>
+                            <View style={styles.barPair}>
+                              <View style={[styles.bar, { height: Math.max(10, Math.min(85, (bar.inc / maxVal) * 85)), backgroundColor: '#10b981' }]} />
+                              <View style={[styles.bar, { height: Math.max(10, Math.min(85, (bar.exp / maxVal) * 85)), backgroundColor: '#ef4444' }]} />
+                            </View>
+                            <Text style={styles.barLabel}>{bar.m}</Text>
                           </View>
-                          <Text style={styles.barLabel}>{bar.m}</Text>
-                        </View>
-                      ))}
+                        ));
+                      })()}
                     </View>
                   </View>
                 </View>
@@ -2280,11 +2298,45 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   subtitle: { fontSize: 11.5, color: colors.textSecondary, marginTop: 4, lineHeight: 15 },
 
   // Tab switcher
-  tabRow: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 10, padding: 4, marginTop: 12 },
-  tabItem: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
+  tabItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    marginRight: 6,
+  },
   tabItemActive: { backgroundColor: '#38bdf8' },
   tabItemText: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
   tabItemTextActive: { color: '#0f172a', fontWeight: '800' },
+
+  // Dashboard quick actions
+  dashboardQuickActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  quickActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#38bdf8',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  quickActionBtnOutline: {
+    backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+    borderWidth: 1,
+    borderColor: isDarkMode ? '#334155' : '#cbd5e1',
+  },
+  quickActionBtnText: {
+    color: '#0f172a',
+    fontSize: 12,
+    fontWeight: '800',
+  },
 
   // Search input and buttons
   searchBarRow: { flexDirection: 'row', alignItems: 'center' },
@@ -2475,8 +2527,8 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   metricCard: {
     width: '48.5%',
     backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 13,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: isDarkMode ? '#334155' : '#e2e8f0',
@@ -2486,6 +2538,12 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  metricCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
   metricCardLabel: {
     fontSize: 9.5,
     fontWeight: '800',
@@ -2493,14 +2551,15 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     letterSpacing: 0.5,
   },
   metricCardValue: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '900',
-    marginVertical: 4,
+    marginVertical: 2,
   },
   metricCardSub: {
     fontSize: 10,
     color: colors.textSecondary,
     fontWeight: '600',
+    marginTop: 2,
   },
   chartCard: {
     backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
@@ -2545,7 +2604,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    height: 110,
+    height: 115,
     paddingTop: 8,
     borderBottomWidth: 1,
     borderBottomColor: isDarkMode ? '#334155' : '#e2e8f0',
@@ -2558,15 +2617,16 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   barPair: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 3,
-    height: 85,
+    gap: 4,
+    height: 90,
   },
   bar: {
-    width: 9,
-    borderRadius: 4,
+    width: 10,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
   },
   barLabel: {
-    fontSize: 10,
+    fontSize: 10.5,
     color: colors.textSecondary,
     marginTop: 6,
     fontWeight: '700',

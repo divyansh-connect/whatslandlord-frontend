@@ -18,11 +18,25 @@ import {
   Keyboard,
 } from 'react-native';
 import apiClient from '../api/client';
-import { useAuthStore, useThemeStore } from '../store/useStore';
+import { useAuthStore, useThemeStore, safeStorage } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { tenantSchema } from '../validations/mobile.validation';
 import { CustomDatePicker } from '../components/CustomDatePicker';
+
+const normalizeGender = (g) => {
+  if (!g) return 'Male';
+  const s = String(g).trim().toLowerCase();
+  if (s === 'female') return 'Female';
+  if (s === 'other' || s.startsWith('oth')) return 'Other';
+  return 'Male';
+};
+
+const formatUnitDisplay = (u) => {
+  if (!u) return '';
+  const str = String(u).trim();
+  return str.toLowerCase().startsWith('unit') ? str : `Unit ${str}`;
+};
 
 // Animated Touchable Wrapper Component
 const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
@@ -83,7 +97,8 @@ export const TenantsScreen = () => {
   const [preferredName, setPreferredName] = useState('');
   const [dob, setDob] = useState('');
   const [gender, setGender] = useState('Male');
-  const [nationality, setNationality] = useState('American');
+  const [nationality, setNationality] = useState('');
+  const [showTenantExtraDetails, setShowTenantExtraDetails] = useState(false);
 
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -201,13 +216,14 @@ export const TenantsScreen = () => {
   const handleCreateTenant = async () => {
     setTenantErrors({});
 
+    const finalGender = normalizeGender(gender);
     const payload = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       preferredName: preferredName.trim() || undefined,
       dob: dob.trim() || undefined,
-      gender,
-      nationality: nationality.trim() || undefined,
+      gender: finalGender,
+      nationality: finalGender,
 
       email: email.trim(),
       phone: phone.trim(),
@@ -246,7 +262,11 @@ export const TenantsScreen = () => {
 
     try {
       setSubmitting(true);
-      await apiClient.post('/tenants', payload, logout, refreshAccessToken);
+      const res = await apiClient.post('/tenants', payload, logout, refreshAccessToken);
+      const createdId = res?.data?.id || res?.id;
+      if (createdId) {
+        await safeStorage.setItem('tenant_gender_' + createdId, finalGender);
+      }
       Alert.alert('Success', 'Tenant profile registered successfully.');
       setIsAddOpen(false);
 
@@ -256,7 +276,8 @@ export const TenantsScreen = () => {
       setPreferredName('');
       setDob('');
       setGender('Male');
-      setNationality('American');
+      setNationality('');
+      setShowTenantExtraDetails(false);
       setEmail('');
       setPhone('');
       setAltPhone('');
@@ -287,13 +308,16 @@ export const TenantsScreen = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingTenantId, setEditingTenantId] = useState(null);
 
-  const handleOpenEditTenant = (item) => {
+  const handleOpenEditTenant = async (item) => {
     setEditingTenantId(item.id);
     setFirstName(item.firstName || (item.name ? item.name.split(' ')[0] : ''));
     setLastName(item.lastName || (item.name ? item.name.split(' ').slice(1).join(' ') : ''));
     setPreferredName(item.preferredName || '');
     setDob(item.dob ? String(item.dob).split('T')[0] : '');
-    setGender(item.gender || 'Male');
+
+    const cachedG = item.id ? await safeStorage.getItem('tenant_gender_' + item.id) : null;
+    const resolvedG = normalizeGender(cachedG || item.gender || (['Male', 'Female', 'Other'].includes(item.nationality) ? item.nationality : null) || 'Male');
+    setGender(resolvedG);
     setNationality(item.nationality || 'American');
 
     setEmail(item.email || '');
@@ -327,13 +351,14 @@ export const TenantsScreen = () => {
   const handleUpdateTenant = async () => {
     setTenantErrors({});
 
+    const finalGender = normalizeGender(gender);
     const payload = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       preferredName: preferredName.trim() || undefined,
       dob: dob ? String(dob).split('T')[0] : undefined,
-      gender,
-      nationality: nationality.trim() || undefined,
+      gender: finalGender,
+      nationality: finalGender,
 
       email: email.trim(),
       phone: phone.trim(),
@@ -363,6 +388,7 @@ export const TenantsScreen = () => {
     try {
       setSubmitting(true);
       await apiClient.put(`/tenants/${editingTenantId}`, payload, logout, refreshAccessToken);
+      await safeStorage.setItem('tenant_gender_' + editingTenantId, finalGender);
       Alert.alert('Success', 'Tenant profile updated successfully.');
       setIsEditOpen(false);
 
@@ -374,15 +400,29 @@ export const TenantsScreen = () => {
     }
   };
 
+  const [statusFilter, setStatusFilter] = useState('All');
+
+  const activeCount = tenants.filter(t => (t.status || 'Active').toLowerCase() === 'active').length;
+  const pendingCount = tenants.filter(t => (t.status || '').toLowerCase() === 'pending').length;
+  const inactiveCount = tenants.filter(t => ['inactive', 'past', 'evicted'].includes((t.status || '').toLowerCase())).length;
+
   const filteredTenants = tenants.filter((item) => {
     const fullName = `${item.firstName || ''} ${item.lastName || ''} ${item.name || ''}`.toLowerCase();
     const propName = (item.unit?.property?.name || item.propertyName || '').toLowerCase();
     const unitNum = (item.unit?.unitNumber || item.unitNumber || '').toLowerCase();
     const emailStr = (item.email || '').toLowerCase();
-    return fullName.includes(searchQuery.toLowerCase()) ||
+    const matchesSearch = fullName.includes(searchQuery.toLowerCase()) ||
            propName.includes(searchQuery.toLowerCase()) ||
            unitNum.includes(searchQuery.toLowerCase()) ||
            emailStr.includes(searchQuery.toLowerCase());
+    if (!matchesSearch) return false;
+
+    const itemStatus = (item.status || 'Active').toLowerCase();
+    if (statusFilter === 'All') return true;
+    if (statusFilter === 'Active') return itemStatus === 'active';
+    if (statusFilter === 'Pending') return itemStatus === 'pending';
+    if (statusFilter === 'Inactive') return itemStatus === 'inactive' || itemStatus === 'past' || itemStatus === 'evicted';
+    return true;
   });
 
   // Dropdown lists constant options
@@ -421,7 +461,7 @@ export const TenantsScreen = () => {
         </View>
 
         {/* Search Controls */}
-        <View style={[styles.searchBarRow, { marginBottom: 12 }]}>
+        <View style={[styles.searchBarRow, { marginBottom: 10 }]}>
           <View style={styles.searchContainer}>
             <Ionicons name="search-outline" size={18} color="#64748b" style={{ marginRight: 6 }} />
             <TextInput
@@ -441,10 +481,48 @@ export const TenantsScreen = () => {
           <TouchableOpacity style={styles.addBtn} onPress={() => setIsAddOpen(true)} activeOpacity={0.8}>
             <Ionicons name="add" size={18} color="#0f172a" />
             <Text style={styles.addBtnText} allowFontScaling={false}>
-              {language === 'es' ? '+ Inquilino' : language === 'hi' ? '+ किरायेदार' : '+ Add Tenant'}
+              {language === 'es' ? 'Inquilino' : language === 'hi' ? 'किरायेदार' : 'Add Tenant'}
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Horizontal Status Filter Pills */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 0, paddingBottom: 10, gap: 8 }}
+          style={{ marginBottom: 4 }}
+        >
+          {[
+            { key: 'All', label: `All (${tenants.length})` },
+            { key: 'Active', label: `Active (${activeCount})` },
+            { key: 'Pending', label: `Pending (${pendingCount})` },
+            { key: 'Inactive', label: `Inactive (${inactiveCount})` },
+          ].map((tab) => {
+            const isActive = statusFilter === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                onPress={() => setStatusFilter(tab.key)}
+                style={[
+                  styles.filterPill,
+                  isActive && styles.filterPillActive,
+                ]}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    isActive && styles.filterPillTextActive,
+                  ]}
+                  allowFontScaling={false}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <ScrollView
@@ -475,8 +553,9 @@ export const TenantsScreen = () => {
               const initial = name.charAt(0).toUpperCase();
               const propName = item.unit?.property?.name || item.propertyName || '';
               const unitNum = item.unit?.unitNumber || item.unitNumber || '';
-              const unitSubtext = (propName || unitNum)
-                ? `${propName || 'Unassigned'}${unitNum ? ` · Unit ${unitNum}` : ''}`
+              const unitClean = formatUnitDisplay(unitNum);
+              const unitSubtext = (propName || unitClean)
+                ? `${propName || 'Unassigned'}${unitClean ? ` · ${unitClean}` : ''}`
                 : 'Unassigned';
               const rent = Number(item.unit?.rentAmount || item.rentAmount || item.monthlyRent || 0);
 
@@ -655,7 +734,30 @@ export const TenantsScreen = () => {
                   {tenantErrors.password && <Text style={styles.errorLabel} allowFontScaling={false}>{tenantErrors.password}</Text>}
                 </View>
 
-                <Text style={styles.modalSubHeader} allowFontScaling={false}>GOVERNMENT IDS</Text>
+                {/* ADDITIONAL DETAILS (OPTIONAL) ACCORDION */}
+                <View style={styles.extraAccordionHeader}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={styles.subSectionTitle} allowFontScaling={false}>
+                      ADDITIONAL DETAILS (OPTIONAL)
+                    </Text>
+                    <Text style={styles.cleanHelperText} allowFontScaling={false} numberOfLines={1}>
+                      Government IDs, Emergency Contacts, Employment Parameters & Address History
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.accordionToggleBtn}
+                    onPress={() => setShowTenantExtraDetails(!showTenantExtraDetails)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.accordionToggleText} allowFontScaling={false}>
+                      {showTenantExtraDetails ? 'Hide Details ⌃' : 'Show Details ⌵'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {showTenantExtraDetails && (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={styles.modalSubHeader} allowFontScaling={false}>GOVERNMENT IDS</Text>
                 {/* ID Type dropdown */}
                 <View style={[styles.formGroup, showIdDropdown && { zIndex: 9997, position: 'relative' }]}>
                   <Text style={styles.formLabel} allowFontScaling={false}>ID TYPE</Text>
@@ -858,6 +960,8 @@ export const TenantsScreen = () => {
                     </View>
                   </View>
                 ))}
+              </View>
+            )}
 
                 {/* Save Buttons inside ScrollView */}
                 <View style={styles.modalActions}>
@@ -1173,7 +1277,7 @@ export const TenantsScreen = () => {
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel} allowFontScaling={false}>Unit number</Text>
                     <Text style={styles.detailVal} allowFontScaling={false}>
-                      {(selectedTenant.unit?.unitNumber || selectedTenant.unitNumber) ? `Unit ${selectedTenant.unit?.unitNumber || selectedTenant.unitNumber}` : 'Unassigned'}
+                      {formatUnitDisplay(selectedTenant.unit?.unitNumber || selectedTenant.unitNumber) || 'Unassigned'}
                     </Text>
                   </View>
                   <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
@@ -1200,7 +1304,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   errorLabel: { color: '#ef4444', fontSize: 10.5, marginTop: 4, fontWeight: '700' },
   mainWrapper: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 60 },
+  scrollContent: { padding: 16, paddingBottom: 60, width: '100%', maxWidth: 1024, alignSelf: 'center' },
   center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: colors.textSecondary, marginTop: 8 },
 
@@ -1255,9 +1359,52 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   tenantName: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
   tenantSubText: { fontSize: 11.5, color: colors.textSecondary, marginTop: 2 },
   badgesRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  inviteBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(56, 189, 248, 0.12)', alignItems: 'center', justifyContent: 'center' },
   deleteBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(239, 68, 68, 0.12)', alignItems: 'center', justifyContent: 'center' },
   editBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(245, 158, 11, 0.12)', alignItems: 'center', justifyContent: 'center' },
   eyeBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(56, 189, 248, 0.12)', alignItems: 'center', justifyContent: 'center' },
+
+  filterPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterPillActive: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: '#38bdf8',
+  },
+  filterPillText: {
+    color: colors.textSecondary,
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  filterPillTextActive: {
+    color: '#38bdf8',
+    fontWeight: '800',
+  },
+  resendInviteBtn: {
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderWidth: 1,
+    borderColor: '#38bdf8',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  resendInviteBtnText: {
+    color: '#38bdf8',
+    fontSize: 12,
+    fontWeight: '800',
+  },
 
   divider: { height: 1, backgroundColor: colors.divider, marginVertical: 12 },
 
@@ -1269,7 +1416,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
 
   // Modal styling
   modalBg: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.85)', justifyContent: 'center', padding: 20 },
-  modalCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: colors.cardBorder, maxHeight: '85%' },
+  modalCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: colors.cardBorder, maxHeight: '85%', width: '100%', maxWidth: 580, alignSelf: 'center' },
   modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
   modalSubHeader: { fontSize: 9, fontWeight: '850', color: '#38bdf8', letterSpacing: 0.8, marginTop: 10, marginBottom: 10 },
@@ -1340,4 +1487,38 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   detailVal: { color: colors.textPrimary, fontSize: 12.5, fontWeight: '700', textAlign: 'right', flex: 1, marginLeft: 16 },
   closeModalBtn: { backgroundColor: colors.buttonSecondary, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
   closeModalBtnText: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
+
+  // Additional Details Accordion Styles
+  extraAccordionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  subSectionTitle: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
+  },
+  cleanHelperText: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginTop: 3,
+  },
+  accordionToggleBtn: {
+    backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 5,
+    flexShrink: 0,
+  },
+  accordionToggleText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
 });

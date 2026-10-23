@@ -22,56 +22,24 @@ import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
-// Animated Touchable Wrapper Component
-const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
-  const scaleValue = useRef(new Animated.Value(1)).current;
-
-  const handlePressIn = () => {
-    Animated.spring(scaleValue, {
-      toValue: 0.96,
-      useNativeDriver: true,
-      speed: 20,
-      bounciness: 6,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleValue, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 20,
-      bounciness: 6,
-    }).start();
-  };
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.8}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      onPress={onPress}
-      disabled={disabled}
-    >
-      <Animated.View style={[style, { transform: [{ scale: scaleValue }] }]}>
-        {children}
-      </Animated.View>
-    </TouchableOpacity>
-  );
-};
-
 export const OwnersScreen = () => {
-  const { logout, refreshAccessToken } = useAuthStore();
+  const logout = useAuthStore((state) => state.logout);
+  const refreshAccessToken = useAuthStore((state) => state.refreshAccessToken);
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
+
   const [owners, setOwners] = useState([]);
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedOwner, setSelectedOwner] = useState(null);
 
-  // Add Owner Modal Form State
-  const [isAddOpen, setIsAddOpen] = useState(false);
+  // View Details Modal State
+  const [viewingOwner, setViewingOwner] = useState(null);
+
+  // Add / Edit Owner Modal State
+  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
+  const [editingOwner, setEditingOwner] = useState(null);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -79,156 +47,159 @@ export const OwnersScreen = () => {
   const [payoutMethod, setPayoutMethod] = useState('ACH/Direct Deposit');
   const [selectedPropertyIds, setSelectedPropertyIds] = useState([]);
   const [submitting, setSubmitting] = useState(false);
-
-  // Dropdown selector state
   const [showPayoutDropdown, setShowPayoutDropdown] = useState(false);
 
-  // Animations
+  // Delete Confirm Modal State
+  const [deleteOwner, setDeleteOwner] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Animation
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
 
   const runEntryAnimation = () => {
     fadeAnim.setValue(0);
-    slideAnim.setValue(30);
+    slideAnim.setValue(20);
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 450,
+        duration: 350,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 450,
+        duration: 350,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
     ]).start();
   };
 
-  // Fetch live owners & properties
+  // Fetch live owners & properties matching web frontend API endpoints
   const fetchLiveOwnersData = async () => {
     try {
       setLoading(true);
       const [ownersRes, propsRes] = await Promise.all([
-        apiClient.get('/owners', logout, refreshAccessToken).catch(() => null),
-        apiClient.get('/properties', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/owners', logout, refreshAccessToken).catch((err) => {
+          console.log('Owners fetch error:', err?.message || err);
+          return null;
+        }),
+        apiClient.get('/properties', logout, refreshAccessToken).catch((err) => {
+          console.log('Properties fetch error:', err?.message || err);
+          return null;
+        }),
       ]);
 
-      const rawOwners = Array.isArray(ownersRes) ? ownersRes : (ownersRes?.data || []);
-      const rawProps = Array.isArray(propsRes) ? propsRes : (propsRes?.data || []);
+      const rawOwners = Array.isArray(ownersRes)
+        ? ownersRes
+        : (Array.isArray(ownersRes?.data) ? ownersRes.data : []);
+      const rawProps = Array.isArray(propsRes)
+        ? propsRes
+        : (Array.isArray(propsRes?.data) ? propsRes.data : []);
 
       setOwners(rawOwners);
       setProperties(rawProps);
     } catch (e) {
-      console.log('Error fetching owners/properties:', e.message);
+      console.log('Error fetching owners/properties:', e?.message || e);
     } finally {
       setLoading(false);
       setRefreshing(false);
-      runEntryAnimation();
     }
   };
 
   useEffect(() => {
     fetchLiveOwnersData();
+    runEntryAnimation();
   }, []);
 
-  const handleDeleteOwner = (id, name) => {
-    Alert.alert(
-      'Delete Owner',
-      `Are you sure you want to delete owner "${name}"? This will clear all associated properties, distributions and documents from the portfolio.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setLoading(true);
-              await apiClient.delete(`/owners/${id}`, logout, refreshAccessToken);
-              Alert.alert('Success', 'Owner deleted successfully');
-              fetchLiveOwnersData();
-            } catch (err) {
-              Alert.alert('Error', err.message || 'Failed to delete owner');
-              setLoading(false);
-            }
-          },
-        },
-      ]
+  // Safe property matching logic supporting both Prisma object owner and string owner
+  const getPropertiesForOwner = (ownerItem) => {
+    if (!ownerItem || !Array.isArray(properties)) return [];
+    const itemOwnerName = ownerItem.name ? String(ownerItem.name).trim().toLowerCase() : '';
+    const itemOwnerId = ownerItem.id;
+    const ownedIds = Array.isArray(ownerItem.propertiesOwned) ? ownerItem.propertiesOwned : [];
+    const relPropIds = Array.isArray(ownerItem.properties)
+      ? ownerItem.properties.map((op) => op?.id).filter(Boolean)
+      : [];
+
+    return properties.filter((p) => {
+      if (!p) return false;
+      const matchId = p.ownerId && itemOwnerId && p.ownerId === itemOwnerId;
+
+      let pOwnerStr = '';
+      if (typeof p.owner === 'string') {
+        pOwnerStr = p.owner.trim().toLowerCase();
+      } else if (p.owner && typeof p.owner.name === 'string') {
+        pOwnerStr = p.owner.name.trim().toLowerCase();
+      }
+
+      const matchName = itemOwnerName && pOwnerStr && pOwnerStr === itemOwnerName;
+      const matchOwnedList = p.id && ownedIds.includes(p.id);
+      const matchPropRelation = p.id && relPropIds.includes(p.id);
+
+      return Boolean(matchId || matchName || matchOwnedList || matchPropRelation);
+    });
+  };
+
+  const getOwnerPropertiesCount = (ownerItem) => {
+    const list = getPropertiesForOwner(ownerItem);
+    return (
+      list.length ||
+      ownerItem.propertiesOwnedCount ||
+      (Array.isArray(ownerItem.properties) ? ownerItem.properties.length : 0)
     );
   };
 
-  const handleCreateOwner = async () => {
-    if (!fullName.trim() || !email.trim()) {
-      Alert.alert('Validation Error', 'Full Name and Email are required.');
-      return;
-    }
-
-    try {
-      setSubmitting(true);
-      const [first = '', ...lastParts] = fullName.trim().split(' ');
-      const last = lastParts.join(' ');
-
-      const payload = {
-        name: fullName.trim(),
-        firstName: first,
-        lastName: last || 'Owner',
-        email: email.trim(),
-        password: password.trim() || undefined,
-        phone: phone.trim() || undefined,
-        payoutMethod,
-        propertiesOwned: selectedPropertyIds,
-      };
-
-      await apiClient.post('/owners', payload, logout, refreshAccessToken);
-      
-      Alert.alert('Success', 'Property Owner registered successfully.');
-      setIsAddOpen(false);
-      
-      // Reset state
-      setFullName('');
-      setEmail('');
-      setPassword('');
-      setPhone('');
-      setPayoutMethod('ACH/Direct Deposit');
-      setSelectedPropertyIds([]);
-      
-      // Refresh
-      fetchLiveOwnersData();
-    } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to register property owner');
-    } finally {
-      setSubmitting(false);
-    }
+  // Open Add Owner Modal
+  const handleOpenAdd = () => {
+    setEditingOwner(null);
+    setFullName('');
+    setEmail('');
+    setPassword('');
+    setPhone('');
+    setPayoutMethod('ACH/Direct Deposit');
+    setSelectedPropertyIds([]);
+    setShowPayoutDropdown(false);
+    setIsFormModalOpen(true);
   };
 
+  // Open Edit Owner Modal
+  const handleOpenEdit = (ownerItem) => {
+    setEditingOwner(ownerItem);
+    setFullName(ownerItem.name || '');
+    setEmail(ownerItem.email || '');
+    setPassword('');
+    setPhone(ownerItem.phone || '');
+    setPayoutMethod(ownerItem.payoutMethod || 'ACH/Direct Deposit');
+    const assigned = getPropertiesForOwner(ownerItem);
+    setSelectedPropertyIds(assigned.map((p) => p.id));
+    setShowPayoutDropdown(false);
+    setIsFormModalOpen(true);
+  };
+
+  // Open View Details Modal
+  const handleOpenView = (ownerItem) => {
+    setViewingOwner(ownerItem);
+  };
+
+  // Toggle Property Checkbox
   const togglePropertySelection = (propId) => {
     if (selectedPropertyIds.includes(propId)) {
-      setSelectedPropertyIds(selectedPropertyIds.filter(id => id !== propId));
+      setSelectedPropertyIds(selectedPropertyIds.filter((id) => id !== propId));
     } else {
       setSelectedPropertyIds([...selectedPropertyIds, propId]);
     }
   };
 
-  // --- Edit Owner Handlers ---
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editingOwnerId, setEditingOwnerId] = useState(null);
-
-  const handleOpenEditOwner = (item) => {
-    setEditingOwnerId(item.id);
-    setFullName(item.name || '');
-    setEmail(item.email || '');
-    setPassword(''); // blank keeps current
-    setPhone(item.phone || '');
-    setPayoutMethod(item.payoutMethod || 'ACH/Direct Deposit');
-    const assignedIds = (item.properties || []).map(p => p.id);
-    setSelectedPropertyIds(assignedIds);
-    setIsEditOpen(true);
-  };
-
-  const handleUpdateOwner = async () => {
-    if (!fullName.trim() || !email.trim()) {
-      Alert.alert('Validation Error', 'Full Name and Email are required.');
+  // Submit Add or Edit Owner
+  const handleSubmitForm = async () => {
+    if (!fullName || !fullName.trim()) {
+      Alert.alert('Validation Error', 'Full Name is required.');
+      return;
+    }
+    if (!email || !email.trim()) {
+      Alert.alert('Validation Error', 'Email address is required.');
       return;
     }
 
@@ -242,158 +213,213 @@ export const OwnersScreen = () => {
         firstName: first,
         lastName: last || 'Owner',
         email: email.trim(),
-        password: password.trim() ? password.trim() : undefined,
-        phone: phone.trim() || undefined,
+        phone: phone && phone.trim() ? phone.trim() : undefined,
         payoutMethod,
+        role: 'Owner',
         propertiesOwned: selectedPropertyIds,
       };
 
-      await apiClient.put(`/owners/${editingOwnerId}`, payload, logout, refreshAccessToken);
-      
-      Alert.alert('Success', 'Property Owner updated successfully.');
-      setIsEditOpen(false);
-      
-      // Reset state
-      setFullName('');
-      setEmail('');
-      setPassword('');
-      setPhone('');
-      setPayoutMethod('ACH/Direct Deposit');
-      setSelectedPropertyIds([]);
-      
+      if (password && password.trim()) {
+        payload.password = password.trim();
+      }
+
+      if (editingOwner) {
+        await apiClient.put(`/owners/${editingOwner.id}`, payload, logout, refreshAccessToken);
+        Alert.alert('Success', 'Property Owner updated successfully.');
+      } else {
+        await apiClient.post('/owners', payload, logout, refreshAccessToken);
+        Alert.alert('Success', 'Property Owner created successfully.');
+      }
+
+      setIsFormModalOpen(false);
+      setEditingOwner(null);
       fetchLiveOwnersData();
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to update property owner');
+      Alert.alert('Error', err?.message || 'Operation failed. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const filteredOwners = owners.filter((item) => {
+  // Delete Owner Handler
+  const confirmDelete = async () => {
+    if (!deleteOwner) return;
+    try {
+      setDeleting(true);
+      await apiClient.delete(`/owners/${deleteOwner.id}`, logout, refreshAccessToken);
+      Alert.alert('Success', 'Owner deleted successfully.');
+      setDeleteOwner(null);
+      fetchLiveOwnersData();
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Failed to delete owner.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Filter Owners safely
+  const filteredOwners = (Array.isArray(owners) ? owners : []).filter((item) => {
+    if (!item) return false;
     const text = `${item.name || ''} ${item.email || ''} ${item.phone || ''}`.toLowerCase();
-    return text.includes(searchQuery.toLowerCase());
+    const q = (searchQuery || '').toLowerCase();
+    return text.includes(q);
   });
 
   const payoutOptions = ['ACH/Direct Deposit', 'Wire Transfer', 'Check'];
 
-  if (loading && !refreshing) {
+  if (loading && owners.length === 0 && !refreshing) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#38bdf8" />
-        <Text style={styles.loadingText} allowFontScaling={false}>Loading Owners Directory...</Text>
+        <Text style={styles.loadingText} allowFontScaling={false}>
+          Loading Property Owners...
+        </Text>
       </View>
     );
   }
 
   return (
     <View style={styles.mainWrapper}>
-      {/* Header & Search controls (Fixed) */}
-      <View style={{ paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 48 : 16 }}>
-        {/* Header */}
+      {/* Top Header section */}
+      <View style={styles.topSection}>
         <View style={styles.header}>
           <Text style={styles.title} allowFontScaling={false}>Property Owners</Text>
           <Text style={styles.subtitle} allowFontScaling={false}>
-            Manage investor contacts, portfolios properties, payout accounts, and active profiles.
+            Manage owner contacts, properties owned, and payout preferences.
           </Text>
         </View>
 
-        {/* Search Bar & Add Button */}
-        <View style={[styles.searchBarRow, { marginBottom: 12 }]}>
+        {/* Search Bar & + Add Owner Button */}
+        <View style={styles.actionRow}>
           <View style={styles.searchContainer}>
             <Ionicons name="search-outline" size={18} color="#64748b" style={{ marginRight: 6 }} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search owners by name or email..."
+              placeholder="Search owners..."
               placeholderTextColor="#64748b"
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={16} color="#94a3b8" />
+              </TouchableOpacity>
+            )}
           </View>
-          <TouchableOpacity style={styles.addBtn} onPress={() => setIsAddOpen(true)} activeOpacity={0.8}>
-            <Ionicons name="add" size={20} color="#0f172a" />
+          <TouchableOpacity style={styles.addBtn} onPress={handleOpenAdd} activeOpacity={0.8}>
+            <Ionicons name="add" size={18} color="#ffffff" />
             <Text style={styles.addBtnText} allowFontScaling={false}>Add Owner</Text>
           </TouchableOpacity>
         </View>
       </View>
 
+      {/* Main List */}
       <ScrollView
         style={styles.container}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: 12 }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchLiveOwnersData} tintColor="#38bdf8" />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={fetchLiveOwnersData} tintColor="#38bdf8" />
+        }
       >
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-          {/* Section title */}
-
-          {/* Section title */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle} allowFontScaling={false}>
-              REGISTERED INVESTORS ({filteredOwners.length})
+          {/* Summary Count Bar */}
+          <View style={styles.countRow}>
+            <Text style={styles.countText} allowFontScaling={false}>
+              SHOWING {filteredOwners.length} {filteredOwners.length === 1 ? 'OWNER' : 'OWNERS'}
             </Text>
           </View>
 
-          {/* Owners Cards List */}
+          {/* List or Empty State */}
           {filteredOwners.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Ionicons name="person-remove-outline" size={48} color="#475569" style={{ marginBottom: 10 }} />
-              <Text style={styles.emptyText} allowFontScaling={false}>No owners registered</Text>
-              <Text style={styles.emptySubText} allowFontScaling={false}>Tap "Add Owner" to create a new profile.</Text>
+              <Ionicons name="people-outline" size={48} color="#64748b" style={{ marginBottom: 12 }} />
+              <Text style={styles.emptyText} allowFontScaling={false}>No Owners Found</Text>
+              <Text style={styles.emptySubText} allowFontScaling={false}>
+                {searchQuery ? 'Try clearing your search query.' : 'Tap "+ Add Owner" to create a new property owner.'}
+              </Text>
             </View>
           ) : (
             filteredOwners.map((item, idx) => {
-              const initial = item.name ? item.name.charAt(0).toUpperCase() : 'O';
-              const pCount = item.properties?.length || item.propertiesOwnedCount || 0;
+              const count = getOwnerPropertiesCount(item);
+              const initial =
+                item && item.name && typeof item.name === 'string' && item.name.length > 0
+                  ? item.name.charAt(0).toUpperCase()
+                  : 'O';
+
               return (
                 <View key={item.id || `owner-${idx}`} style={styles.card}>
-                  <View style={styles.cardHeader}>
+                  {/* Card Header: Avatar, Name, Payout */}
+                  <View style={styles.cardTopRow}>
                     <View style={styles.avatar}>
                       <Text style={styles.avatarText} allowFontScaling={false}>{initial}</Text>
                     </View>
+
                     <View style={styles.ownerInfo}>
                       <Text style={styles.ownerName} allowFontScaling={false}>{item.name}</Text>
-                      <Text style={styles.ownerSubText} allowFontScaling={false}>Payout: {item.payoutMethod || 'Direct Deposit'}</Text>
+                      <View style={styles.payoutBadge}>
+                        <Ionicons name="card-outline" size={11} color="#38bdf8" style={{ marginRight: 4 }} />
+                        <Text style={styles.payoutText} allowFontScaling={false}>
+                          {item.payoutMethod || 'ACH/Direct Deposit'}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+
+                    {/* 3 Action Buttons matching Web: View (Green), Edit (Blue), Delete (Red) */}
+                    <View style={styles.actionsContainer}>
                       <TouchableOpacity
-                        style={styles.editBtn}
-                        onPress={() => handleOpenEditOwner(item)}
+                        style={styles.actionBtnView}
+                        onPress={() => handleOpenView(item)}
                         activeOpacity={0.7}
+                        title="View Details"
                       >
-                        <Ionicons name="create-outline" size={18} color="#f59e0b" />
+                        <Ionicons name="eye-outline" size={17} color="#10b981" />
                       </TouchableOpacity>
+
                       <TouchableOpacity
-                        style={styles.deleteBtn}
-                        onPress={() => handleDeleteOwner(item.id, item.name)}
+                        style={styles.actionBtnEdit}
+                        onPress={() => handleOpenEdit(item)}
                         activeOpacity={0.7}
+                        title="Edit Owner"
                       >
-                        <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                        <Ionicons name="pencil-outline" size={16} color="#3b82f6" />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.actionBtnDelete}
+                        onPress={() => setDeleteOwner(item)}
+                        activeOpacity={0.7}
+                        title="Delete Owner"
+                      >
+                        <Ionicons name="trash-outline" size={16} color="#ef4444" />
                       </TouchableOpacity>
                     </View>
                   </View>
 
-                  <View style={styles.divider} />
+                  <View style={styles.cardDivider} />
 
-                  {/* Owner specs fields */}
-                  <View style={styles.metaRow}>
-                    <View style={styles.metaCol}>
+                  {/* Metadata: Email, Phone & Properties Count */}
+                  <View style={styles.metaGrid}>
+                    <View style={styles.metaItem}>
                       <Ionicons name="mail-outline" size={13} color="#94a3b8" style={{ marginRight: 6 }} />
-                      <Text style={styles.metaText} allowFontScaling={false} numberOfLines={1}>
-                        {item.email}
+                      <Text style={styles.metaLabel} numberOfLines={1} allowFontScaling={false}>
+                        {item.email || 'N/A'}
                       </Text>
                     </View>
-                    <View style={styles.metaCol}>
+
+                    <View style={styles.metaItem}>
                       <Ionicons name="call-outline" size={13} color="#94a3b8" style={{ marginRight: 6 }} />
-                      <Text style={styles.metaText} allowFontScaling={false} numberOfLines={1}>
+                      <Text style={styles.metaLabel} numberOfLines={1} allowFontScaling={false}>
                         {item.phone || 'N/A'}
                       </Text>
                     </View>
                   </View>
 
-                  <View style={[styles.metaRow, { marginTop: 6 }]}>
-                    <View style={styles.metaCol}>
-                      <Ionicons name="business-outline" size={13} color="#38bdf8" style={{ marginRight: 6 }} />
-                      <Text style={[styles.metaText, { color: '#38bdf8', fontWeight: '800' }]} allowFontScaling={false}>
-                        {pCount} Properties Managed
+                  <View style={styles.propertiesOwnedRow}>
+                    <View style={styles.propertiesCountBadge}>
+                      <Ionicons name="business" size={13} color="#38bdf8" style={{ marginRight: 6 }} />
+                      <Text style={styles.propertiesCountText} allowFontScaling={false}>
+                        <Text style={{ fontWeight: '900', color: '#38bdf8' }}>{count}</Text> Properties Owned
                       </Text>
                     </View>
                   </View>
@@ -404,29 +430,98 @@ export const OwnersScreen = () => {
         </Animated.View>
       </ScrollView>
 
-      {/* MODAL: Add Property Owner */}
-      <Modal visible={isAddOpen} animationType="slide" transparent>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalBg}
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Add Property Owner</Text>
-                <TouchableOpacity onPress={() => setIsAddOpen(false)}>
-                  <Ionicons name="close" size={24} color="#94a3b8" />
-                </TouchableOpacity>
+      {/* VIEW OWNER DETAILS MODAL */}
+      <Modal visible={viewingOwner !== null} animationType="fade" transparent>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.viewModalCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="person-circle-outline" size={24} color="#38bdf8" />
+                <Text style={styles.modalTitle} allowFontScaling={false}>Owner Details</Text>
               </View>
+              <TouchableOpacity onPress={() => setViewingOwner(null)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={22} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
 
-              <ScrollView 
-                style={styles.modalScroll} 
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {/* Form Input fields */}
+            {viewingOwner && (
+              <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailLabel} allowFontScaling={false}>FULL NAME</Text>
+                  <Text style={styles.detailValue} allowFontScaling={false}>{viewingOwner.name}</Text>
+                </View>
+
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailLabel} allowFontScaling={false}>EMAIL ADDRESS</Text>
+                  <Text style={styles.detailValue} allowFontScaling={false}>{viewingOwner.email}</Text>
+                </View>
+
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailLabel} allowFontScaling={false}>PHONE NUMBER</Text>
+                  <Text style={styles.detailValue} allowFontScaling={false}>{viewingOwner.phone || 'N/A'}</Text>
+                </View>
+
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailLabel} allowFontScaling={false}>PAYOUT METHOD</Text>
+                  <Text style={styles.detailValue} allowFontScaling={false}>
+                    {viewingOwner.payoutMethod || 'ACH/Direct Deposit'}
+                  </Text>
+                </View>
+
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailLabel} allowFontScaling={false}>
+                    OWNED PROPERTIES ({getPropertiesForOwner(viewingOwner).length})
+                  </Text>
+                  <View style={styles.propsTagContainer}>
+                    {getPropertiesForOwner(viewingOwner).length === 0 ? (
+                      <Text style={styles.noPropsText} allowFontScaling={false}>No properties assigned.</Text>
+                    ) : (
+                      getPropertiesForOwner(viewingOwner).map((p) => (
+                        <View key={p.id} style={styles.propTag}>
+                          <Ionicons name="business-outline" size={12} color="#38bdf8" style={{ marginRight: 4 }} />
+                          <Text style={styles.propTagText} allowFontScaling={false}>{p.name}</Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                </View>
+              </ScrollView>
+            )}
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={styles.primaryCloseBtn} onPress={() => setViewingOwner(null)}>
+                <Text style={styles.primaryCloseBtnText} allowFontScaling={false}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ADD / EDIT OWNER MODAL */}
+      <Modal visible={isFormModalOpen} animationType="fade" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View style={styles.formModalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle} allowFontScaling={false}>
+                {editingOwner ? 'Edit Property Owner' : 'Add Property Owner'}
+              </Text>
+              <TouchableOpacity onPress={() => setIsFormModalOpen(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={22} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{ paddingBottom: 10 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+                {/* Full Name */}
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>FULL NAME</Text>
+                  <Text style={styles.formLabel} allowFontScaling={false}>FULL NAME *</Text>
                   <TextInput
                     style={styles.formInput}
                     placeholder="e.g. Jane Doe"
@@ -436,11 +531,12 @@ export const OwnersScreen = () => {
                   />
                 </View>
 
+                {/* Email */}
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>EMAIL</Text>
+                  <Text style={styles.formLabel} allowFontScaling={false}>EMAIL ADDRESS *</Text>
                   <TextInput
                     style={styles.formInput}
-                    placeholder="staff@gmail.com"
+                    placeholder="jane.doe@example.com"
                     placeholderTextColor="#64748b"
                     keyboardType="email-address"
                     autoCapitalize="none"
@@ -449,8 +545,11 @@ export const OwnersScreen = () => {
                   />
                 </View>
 
+                {/* Password */}
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>PASSWORD</Text>
+                  <Text style={styles.formLabel} allowFontScaling={false}>
+                    PASSWORD {editingOwner ? '(leave blank to keep current)' : ''}
+                  </Text>
                   <TextInput
                     style={styles.formInput}
                     placeholder="••••••••"
@@ -462,8 +561,9 @@ export const OwnersScreen = () => {
                   />
                 </View>
 
+                {/* Phone */}
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>PHONE</Text>
+                  <Text style={styles.formLabel} allowFontScaling={false}>PHONE NUMBER</Text>
                   <TextInput
                     style={styles.formInput}
                     placeholder="(555) 555-0100"
@@ -474,30 +574,42 @@ export const OwnersScreen = () => {
                   />
                 </View>
 
-                {/* PAYOUT METHOD Selector */}
-                <View style={[styles.formGroup, showPayoutDropdown && { zIndex: 9999, position: 'relative' }]}>
+                {/* Payout Method */}
+                <View style={styles.formGroup}>
                   <Text style={styles.formLabel} allowFontScaling={false}>PAYOUT METHOD</Text>
                   <TouchableOpacity
-                    style={styles.dropdownTrigger}
+                    style={styles.dropdownBtn}
                     onPress={() => setShowPayoutDropdown(!showPayoutDropdown)}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.dropdownTriggerText} allowFontScaling={false}>{payoutMethod}</Text>
-                    <Ionicons name={showPayoutDropdown ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
+                    <Text style={styles.dropdownBtnText} allowFontScaling={false}>{payoutMethod}</Text>
+                    <Ionicons
+                      name={showPayoutDropdown ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color="#94a3b8"
+                    />
                   </TouchableOpacity>
 
                   {showPayoutDropdown && (
-                    <View style={styles.dropdownContainer}>
+                    <View style={styles.dropdownMenu}>
                       {payoutOptions.map((opt) => (
                         <TouchableOpacity
                           key={opt}
-                          style={styles.dropdownItem}
+                          style={[styles.dropdownItem, payoutMethod === opt && styles.dropdownItemActive]}
                           onPress={() => {
                             setPayoutMethod(opt);
                             setShowPayoutDropdown(false);
                           }}
                         >
-                          <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt}</Text>
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              payoutMethod === opt && { color: '#38bdf8', fontWeight: '700' },
+                            ]}
+                            allowFontScaling={false}
+                          >
+                            {opt}
+                          </Text>
                           {payoutMethod === opt && (
                             <Ionicons name="checkmark" size={16} color="#38bdf8" />
                           )}
@@ -507,388 +619,460 @@ export const OwnersScreen = () => {
                   )}
                 </View>
 
-                {/* ASSIGN PROPERTIES Checkbox List */}
+                {/* Assign Properties */}
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel} allowFontScaling={false}>ASSIGN PROPERTIES</Text>
-                  <View style={styles.checkboxContainer}>
-                    {properties.length === 0 ? (
-                      <Text style={styles.noPropertiesText} allowFontScaling={false}>No properties created yet.</Text>
-                    ) : (
-                      properties.map((prop) => {
-                        const isChecked = selectedPropertyIds.includes(prop.id);
-                        return (
-                          <TouchableOpacity
-                            key={prop.id}
-                            style={styles.checkboxRow}
-                            onPress={() => togglePropertySelection(prop.id)}
-                            activeOpacity={0.8}
-                          >
-                            <View style={[styles.checkboxBox, isChecked && styles.checkboxBoxChecked]}>
-                              {isChecked && (
-                                <Ionicons name="checkmark" size={12} color="#0f172a" />
-                              )}
-                            </View>
-                            <Text style={styles.checkboxLabel} allowFontScaling={false}>{prop.name}</Text>
-                          </TouchableOpacity>
-                        );
-                      })
-                    )}
+                  <View style={styles.propsCheckContainer}>
+                    <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {properties.length === 0 ? (
+                        <Text style={styles.noPropsText} allowFontScaling={false}>No properties created yet.</Text>
+                      ) : (
+                        properties.map((p) => {
+                          const isChecked = selectedPropertyIds.includes(p.id);
+                          return (
+                            <TouchableOpacity
+                              key={p.id}
+                              style={styles.propCheckRow}
+                              onPress={() => togglePropertySelection(p.id)}
+                              activeOpacity={0.7}
+                            >
+                              <View style={[styles.checkBox, isChecked && styles.checkBoxActive]}>
+                                {isChecked && <Ionicons name="checkmark" size={12} color="#ffffff" />}
+                              </View>
+                              <Text style={styles.propCheckName} allowFontScaling={false}>{p.name}</Text>
+                            </TouchableOpacity>
+                          );
+                        })
+                      )}
+                    </ScrollView>
                   </View>
                 </View>
-
-                {/* Cancel & Create Buttons inside ScrollView */}
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={styles.cancelBtn}
-                    onPress={() => setIsAddOpen(false)}
-                    disabled={submitting}
-                  >
-                    <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
-                    onPress={handleCreateOwner}
-                    disabled={submitting}
-                  >
-                    {submitting ? (
-                      <ActivityIndicator size="small" color="#0f172a" />
-                    ) : (
-                      <Text style={styles.submitBtnText} allowFontScaling={false}>Create Owner</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
               </ScrollView>
+
+              <View style={styles.formFooter}>
+                <TouchableOpacity
+                  style={styles.cancelFormBtn}
+                  onPress={() => setIsFormModalOpen(false)}
+                  disabled={submitting}
+                >
+                  <Text style={styles.cancelFormBtnText} allowFontScaling={false}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.submitFormBtn, submitting && { opacity: 0.6 }]}
+                  onPress={handleSubmitForm}
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={styles.submitFormBtnText} allowFontScaling={false}>
+                      {editingOwner ? 'Save Changes' : 'Create Owner'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
-          </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* MODAL: Edit Property Owner */}
-      <Modal visible={isEditOpen} animationType="slide" transparent>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalBg}
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Edit Property Owner</Text>
-                <TouchableOpacity onPress={() => setIsEditOpen(false)}>
-                  <Ionicons name="close" size={24} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView 
-                style={styles.modalScroll} 
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {/* Form Input fields */}
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>FULL NAME</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="e.g. Jane Doe"
-                    placeholderTextColor="#64748b"
-                    value={fullName}
-                    onChangeText={setFullName}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>EMAIL</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="staff@gmail.com"
-                    placeholderTextColor="#64748b"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={email}
-                    onChangeText={setEmail}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>PASSWORD (leave blank to keep current)</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="••••••••"
-                    placeholderTextColor="#64748b"
-                    secureTextEntry
-                    autoCapitalize="none"
-                    value={password}
-                    onChangeText={setPassword}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>PHONE</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="(555) 555-0100"
-                    placeholderTextColor="#64748b"
-                    keyboardType="phone-pad"
-                    value={phone}
-                    onChangeText={setPhone}
-                  />
-                </View>
-
-                {/* PAYOUT METHOD Selector */}
-                <View style={[styles.formGroup, showPayoutDropdown && { zIndex: 9999, position: 'relative' }]}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>PAYOUT METHOD</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownTrigger}
-                    onPress={() => setShowPayoutDropdown(!showPayoutDropdown)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.dropdownTriggerText} allowFontScaling={false}>{payoutMethod}</Text>
-                    <Ionicons name={showPayoutDropdown ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                  </TouchableOpacity>
-
-                  {showPayoutDropdown && (
-                    <View style={styles.dropdownContainer}>
-                      {payoutOptions.map((opt) => (
-                        <TouchableOpacity
-                          key={opt}
-                          style={styles.dropdownItem}
-                          onPress={() => {
-                            setPayoutMethod(opt);
-                            setShowPayoutDropdown(false);
-                          }}
-                        >
-                          <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt}</Text>
-                          {payoutMethod === opt && (
-                            <Ionicons name="checkmark" size={16} color="#38bdf8" />
-                          )}
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                {/* ASSIGN PROPERTIES Checkbox List */}
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>ASSIGN PROPERTIES</Text>
-                  <View style={styles.checkboxContainer}>
-                    {properties.length === 0 ? (
-                      <Text style={styles.noPropertiesText} allowFontScaling={false}>No properties created yet.</Text>
-                    ) : (
-                      properties.map((prop) => {
-                        const isChecked = selectedPropertyIds.includes(prop.id);
-                        return (
-                          <TouchableOpacity
-                            key={prop.id}
-                            style={styles.checkboxRow}
-                            onPress={() => togglePropertySelection(prop.id)}
-                            activeOpacity={0.8}
-                          >
-                            <View style={[styles.checkboxBox, isChecked && styles.checkboxBoxChecked]}>
-                              {isChecked && (
-                                <Ionicons name="checkmark" size={12} color="#0f172a" />
-                              )}
-                            </View>
-                            <Text style={styles.checkboxLabel} allowFontScaling={false}>{prop.name}</Text>
-                          </TouchableOpacity>
-                        );
-                      })
-                    )}
-                  </View>
-                </View>
-
-                {/* Cancel & Update Buttons inside ScrollView */}
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={styles.cancelBtn}
-                    onPress={() => setIsEditOpen(false)}
-                    disabled={submitting}
-                  >
-                    <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
-                    onPress={handleUpdateOwner}
-                    disabled={submitting}
-                  >
-                    {submitting ? (
-                      <ActivityIndicator size="small" color="#0f172a" />
-                    ) : (
-                      <Text style={styles.submitBtnText} allowFontScaling={false}>Update Owner</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
+      {/* CONFIRM DELETE MODAL */}
+      <Modal visible={deleteOwner !== null} animationType="fade" transparent>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.deleteModalCard}>
+            <View style={styles.deleteIconWrap}>
+              <Ionicons name="warning-outline" size={32} color="#ef4444" />
             </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
+            <Text style={styles.deleteTitle} allowFontScaling={false}>Delete Owner</Text>
+            <Text style={styles.deleteDesc} allowFontScaling={false}>
+              Are you sure you want to delete owner "{deleteOwner?.name}"? This action cannot be undone.
+            </Text>
+
+            <View style={styles.deleteActions}>
+              <TouchableOpacity
+                style={styles.deleteCancelBtn}
+                onPress={() => setDeleteOwner(null)}
+                disabled={deleting}
+              >
+                <Text style={styles.deleteCancelBtnText} allowFontScaling={false}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.deleteConfirmBtn, deleting && { opacity: 0.6 }]}
+                onPress={confirmDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.deleteConfirmBtnText} allowFontScaling={false}>Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
 };
 
-const getStyles = (colors, isDarkMode) => StyleSheet.create({
-  mainWrapper: { flex: 1, backgroundColor: colors.background },
-  container: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 60 },
-  center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: colors.textSecondary, marginTop: 8 },
+export default OwnersScreen;
 
-  header: { marginBottom: 16 },
-  title: { fontSize: 22, fontWeight: '800', color: colors.textPrimary },
-  subtitle: { fontSize: 11.5, color: colors.textSecondary, marginTop: 4, lineHeight: 16 },
+const getStyles = (colors, isDarkMode) =>
+  StyleSheet.create({
+    mainWrapper: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
+    scrollContent: { paddingHorizontal: 16, paddingBottom: 60 },
+    center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
+    loadingText: { color: colors.textSecondary, marginTop: 10, fontSize: 13, fontWeight: '600' },
 
-  searchBarRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  searchContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-  },
-  searchInput: {
-    color: colors.textPrimary,
-    fontSize: 12,
-    flex: 1,
-    height: 40,
-    padding: 0,
-  },
-  addBtn: {
-    backgroundColor: '#38bdf8',
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    height: 40,
-  },
-  addBtnText: { color: '#0f172a', fontSize: 12, fontWeight: '800' },
+    topSection: {
+      paddingHorizontal: 16,
+      paddingTop: Platform.OS === 'ios' ? 48 : 16,
+      paddingBottom: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.cardBorder,
+    },
+    header: { marginBottom: 12 },
+    title: { fontSize: 24, fontWeight: '800', color: colors.textPrimary },
+    subtitle: { fontSize: 12, color: colors.textSecondary, marginTop: 3, lineHeight: 17 },
 
-  sectionHeader: { marginBottom: 12 },
-  sectionTitle: { fontSize: 10, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.8 },
+    actionRow: { flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 8 },
+    searchContainer: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      height: 42,
+    },
+    searchInput: { flex: 1, color: colors.textPrimary, fontSize: 13, padding: 0 },
+    addBtn: {
+      backgroundColor: '#2563eb',
+      paddingHorizontal: 14,
+      borderRadius: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      height: 42,
+      shadowColor: '#2563eb',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    addBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
 
-  emptyCard: { backgroundColor: colors.surface, padding: 32, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: colors.cardBorder },
-  emptyText: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },
-  emptySubText: { color: colors.textMuted, fontSize: 12, marginTop: 4, textAlign: 'center' },
+    countRow: { marginVertical: 12 },
+    countText: { fontSize: 10, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.8 },
 
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-  },
-  cardHeader: { flexDirection: 'row', alignItems: 'center' },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#38bdf8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  avatarText: { color: '#0f172a', fontSize: 16, fontWeight: '800' },
-  ownerInfo: { flex: 1 },
-  ownerName: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
-  ownerSubText: { fontSize: 11.5, color: colors.textSecondary, marginTop: 2 },
-  deleteBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(239, 68, 68, 0.12)', alignItems: 'center', justifyContent: 'center' },
-  editBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(245, 158, 11, 0.12)', alignItems: 'center', justifyContent: 'center' },
+    emptyCard: {
+      backgroundColor: colors.surface,
+      padding: 36,
+      borderRadius: 16,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      marginTop: 20,
+    },
+    emptyText: { color: colors.textPrimary, fontSize: 16, fontWeight: '700' },
+    emptySubText: { color: colors.textMuted, fontSize: 12, marginTop: 4, textAlign: 'center' },
 
-  divider: { height: 1, backgroundColor: colors.divider, marginVertical: 12 },
+    // Owner Card
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    cardTopRow: { flexDirection: 'row', alignItems: 'center' },
+    avatar: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: '#38bdf8',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
+    avatarText: { color: '#0f172a', fontSize: 18, fontWeight: '800' },
+    ownerInfo: { flex: 1 },
+    ownerName: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+    payoutBadge: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
+    payoutText: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
 
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  metaCol: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
-  metaText: { fontSize: 12, color: colors.textSecondary },
+    actionsContainer: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+    actionBtnView: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      backgroundColor: 'rgba(16, 185, 129, 0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    actionBtnEdit: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      backgroundColor: 'rgba(59, 130, 246, 0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    actionBtnDelete: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      backgroundColor: 'rgba(239, 68, 68, 0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
 
-  // MODAL STYLING
-  modalBg: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.85)', justifyContent: 'center', padding: 20 },
-  modalCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: colors.cardBorder, maxHeight: '85%' },
-  modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+    cardDivider: { height: 1, backgroundColor: colors.divider, marginVertical: 12 },
 
-  modalScroll: { marginBottom: 16 },
-  formGroup: { marginBottom: 14 },
-  formLabel: { fontSize: 9.5, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.5, marginBottom: 6 },
-  formInput: {
-    backgroundColor: colors.inputBackground,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 44,
-    color: colors.textPrimary,
-    fontSize: 13,
-  },
+    metaGrid: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+    metaItem: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+    metaLabel: { fontSize: 12, color: colors.textSecondary },
 
-  dropdownTrigger: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.inputBackground,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 44,
-  },
-  dropdownTriggerText: { color: colors.textPrimary, fontSize: 13 },
-  dropdownContainer: {
-    position: 'absolute',
-    top: 68,
-    left: 0,
-    right: 0,
-    backgroundColor: colors.inputBackground,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    borderRadius: 10,
-    zIndex: 9999,
-    elevation: 5,
-    overflow: 'hidden',
-  },
-  dropdownItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surface,
-  },
-  dropdownItemText: { color: colors.textSecondary, fontSize: 12.5 },
+    propertiesOwnedRow: { marginTop: 10 },
+    propertiesCountBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(56, 189, 248, 0.1)',
+      borderWidth: 1,
+      borderColor: 'rgba(56, 189, 248, 0.25)',
+      borderRadius: 8,
+      paddingVertical: 5,
+      paddingHorizontal: 10,
+      alignSelf: 'flex-start',
+    },
+    propertiesCountText: { fontSize: 12, color: colors.textPrimary, fontWeight: '600' },
 
-  checkboxContainer: {
-    backgroundColor: colors.inputBackground,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    padding: 10,
-  },
-  noPropertiesText: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
-  checkboxRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 6 },
-  checkboxBox: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: colors.textMuted,
-    marginRight: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxBoxChecked: {
-    borderColor: '#38bdf8',
-    backgroundColor: '#38bdf8',
-  },
-  checkboxLabel: { color: colors.textSecondary, fontSize: 12.5 },
+    // Modal Styling
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.72)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: Platform.OS === 'ios' ? 44 : 20,
+    },
+    viewModalCard: {
+      width: '100%',
+      maxWidth: 440,
+      maxHeight: '88%',
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: 18,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      overflow: 'hidden',
+    },
+    formModalCard: {
+      width: '100%',
+      maxWidth: 440,
+      maxHeight: '88%',
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: 18,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      overflow: 'hidden',
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+      paddingBottom: 14,
+      marginBottom: 14,
+    },
+    modalTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
+    modalCloseBtn: { padding: 4 },
 
-  modalActions: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end', borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: 14 },
-  cancelBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: colors.inputBorder },
-  cancelBtnText: { color: colors.textSecondary, fontSize: 12.5, fontWeight: '700' },
-  submitBtn: { backgroundColor: '#38bdf8', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, minWidth: 100, alignItems: 'center', justifyContent: 'center' },
-  submitBtnDisabled: { opacity: 0.5 },
-  submitBtnText: { color: '#0f172a', fontSize: 12.5, fontWeight: '800' },
-});
+    detailSection: { marginBottom: 14 },
+    detailLabel: { fontSize: 10, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.6, marginBottom: 4 },
+    detailValue: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.textPrimary,
+      backgroundColor: colors.inputBackground,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+    },
+    propsTagContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+      backgroundColor: colors.inputBackground,
+      padding: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+    },
+    propTag: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
+      borderColor: 'rgba(56, 189, 248, 0.3)',
+      borderWidth: 1,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      borderRadius: 6,
+    },
+    propTagText: { fontSize: 11, color: '#38bdf8', fontWeight: '700' },
+    noPropsText: { fontSize: 12, color: colors.textMuted, fontStyle: 'italic' },
+
+    modalFooter: { borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: 14, alignItems: 'flex-end' },
+    primaryCloseBtn: { backgroundColor: '#38bdf8', paddingVertical: 9, paddingHorizontal: 18, borderRadius: 10 },
+    primaryCloseBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 13 },
+
+    // Form inputs
+    formGroup: { marginBottom: 14 },
+    formLabel: { fontSize: 10, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.6, marginBottom: 6 },
+    formInput: {
+      backgroundColor: colors.inputBackground,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      height: 42,
+      color: colors.textPrimary,
+      fontSize: 13,
+    },
+
+    dropdownBtn: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: colors.inputBackground,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      height: 42,
+    },
+    dropdownBtnText: { fontSize: 13, color: colors.textPrimary },
+    dropdownMenu: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+      borderRadius: 10,
+      marginTop: 4,
+      overflow: 'hidden',
+    },
+    dropdownItem: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+    },
+    dropdownItemActive: { backgroundColor: 'rgba(56, 189, 248, 0.08)' },
+    dropdownItemText: { fontSize: 12.5, color: colors.textSecondary },
+
+    propsCheckContainer: {
+      backgroundColor: colors.inputBackground,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+      padding: 10,
+      maxHeight: 140,
+    },
+    propCheckRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5 },
+    checkBox: {
+      width: 18,
+      height: 18,
+      borderRadius: 4,
+      borderWidth: 1.5,
+      borderColor: colors.textMuted,
+      marginRight: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    checkBoxActive: { backgroundColor: '#38bdf8', borderColor: '#38bdf8' },
+    propCheckName: { fontSize: 12.5, color: colors.textPrimary, fontWeight: '600' },
+
+    formFooter: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: 10,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+      paddingTop: 14,
+    },
+    cancelFormBtn: {
+      paddingVertical: 9,
+      paddingHorizontal: 16,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    cancelFormBtnText: { fontSize: 13, color: colors.textSecondary, fontWeight: '700' },
+    submitFormBtn: {
+      backgroundColor: '#2563eb',
+      paddingVertical: 9,
+      paddingHorizontal: 18,
+      borderRadius: 10,
+      minWidth: 110,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    submitFormBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
+
+    // Delete Modal
+    deleteModalCard: {
+      width: '100%',
+      maxWidth: 380,
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: 22,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    deleteIconWrap: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: 'rgba(239, 68, 68, 0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 14,
+    },
+    deleteTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, marginBottom: 6 },
+    deleteDesc: { fontSize: 12.5, color: colors.textSecondary, textAlign: 'center', lineHeight: 18, marginBottom: 20 },
+    deleteActions: { flexDirection: 'row', gap: 10, width: '100%' },
+    deleteCancelBtn: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      alignItems: 'center',
+    },
+    deleteCancelBtnText: { color: colors.textSecondary, fontWeight: '700', fontSize: 13 },
+    deleteConfirmBtn: {
+      flex: 1,
+      backgroundColor: '#ef4444',
+      paddingVertical: 10,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    deleteConfirmBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 13 },
+  });

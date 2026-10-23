@@ -19,8 +19,8 @@ import { useAuthStore, useThemeStore } from '../store/useStore';
 import apiClient from '../api/client';
 import { Ionicons } from '@expo/vector-icons';
 
-export const MaintenanceStaffDashboard = ({ activeSubTab }) => {
-  const { logout, refreshAccessToken } = useAuthStore();
+export const MaintenanceStaffDashboard = ({ activeSubTab, onNavigate }) => {
+  const { user, logout, refreshAccessToken } = useAuthStore();
   const { theme, language } = useThemeStore();
   const isDarkMode = theme === 'dark';
   const es = language === 'es';
@@ -32,6 +32,7 @@ export const MaintenanceStaffDashboard = ({ activeSubTab }) => {
   const [selectedTask, setSelectedTask] = useState(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Job Resolution Form Modal State
   const [resolutionModalVisible, setResolutionModalVisible] = useState(false);
@@ -47,11 +48,19 @@ export const MaintenanceStaffDashboard = ({ activeSubTab }) => {
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      const res = await apiClient.get('/portal/staff/tasks', logout, refreshAccessToken);
+      const [res, notifsRes] = await Promise.all([
+        apiClient.get('/work-orders', logout, refreshAccessToken).catch(() => apiClient.get('/portal/staff/tasks', logout, refreshAccessToken).catch(() => [])),
+        apiClient.get('/notifications?role=Maintenance Staff', logout, refreshAccessToken).catch(() => null),
+      ]);
       setTasks(res?.data || res || []);
+
+      const rawNotifs = notifsRes?.data !== undefined ? notifsRes.data : notifsRes;
+      const notifsList = Array.isArray(rawNotifs) ? rawNotifs : (Array.isArray(rawNotifs?.data) ? rawNotifs.data : []);
+      const unreadTotal = notifsList.filter((n) => !n.read && !n.isRead).length;
+      setUnreadCount(unreadTotal);
     } catch (e) {
       console.error('Error fetching staff tasks:', e);
-      Alert.alert('Error', 'Failed to fetch tasks from server');
+      setTasks([]);
     } finally {
       setLoading(false);
     }
@@ -138,10 +147,36 @@ export const MaintenanceStaffDashboard = ({ activeSubTab }) => {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchTasks} tintColor="#38bdf8" />}
       >
         <View style={styles.headerBanner}>
-          <Text style={styles.welcomeTitle}>{es ? 'Portal de Personal de Mantenimiento' : 'Maintenance Staff Portal'}</Text>
-          <Text style={styles.welcomeSub}>
-            {es ? 'Vea su resumen de carga de trabajo, acepte asignaciones y actualice el progreso de las tareas.' : 'View your workload summary, accept assignments, and update task progress.'}
-          </Text>
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <Text style={styles.welcomeTitle} allowFontScaling={false}>
+              Welcome back, {user?.name || user?.firstName || 'Staff'} 👋
+            </Text>
+            <Text style={styles.welcomeSub} allowFontScaling={false}>
+              {es ? 'Portal de Personal de Mantenimiento' : 'Maintenance Staff Portal'}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.bellBtn,
+              {
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                borderColor: isDarkMode ? '#334155' : '#cbd5e1',
+              },
+            ]}
+            onPress={() => onNavigate && onNavigate('notifications')}
+            activeOpacity={0.7}
+            accessibilityLabel="Notifications"
+          >
+            <Ionicons name="notifications-outline" size={20} color={isDarkMode ? '#f8fafc' : '#0f172a'} />
+            {unreadCount > 0 && (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
 
         {/* Dynamic Stat Cards matching Web UI */}
@@ -578,6 +613,9 @@ const getStyles = (isDarkMode) => StyleSheet.create({
     padding: 12,
   },
   headerBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 14,
   },
   welcomeTitle: {
@@ -590,6 +628,34 @@ const getStyles = (isDarkMode) => StyleSheet.create({
     color: isDarkMode ? '#94a3b8' : '#64748b',
     marginTop: 4,
     lineHeight: 16,
+  },
+  bellBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    borderWidth: 1,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#ef4444',
+    borderRadius: 9,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: isDarkMode ? '#0f172a' : '#f8fafc',
+  },
+  bellBadgeText: {
+    color: '#ffffff',
+    fontSize: 8.5,
+    fontWeight: '900',
   },
   statsGrid: {
     flexDirection: 'row',
