@@ -570,11 +570,103 @@ export const api = {
     ...mockApi.dashboard,
     getMetrics: async () => {
       try {
-        const res: any = await apiClient.get('/dashboard/metrics');
-        return res.data;
+        const [
+          metricsRes,
+          workOrdersRes,
+          unitsRes,
+          leasesRes,
+          paymentsRes,
+          expensesRes,
+        ] = await Promise.allSettled([
+          apiClient.get('/dashboard/metrics'),
+          apiClient.get('/work-orders'),
+          apiClient.get('/units'),
+          apiClient.get('/leases'),
+          apiClient.get('/payments'),
+          apiClient.get('/expenses'),
+        ]);
+
+        const base = metricsRes.status === 'fulfilled' ? ((metricsRes.value as any)?.data || {}) : {};
+        const workOrders = workOrdersRes.status === 'fulfilled' ? ((workOrdersRes.value as any)?.data || []) : [];
+        const units = unitsRes.status === 'fulfilled' ? ((unitsRes.value as any)?.data || []) : [];
+        const leases = leasesRes.status === 'fulfilled' ? ((leasesRes.value as any)?.data || []) : [];
+        const payments = paymentsRes.status === 'fulfilled' ? ((paymentsRes.value as any)?.data || []) : [];
+        const expenses = expensesRes.status === 'fulfilled' ? ((expensesRes.value as any)?.data || []) : [];
+
+        // 1. Open Maintenance Work Orders + Service Requests
+        const openMaintenanceCount = workOrders.length > 0
+          ? workOrders.filter((w: any) =>
+              ['Open', 'InProgress', 'Pending', 'In Progress', 'New', 'Submitted', 'Assigned'].includes(w.status)
+            ).length
+          : (base.openMaintenance ?? 0);
+
+        // 2. Units breakdown (ensure occupied + vacant aligns with total units)
+        const occupiedUnitsCount = units.length > 0
+          ? units.filter((u: any) => u.status === 'Occupied').length
+          : (base.occupiedUnits ?? 0);
+        const vacantUnitsCount = units.length > 0
+          ? units.filter((u: any) => u.status === 'Vacant').length
+          : (base.vacantUnits ?? 0);
+        const rawTotalUnits = units.length > 0 ? units.length : (base.totalUnits ?? 0);
+        const totalUnitsCount = Math.max(rawTotalUnits, occupiedUnitsCount + vacantUnitsCount);
+
+        const computedOccupancyRate = totalUnitsCount > 0
+          ? Math.min(100, Math.round((occupiedUnitsCount / totalUnitsCount) * 100))
+          : 0;
+
+        // 3. Leases expiring soon (next 60 days matching UI description)
+        const now = new Date();
+        const sixtyDaysFromNow = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+        const expiringLeasesCount = leases.length > 0
+          ? leases.filter((l: any) => {
+              if (l.status !== 'Active' || !l.endDate) return false;
+              const end = new Date(l.endDate);
+              return end <= sixtyDaysFromNow;
+            }).length
+          : (base.leasesExpiringSoon ?? 0);
+
+        // 4. Pending Rent
+        const computedPendingRent = payments.length > 0
+          ? payments
+              .filter((p: any) => ['Pending', 'Overdue', 'Late', 'Unpaid'].includes(p.status))
+              .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
+          : (base.pendingRent ?? 0);
+
+        // 5. Expenses
+        const computedExpenses = expenses.length > 0
+          ? expenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0)
+          : (base.expenses ?? 0);
+
+        // 6. Monthly Revenue (active leases or occupied units)
+        const activeLeases = leases.filter((l: any) => l.status === 'Active' && Number(l.rentAmount) > 0);
+        const leaseRevenue = activeLeases.reduce((sum: number, l: any) => sum + (Number(l.rentAmount) || 0), 0);
+        const unitsRevenue = units
+          .filter((u: any) => u.status === 'Occupied' && Number(u.rentAmount) > 0)
+          .reduce((sum: number, u: any) => sum + (Number(u.rentAmount) || 0), 0);
+        const computedRevenue = leaseRevenue > 0 
+          ? leaseRevenue 
+          : (unitsRevenue > 0 ? unitsRevenue : (base.monthlyRevenue ?? 0));
+
+        return {
+          totalProperties: base.totalProperties ?? 0,
+          totalUnits: totalUnitsCount,
+          occupiedUnits: occupiedUnitsCount,
+          vacantUnits: vacantUnitsCount,
+          occupancyRate: computedOccupancyRate,
+          monthlyRevenue: computedRevenue,
+          pendingRent: computedPendingRent,
+          expenses: computedExpenses,
+          openMaintenance: openMaintenanceCount,
+          leasesExpiringSoon: expiringLeasesCount,
+        };
       } catch (e) {
-        console.error('Dashboard metrics fetch failed:', e);
-        return null;
+        console.error('Dashboard metrics calculation error:', e);
+        try {
+          const fallback: any = await apiClient.get('/dashboard/metrics');
+          return fallback.data;
+        } catch {
+          return null;
+        }
       }
     },
     getChartData: async () => {

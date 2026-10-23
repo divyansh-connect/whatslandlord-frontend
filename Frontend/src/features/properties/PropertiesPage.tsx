@@ -68,11 +68,13 @@ export const PropertiesPage: React.FC = () => {
 
   // Filters (Exclude Drafts & Inactive from main Properties page)
   const filteredProperties = properties.filter((prop) => {
+    if (!prop) return false;
     if (prop.status === 'Draft' || prop.status === 'Inactive') return false;
-    const matchesSearch =
-      prop.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      prop.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      prop.address.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = (searchQuery || '').toLowerCase().trim();
+    const matchesSearch = !q ||
+      (prop.name || '').toLowerCase().includes(q) ||
+      (prop.city || '').toLowerCase().includes(q) ||
+      (prop.address || '').toLowerCase().includes(q);
     const matchesType = typeFilter === '' || prop.type === typeFilter;
     const matchesStatus = statusFilter === '' || prop.status === statusFilter;
     const matchesOwner = ownerFilter === '' || prop.owner === ownerFilter;

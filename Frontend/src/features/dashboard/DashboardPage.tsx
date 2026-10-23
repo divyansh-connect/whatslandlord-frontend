@@ -1,5 +1,5 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../api';
 import { StatsCard } from '../../components/StatsCard';
 import { ChartCard } from '../../components/ChartCard';
@@ -19,6 +19,7 @@ import { MetricDetailsModal, MetricType } from './MetricDetailsModal';
 
 export const DashboardPage: React.FC = () => {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [selectedMetric, setSelectedMetric] = React.useState<MetricType | null>(null);
 
   // Query Metrics
@@ -36,6 +37,13 @@ export const DashboardPage: React.FC = () => {
   const refreshAll = () => {
     refetchMetrics();
     refetchCharts();
+    queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+    queryClient.invalidateQueries({ queryKey: ['work-orders'] });
+    queryClient.invalidateQueries({ queryKey: ['units'] });
+    queryClient.invalidateQueries({ queryKey: ['properties'] });
+    queryClient.invalidateQueries({ queryKey: ['leases'] });
+    queryClient.invalidateQueries({ queryKey: ['payments'] });
+    queryClient.invalidateQueries({ queryKey: ['expenses'] });
   };
 
   const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b'];
@@ -95,8 +103,8 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.openMaintenance')}
             value={metrics?.openMaintenance ?? 0}
             icon={<Wrench className="w-5 h-5" />}
-            trend="up"
-            trendLabel="+1 pending"
+            trend={metrics?.openMaintenance ? "up" : "neutral"}
+            trendLabel={metrics?.openMaintenance ? `+${metrics.openMaintenance} pending` : "0 pending"}
             description={t('dashboard.activeWorkOrders')}
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('openMaintenance')}
@@ -184,8 +192,8 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.openMaintenance')}
             value={metrics?.openMaintenance ?? 0}
             icon={<Wrench className="w-5 h-5" />}
-            trend="up"
-            trendLabel="+1"
+            trend={metrics?.openMaintenance ? "up" : "neutral"}
+            trendLabel={metrics?.openMaintenance ? `+${metrics.openMaintenance}` : "0"}
             description={t('dashboard.activeWorkOrders')}
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('openMaintenance')}

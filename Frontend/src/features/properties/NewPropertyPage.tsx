@@ -61,6 +61,7 @@ export const NewPropertyPage: React.FC = () => {
 
   // Property-Wise Payment Integration State
   const [paymentProvider, setPaymentProvider] = useState<string>('COMPANY_DEFAULT');
+  const [customProvider, setCustomProvider] = useState<string>('STRIPE');
   const [paymentAccountId, setPaymentAccountId] = useState<string>('');
   const [paymentAuthToken, setPaymentAuthToken] = useState<string>('');
   const [paymentStatus, setPaymentStatus] = useState<string>('Active');
@@ -380,7 +381,7 @@ export const NewPropertyPage: React.FC = () => {
                 : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
             }`}>
               <ShieldCheck className="w-3.5 h-3.5" />
-              {paymentProvider === 'COMPANY_DEFAULT' ? 'Company Default (Option 2 Fallback)' : `Custom Property Gateway: ${paymentProvider.replace('_', '.')}`}
+              {paymentProvider === 'COMPANY_DEFAULT' ? 'Company Default (Option 1)' : `Custom Gateway: ${paymentProvider.replace('_', '.')}`}
             </span>
           </div>
 
@@ -388,42 +389,70 @@ export const NewPropertyPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
-                  Payment Provider / Account Destination
+                  Payment Account Setup
                 </label>
                 <Select
-                  value={paymentProvider}
-                  onChange={(e) => setPaymentProvider(e.target.value)}
+                  value={paymentProvider === 'COMPANY_DEFAULT' ? 'COMPANY_DEFAULT' : 'OTHER'}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'COMPANY_DEFAULT') {
+                      setPaymentProvider('COMPANY_DEFAULT');
+                    } else {
+                      setPaymentProvider(customProvider || 'STRIPE');
+                    }
+                  }}
                   className="h-10 text-sm font-medium"
                 >
-                  <option value="COMPANY_DEFAULT">🏢 Use Company Default (Fallback Option)</option>
-                  <option value="STRIPE">💳 Stripe (Credit/Debit/Apple Pay)</option>
-                  <option value="AUTHORIZE_NET">🔒 Authorize.Net (Credit Card & eCheck)</option>
-                  <option value="RAZORPAY">⚡ Razorpay (Cards, UPI & NetBanking)</option>
+                  <option value="COMPANY_DEFAULT">🏢 Use Company Default (Company Settings)</option>
+                  <option value="OTHER">⚙️ Other (Custom Payment Gateway)</option>
                 </Select>
                 <p className="text-[11px] text-muted-foreground">
                   {paymentProvider === 'COMPANY_DEFAULT'
                     ? 'Tenant rent for this property will flow through the global gateway configured under Company Settings.'
-                    : '1st Priority: Tenant rent for this property will bypass Company Settings and deposit directly into this account.'}
+                    : 'Configure property-specific custom payment gateway credentials.'}
                 </p>
               </div>
 
               {paymentProvider !== 'COMPANY_DEFAULT' && (
-                <div className="space-y-1.5 animate-fade-in">
-                  <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
-                    Gateway Status
-                  </label>
-                  <Select
-                    value={paymentStatus}
-                    onChange={(e) => setPaymentStatus(e.target.value)}
-                    className="h-10 text-sm font-medium"
-                  >
-                    <option value="Active">Active (Accepting Tenant Payments)</option>
-                    <option value="Inactive">Inactive (Temporarily Disabled)</option>
-                  </Select>
-                  <p className="text-[11px] text-muted-foreground">
-                    Inactive status temporarily routes payments to Company Default until re-activated.
-                  </p>
-                </div>
+                <>
+                  <div className="space-y-1.5 animate-fade-in">
+                    <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                      Select Custom Gateway Provider
+                    </label>
+                    <Select
+                      value={paymentProvider}
+                      onChange={(e) => {
+                        setPaymentProvider(e.target.value);
+                        setCustomProvider(e.target.value);
+                      }}
+                      className="h-10 text-sm font-medium"
+                    >
+                      <option value="STRIPE">💳 Stripe (Credit/Debit/Apple Pay)</option>
+                      <option value="RAZORPAY">⚡ Razorpay (Cards, UPI & NetBanking)</option>
+                      <option value="AUTHORIZE_NET">🔒 Authorize.Net (Credit Card & eCheck)</option>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground">
+                      Tenant rent will bypass Company Settings and deposit directly into this gateway.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5 animate-fade-in">
+                    <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">
+                      Gateway Status
+                    </label>
+                    <Select
+                      value={paymentStatus}
+                      onChange={(e) => setPaymentStatus(e.target.value)}
+                      className="h-10 text-sm font-medium"
+                    >
+                      <option value="Active">Active (Accepting Tenant Payments)</option>
+                      <option value="Inactive">Inactive (Temporarily Disabled)</option>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground">
+                      Inactive status temporarily routes payments to Company Default until re-activated.
+                    </p>
+                  </div>
+                </>
               )}
             </div>
 

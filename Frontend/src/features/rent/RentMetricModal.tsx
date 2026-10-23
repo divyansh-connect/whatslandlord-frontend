@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import api from '../../api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/Dialog';
 import { Button } from '../../components/ui/Button';
@@ -7,7 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { StatusBadge } from '../../components/StatusBadge';
 import { 
   DollarSign, TrendingUp, AlertCircle, CreditCard, 
-  FileSpreadsheet, FileText, Search, X 
+  FileSpreadsheet, FileText, Search, X, ExternalLink 
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -39,6 +40,7 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
   metricType,
   summaryMetrics,
 }) => {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
 
   // 1. Fetch Real Payments
@@ -60,6 +62,27 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
     queryKey: ['rent-modal-payment-plans'],
     queryFn: () => api.paymentPlans.getAll(),
     enabled: open && metricType === 'paymentPlans',
+  });
+
+  // 4. Fetch Properties
+  const { data: properties = [] } = useQuery({
+    queryKey: ['rent-modal-properties'],
+    queryFn: () => api.property.getAll(),
+    enabled: open,
+  });
+
+  // 5. Fetch Tenants
+  const { data: tenants = [] } = useQuery({
+    queryKey: ['rent-modal-tenants'],
+    queryFn: () => api.tenant.getAll(),
+    enabled: open,
+  });
+
+  // 6. Fetch Units
+  const { data: units = [] } = useQuery({
+    queryKey: ['rent-modal-units'],
+    queryFn: () => api.unit.getAll(),
+    enabled: open,
   });
 
   // Reset search term when modal opens/closes
@@ -88,18 +111,27 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
           todayList = paidPayments.filter((p: any) => p.paidDate === latestDate || !latestDate).slice(0, 5);
         }
 
-        const formattedList = (todayList.length > 0 ? todayList : paidPayments.slice(0, 5)).map((p: any, idx: number) => ({
-          id: p.id || `today-${idx}`,
-          receiptNumber: p.receiptNumber || `#REC-${(p.id || '').slice(0, 6).toUpperCase()}`,
-          tenantName: p.tenantName || 'Resident',
-          propertyName: p.propertyName || 'Property',
-          unitNumber: p.unitNumber ? (p.unitNumber.startsWith('Unit') ? p.unitNumber : `Unit ${p.unitNumber}`) : 'Unassigned',
-          amount: `$${(p.amount || 0).toLocaleString()}`,
-          numericAmount: p.amount || 0,
-          paidDate: p.paidDate || 'Today',
-          paymentMethod: p.paymentMethod || 'ACH',
-          status: p.status || 'Paid',
-        }));
+        const formattedList = (todayList.length > 0 ? todayList : paidPayments.slice(0, 5)).map((p: any, idx: number) => {
+          const prop = properties.find((pr: any) => pr.id === p.propertyId || pr.name === p.propertyName);
+          const tenant = tenants.find((t: any) => t.id === p.tenantId || `${t.firstName} ${t.lastName}` === p.tenantName);
+          const unit = units.find((u: any) => u.id === p.unitId || `Unit ${u.unitNumber}` === p.unitNumber);
+          return {
+            id: p.id || `today-${idx}`,
+            paymentId: p.id,
+            propertyId: p.propertyId || prop?.id,
+            tenantId: p.tenantId || tenant?.id,
+            unitId: p.unitId || unit?.id,
+            receiptNumber: p.receiptNumber || `#REC-${(p.id || '').slice(0, 6).toUpperCase()}`,
+            tenantName: p.tenantName || 'Resident',
+            propertyName: p.propertyName || prop?.name || 'Property',
+            unitNumber: p.unitNumber ? (p.unitNumber.startsWith('Unit') ? p.unitNumber : `Unit ${p.unitNumber}`) : 'Unassigned',
+            amount: `$${(p.amount || 0).toLocaleString()}`,
+            numericAmount: p.amount || 0,
+            paidDate: p.paidDate || 'Today',
+            paymentMethod: p.paymentMethod || 'ACH',
+            status: p.status || 'Paid',
+          };
+        });
 
         const filtered = formattedList.filter((item: any) =>
           item.receiptNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -138,19 +170,28 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
       case 'monthlyCollected': {
         const paidPayments = payments
           .filter((p: any) => p.status === 'Paid')
-          .map((p: any, idx: number) => ({
-            id: p.id || `m-pay-${idx}`,
-            receiptNumber: p.receiptNumber || `#REC-${(p.id || '').slice(0, 6).toUpperCase()}`,
-            tenantName: p.tenantName || 'Resident',
-            propertyName: p.propertyName || 'Property',
-            unitNumber: p.unitNumber ? (p.unitNumber.startsWith('Unit') ? p.unitNumber : `Unit ${p.unitNumber}`) : 'Unassigned',
-            amount: `$${(p.amount || 0).toLocaleString()}`,
-            numericAmount: p.amount || 0,
-            paidDate: p.paidDate || 'N/A',
-            paymentMethod: p.paymentMethod || 'ACH',
-            referenceNumber: p.referenceNumber || 'Verified Electronic Batch',
-            status: p.status || 'Paid',
-          }));
+          .map((p: any, idx: number) => {
+            const prop = properties.find((pr: any) => pr.id === p.propertyId || pr.name === p.propertyName);
+            const tenant = tenants.find((t: any) => t.id === p.tenantId || `${t.firstName} ${t.lastName}` === p.tenantName);
+            const unit = units.find((u: any) => u.id === p.unitId || `Unit ${u.unitNumber}` === p.unitNumber);
+            return {
+              id: p.id || `m-pay-${idx}`,
+              paymentId: p.id,
+              propertyId: p.propertyId || prop?.id,
+              tenantId: p.tenantId || tenant?.id,
+              unitId: p.unitId || unit?.id,
+              receiptNumber: p.receiptNumber || `#REC-${(p.id || '').slice(0, 6).toUpperCase()}`,
+              tenantName: p.tenantName || 'Resident',
+              propertyName: p.propertyName || prop?.name || 'Property',
+              unitNumber: p.unitNumber ? (p.unitNumber.startsWith('Unit') ? p.unitNumber : `Unit ${p.unitNumber}`) : 'Unassigned',
+              amount: `$${(p.amount || 0).toLocaleString()}`,
+              numericAmount: p.amount || 0,
+              paidDate: p.paidDate || 'N/A',
+              paymentMethod: p.paymentMethod || 'ACH',
+              referenceNumber: p.referenceNumber || 'Verified Electronic Batch',
+              status: p.status || 'Paid',
+            };
+          });
 
         const filtered = paidPayments.filter((item: any) =>
           item.receiptNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -191,18 +232,27 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
       case 'outstandingBalance': {
         const overdueList = invoices
           .filter((i: any) => i.status === 'Overdue' || (i.balance && i.balance > 0))
-          .map((i: any, idx: number) => ({
-            id: i.id || `inv-overdue-${idx}`,
-            invoiceNumber: `#INV-${(i.id || '').slice(0, 6).toUpperCase()}`,
-            tenantName: i.tenantName || 'Resident',
-            propertyName: i.propertyName || 'Property',
-            unitNumber: i.unitNumber ? (i.unitNumber.startsWith('Unit') ? i.unitNumber : `Unit ${i.unitNumber}`) : 'Unassigned',
-            amount: `$${(i.amount || 0).toLocaleString()}`,
-            balance: `$${(i.balance !== undefined ? i.balance : ((i.amount || 0) - (i.paidAmount || 0))).toLocaleString()}`,
-            numericBalance: i.balance !== undefined ? i.balance : ((i.amount || 0) - (i.paidAmount || 0)),
-            dueDate: i.dueDate || 'Immediate',
-            status: i.status || 'Overdue',
-          }));
+          .map((i: any, idx: number) => {
+            const prop = properties.find((pr: any) => pr.id === i.propertyId || pr.name === i.propertyName);
+            const tenant = tenants.find((t: any) => t.id === i.tenantId || `${t.firstName} ${t.lastName}` === i.tenantName);
+            const unit = units.find((u: any) => u.id === i.unitId || `Unit ${u.unitNumber}` === i.unitNumber);
+            return {
+              id: i.id || `inv-overdue-${idx}`,
+              invoiceId: i.id,
+              propertyId: i.propertyId || prop?.id,
+              tenantId: i.tenantId || tenant?.id,
+              unitId: i.unitId || unit?.id,
+              invoiceNumber: `#INV-${(i.id || '').slice(0, 6).toUpperCase()}`,
+              tenantName: i.tenantName || 'Resident',
+              propertyName: i.propertyName || prop?.name || 'Property',
+              unitNumber: i.unitNumber ? (i.unitNumber.startsWith('Unit') ? i.unitNumber : `Unit ${i.unitNumber}`) : 'Unassigned',
+              amount: `$${(i.amount || 0).toLocaleString()}`,
+              balance: `$${(i.balance !== undefined ? i.balance : ((i.amount || 0) - (i.paidAmount || 0))).toLocaleString()}`,
+              numericBalance: i.balance !== undefined ? i.balance : ((i.amount || 0) - (i.paidAmount || 0)),
+              dueDate: i.dueDate || 'Immediate',
+              status: i.status || 'Overdue',
+            };
+          });
 
         const filtered = overdueList.filter((item: any) =>
           item.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -240,15 +290,19 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
 
       // 4. PAYMENT PLANS
       case 'paymentPlans': {
-        const plansList = paymentPlans.map((p: any, idx: number) => ({
-          id: p.id || `plan-${idx}`,
-          planId: `#PLAN-${(p.id || '').slice(0, 6).toUpperCase()}`,
-          tenantName: p.tenantName || (p.tenant ? `${p.tenant.firstName} ${p.tenant.lastName}` : 'Resident'),
-          totalAmount: `$${(p.totalAmount || 0).toLocaleString()}`,
-          frequency: p.frequency || 'Monthly Installments',
-          createdAt: p.createdAt ? p.createdAt.split('T')[0] : 'Active',
-          status: p.status || 'Active',
-        }));
+        const plansList = paymentPlans.map((p: any, idx: number) => {
+          const tenant = tenants.find((t: any) => t.id === p.tenantId || `${t.firstName} ${t.lastName}` === p.tenantName);
+          return {
+            id: p.id || `plan-${idx}`,
+            planId: `#PLAN-${(p.id || '').slice(0, 6).toUpperCase()}`,
+            tenantId: p.tenantId || tenant?.id,
+            tenantName: p.tenantName || (p.tenant ? `${p.tenant.firstName} ${p.tenant.lastName}` : (tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Resident')),
+            totalAmount: `$${(p.totalAmount || 0).toLocaleString()}`,
+            frequency: p.frequency || 'Monthly Installments',
+            createdAt: p.createdAt ? p.createdAt.split('T')[0] : 'Active',
+            status: p.status || 'Active',
+          };
+        });
 
         const filtered = plansList.filter((item: any) =>
           item.planId.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -282,17 +336,26 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
       case 'lateFeeInvoices': {
         const lateInvoices = invoices
           .filter((i: any) => i.status === 'Overdue')
-          .map((i: any, idx: number) => ({
-            id: i.id || `late-${idx}`,
-            invoiceNumber: `#INV-${(i.id || '').slice(0, 6).toUpperCase()}`,
-            tenantName: i.tenantName || 'Resident',
-            propertyName: i.propertyName || 'Property',
-            unitNumber: i.unitNumber ? (i.unitNumber.startsWith('Unit') ? i.unitNumber : `Unit ${i.unitNumber}`) : 'Unassigned',
-            amount: `$${(i.amount || 0).toLocaleString()}`,
-            balance: `$${(i.balance !== undefined ? i.balance : ((i.amount || 0) - (i.paidAmount || 0))).toLocaleString()}`,
-            dueDate: i.dueDate || 'Past Due',
-            status: 'Overdue',
-          }));
+          .map((i: any, idx: number) => {
+            const prop = properties.find((pr: any) => pr.id === i.propertyId || pr.name === i.propertyName);
+            const tenant = tenants.find((t: any) => t.id === i.tenantId || `${t.firstName} ${t.lastName}` === i.tenantName);
+            const unit = units.find((u: any) => u.id === i.unitId || `Unit ${u.unitNumber}` === i.unitNumber);
+            return {
+              id: i.id || `late-${idx}`,
+              invoiceId: i.id,
+              propertyId: i.propertyId || prop?.id,
+              tenantId: i.tenantId || tenant?.id,
+              unitId: i.unitId || unit?.id,
+              invoiceNumber: `#INV-${(i.id || '').slice(0, 6).toUpperCase()}`,
+              tenantName: i.tenantName || 'Resident',
+              propertyName: i.propertyName || prop?.name || 'Property',
+              unitNumber: i.unitNumber ? (i.unitNumber.startsWith('Unit') ? i.unitNumber : `Unit ${i.unitNumber}`) : 'Unassigned',
+              amount: `$${(i.amount || 0).toLocaleString()}`,
+              balance: `$${(i.balance !== undefined ? i.balance : ((i.amount || 0) - (i.paidAmount || 0))).toLocaleString()}`,
+              dueDate: i.dueDate || 'Past Due',
+              status: 'Overdue',
+            };
+          });
 
         const filtered = lateInvoices.filter((item: any) =>
           item.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -504,18 +567,134 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
                         }
 
                         // Code / ID Columns
-                        if (['receiptNumber', 'invoiceNumber', 'planId'].includes(col.accessorKey)) {
+                        if (col.accessorKey === 'receiptNumber') {
                           return (
                             <td key={col.accessorKey} className="px-4 py-3 font-mono font-bold text-primary">
-                              {val}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onClose();
+                                  navigate({ to: '/payments' });
+                                }}
+                                className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-mono font-bold group"
+                                title="View Payments & Ledger"
+                              >
+                                <span>{val}</span>
+                                <ExternalLink className="w-3 h-3 text-primary opacity-60 group-hover:opacity-100" />
+                              </button>
                             </td>
                           );
                         }
 
-                        if (['propertyName', 'tenantName', 'unitNumber'].includes(col.accessorKey)) {
+                        if (col.accessorKey === 'invoiceNumber') {
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3 font-mono font-bold text-primary">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onClose();
+                                  navigate({ to: '/invoices' });
+                                }}
+                                className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-mono font-bold group"
+                                title="View Invoices"
+                              >
+                                <span>{val}</span>
+                                <ExternalLink className="w-3 h-3 text-primary opacity-60 group-hover:opacity-100" />
+                              </button>
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'planId') {
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3 font-mono font-bold text-primary">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onClose();
+                                  navigate({ to: '/payment-plans' });
+                                }}
+                                className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-mono font-bold group"
+                                title="View Payment Plans"
+                              >
+                                <span>{val}</span>
+                                <ExternalLink className="w-3 h-3 text-primary opacity-60 group-hover:opacity-100" />
+                              </button>
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'propertyName') {
                           return (
                             <td key={col.accessorKey} className="px-4 py-3 font-bold text-foreground">
-                              {val}
+                              {row.propertyId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/properties/${row.propertyId}` });
+                                  }}
+                                  className="text-foreground hover:text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-bold group"
+                                  title="View Property Details"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
+                                </button>
+                              ) : (
+                                val
+                              )}
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'tenantName') {
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3 font-medium text-foreground">
+                              {row.tenantId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/tenants/${row.tenantId}` });
+                                  }}
+                                  className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-medium group"
+                                  title="View Resident Profile"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
+                                </button>
+                              ) : (
+                                val
+                              )}
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'unitNumber') {
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3 font-bold text-foreground">
+                              {row.unitId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/properties/units/${row.unitId}` });
+                                  }}
+                                  className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-bold group"
+                                  title="View Unit Details"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
+                                </button>
+                              ) : (
+                                val
+                              )}
                             </td>
                           );
                         }

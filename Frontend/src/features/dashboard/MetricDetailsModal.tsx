@@ -47,7 +47,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
   const { data: properties = [], isLoading: loadingProps } = useQuery({
     queryKey: ['properties'],
     queryFn: () => api.property.getAll(),
-    enabled: open && (metricType === 'properties' || metricType === 'occupancyRate'),
+    enabled: open,
   });
 
   // 2. Fetch units
@@ -59,7 +59,10 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       metricType === 'occupiedUnits' || 
       metricType === 'vacantUnits' || 
       metricType === 'occupancyRate' ||
-      metricType === 'monthlyRevenue'
+      metricType === 'monthlyRevenue' ||
+      metricType === 'openMaintenance' ||
+      metricType === 'pendingRent' ||
+      metricType === 'leasesExpiringSoon'
     ),
   });
 
@@ -71,6 +74,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       metricType === 'occupiedUnits' || 
       metricType === 'totalUnits' || 
       metricType === 'monthlyRevenue' || 
+      metricType === 'pendingRent' ||
       metricType === 'leasesExpiringSoon'
     ),
   });
@@ -117,6 +121,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       case 'properties': {
         const list = properties.map((p: any) => ({
           id: p.id,
+          propertyId: p.id,
           propertyName: p.name,
           address: p.address || `${p.city || 'Austin'}, ${p.state || 'TX'}`,
           type: p.type || 'Residential',
@@ -160,10 +165,14 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       case 'totalUnits': {
         const list = units.map((u: any) => {
           const tenant = tenants.find((t: any) => t.unitId === u.id || t.id === u.tenantId);
+          const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
           return {
             id: u.id,
+            unitId: u.id,
+            propertyId: u.propertyId || prop?.id,
+            tenantId: tenant?.id,
             unitNumber: `Unit ${u.unitNumber}`,
-            propertyName: u.propertyName || 'Property',
+            propertyName: u.propertyName || prop?.name || 'Property',
             floor: `Floor ${u.floor || 1}`,
             bedroomsBathrooms: `${u.bedrooms || 0} Beds / ${u.bathrooms || 1} Baths`,
             squareFootage: `${(u.squareFootage || 0).toLocaleString()} sqft`,
@@ -209,10 +218,14 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           .filter((u: any) => u.status === 'Occupied')
           .map((u: any) => {
             const tenant = tenants.find((t: any) => t.unitId === u.id || t.id === u.tenantId);
+            const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
             return {
               id: u.id,
+              unitId: u.id,
+              propertyId: u.propertyId || prop?.id,
+              tenantId: tenant?.id,
               unitNumber: `Unit ${u.unitNumber}`,
-              propertyName: u.propertyName || 'Property',
+              propertyName: u.propertyName || prop?.name || 'Property',
               tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Active Resident',
               tenantEmail: tenant?.email || 'N/A',
               moveInDate: tenant?.moveInDate ? tenant.moveInDate.split('T')[0] : 'N/A',
@@ -255,17 +268,22 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       case 'vacantUnits': {
         const vacantList = units
           .filter((u: any) => u.status === 'Vacant')
-          .map((u: any) => ({
-            id: u.id,
-            unitNumber: `Unit ${u.unitNumber}`,
-            propertyName: u.propertyName || 'Property',
-            floor: `Floor ${u.floor || 1}`,
-            bedroomsBathrooms: `${u.bedrooms || 0} Beds / ${u.bathrooms || 1} Baths`,
-            squareFootage: `${(u.squareFootage || 0).toLocaleString()} sqft`,
-            rentAmount: `$${(u.rentAmount || 0).toLocaleString()}`,
-            availabilityDate: u.availabilityDate ? u.availabilityDate.split('T')[0] : 'Immediate',
-            advertised: u.advertiseListing ? 'Active Listing' : 'Not Advertised',
-          }));
+          .map((u: any) => {
+            const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
+            return {
+              id: u.id,
+              unitId: u.id,
+              propertyId: u.propertyId || prop?.id,
+              unitNumber: `Unit ${u.unitNumber}`,
+              propertyName: u.propertyName || prop?.name || 'Property',
+              floor: `Floor ${u.floor || 1}`,
+              bedroomsBathrooms: `${u.bedrooms || 0} Beds / ${u.bathrooms || 1} Baths`,
+              squareFootage: `${(u.squareFootage || 0).toLocaleString()} sqft`,
+              rentAmount: `$${(u.rentAmount || 0).toLocaleString()}`,
+              availabilityDate: u.availabilityDate ? u.availabilityDate.split('T')[0] : 'Immediate',
+              advertised: u.advertiseListing ? 'Active Listing' : 'Not Advertised',
+            };
+          });
 
         const filtered = vacantList.filter((item: any) =>
           item.unitNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -367,10 +385,15 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           revenueList = activeLeases.map((l: any, idx: number) => {
             const unitObj = units.find((u: any) => u.id === l.unitId);
             const tenantObj = tenants.find((t: any) => t.id === l.tenantId);
+            const prop = properties.find((p: any) => p.id === (l.propertyId || unitObj?.propertyId) || p.name === (l.propertyName || l.property?.name));
             return {
               id: l.id || `rev-${idx}`,
+              leaseId: l.id,
+              unitId: l.unitId || unitObj?.id,
+              tenantId: l.tenantId || tenantObj?.id,
+              propertyId: l.propertyId || unitObj?.propertyId || prop?.id,
               unitNumber: l.unitNumber ? (l.unitNumber.startsWith('Unit') ? l.unitNumber : `Unit ${l.unitNumber}`) : (unitObj ? `Unit ${unitObj.unitNumber}` : 'Unit'),
-              propertyName: l.propertyName || l.property?.name || unitObj?.propertyName || 'Property',
+              propertyName: l.propertyName || l.property?.name || unitObj?.propertyName || prop?.name || 'Property',
               tenantName: l.tenantName || (tenantObj ? `${tenantObj.firstName} ${tenantObj.lastName}` : (l.tenant ? `${l.tenant.firstName} ${l.tenant.lastName}` : 'Active Resident')),
               rentAmount: `$${(l.rentAmount || 0).toLocaleString()}`,
               numericRent: l.rentAmount || 0,
@@ -387,10 +410,14 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
             .filter((u: any) => u.status === 'Occupied' || (u.rentAmount && u.rentAmount > 0))
             .map((u: any, idx: number) => {
               const tenant = tenants.find((t: any) => t.unitId === u.id || t.id === u.tenantId);
+              const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
               return {
                 id: u.id || `rev-${idx}`,
+                unitId: u.id,
+                tenantId: tenant?.id,
+                propertyId: u.propertyId || prop?.id,
                 unitNumber: `Unit ${u.unitNumber}`,
-                propertyName: u.propertyName || 'Property',
+                propertyName: u.propertyName || prop?.name || 'Property',
                 tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Active Resident',
                 rentAmount: `$${(u.rentAmount || 0).toLocaleString()}`,
                 numericRent: u.rentAmount || 0,
@@ -411,8 +438,8 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
         );
 
         const totalRevenueSum = metricsSummary?.monthlyRevenue !== undefined 
-          ? metricsSummary.monthlyRevenue 
-          : revenueList.reduce((sum: number, item: any) => sum + (item.numericRent || 0), 0);
+            ? metricsSummary.monthlyRevenue 
+            : revenueList.reduce((sum: number, item: any) => sum + (item.numericRent || 0), 0);
 
         return {
           title: 'Monthly Revenue Stream Matrix',
@@ -442,18 +469,26 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       case 'pendingRent': {
         const pendingPayments = payments
           .filter((p: any) => p.status === 'Pending' || p.status === 'Overdue' || p.status === 'Late' || p.status === 'Unpaid')
-          .map((p: any) => ({
-            id: p.id,
-            receiptNumber: p.receiptNumber || `#INV-${p.id.slice(0, 6).toUpperCase()}`,
-            tenantName: p.tenantName || 'Resident',
-            propertyName: p.propertyName || 'Property',
-            unitNumber: p.unitNumber ? (p.unitNumber.startsWith('Unit') ? p.unitNumber : `Unit ${p.unitNumber}`) : 'Unassigned',
-            amount: `$${(p.amount || 0).toLocaleString()}`,
-            numericAmount: p.amount || 0,
-            dueDate: p.dueDate ? p.dueDate.split('T')[0] : (p.paidDate || 'Immediate'),
-            paymentMethod: p.paymentMethod || 'ACH',
-            status: p.status || 'Pending',
-          }));
+          .map((p: any) => {
+            const tenant = tenants.find((t: any) => t.id === p.tenantId || `${t.firstName} ${t.lastName}` === p.tenantName);
+            const prop = properties.find((propItem: any) => propItem.id === p.propertyId || propItem.name === p.propertyName);
+            return {
+              id: p.id,
+              paymentId: p.id,
+              receiptNumber: p.receiptNumber || `#INV-${p.id.slice(0, 6).toUpperCase()}`,
+              tenantId: p.tenantId || tenant?.id,
+              tenantName: p.tenantName || (tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Resident'),
+              propertyId: p.propertyId || prop?.id,
+              propertyName: p.propertyName || prop?.name || 'Property',
+              unitId: p.unitId,
+              unitNumber: p.unitNumber ? (p.unitNumber.startsWith('Unit') ? p.unitNumber : `Unit ${p.unitNumber}`) : 'Unassigned',
+              amount: `$${(p.amount || 0).toLocaleString()}`,
+              numericAmount: p.amount || 0,
+              dueDate: p.dueDate ? p.dueDate.split('T')[0] : (p.paidDate || 'Immediate'),
+              paymentMethod: p.paymentMethod || 'ACH',
+              status: p.status || 'Pending',
+            };
+          });
 
         const filtered = pendingPayments.filter((item: any) =>
           item.receiptNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -492,17 +527,22 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
       // 8. EXPENSES
       case 'expenses': {
-        const expenseList = expenses.map((e: any, idx: number) => ({
-          id: e.id || `exp-${idx}`,
-          category: e.category || 'Maintenance & Operations',
-          vendorName: e.vendorName || 'General Contractor',
-          propertyName: e.propertyName || 'Portfolio-wide',
-          amount: `$${(e.amount || 0).toLocaleString()}`,
-          numericAmount: e.amount || 0,
-          date: e.date ? e.date.split('T')[0] : 'N/A',
-          description: typeof e.description === 'string' && !e.description.startsWith('{') ? e.description : (e.category || 'Operating Expense'),
-          status: e.status || 'Cleared',
-        }));
+        const expenseList = expenses.map((e: any, idx: number) => {
+          const prop = properties.find((p: any) => p.id === e.propertyId || p.name === e.propertyName);
+          return {
+            id: e.id || `exp-${idx}`,
+            expenseId: e.id,
+            propertyId: e.propertyId || prop?.id,
+            category: e.category || 'Maintenance & Operations',
+            vendorName: e.vendorName || 'General Contractor',
+            propertyName: e.propertyName || prop?.name || 'Portfolio-wide',
+            amount: `$${(e.amount || 0).toLocaleString()}`,
+            numericAmount: e.amount || 0,
+            date: e.date ? e.date.split('T')[0] : 'N/A',
+            description: typeof e.description === 'string' && !e.description.startsWith('{') ? e.description : (e.category || 'Operating Expense'),
+            status: e.status || 'Cleared',
+          };
+        });
 
         const filtered = expenseList.filter((item: any) =>
           item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -541,19 +581,25 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       // 9. OPEN MAINTENANCE
       case 'openMaintenance': {
         const openOrders = workOrders
-          .filter((w: any) => ['Open', 'InProgress', 'Pending', 'In Progress'].includes(w.status))
-          .map((w: any, idx: number) => ({
-            id: w.id || `wo-${idx}`,
-            workOrderNumber: w.workOrderNumber || `#WO-${1001 + idx}`,
-            title: w.title || 'General Maintenance Request',
-            propertyName: w.propertyName || 'Property',
-            unitNumber: w.unitNumber ? (w.unitNumber.startsWith('Unit') ? w.unitNumber : `Unit ${w.unitNumber}`) : 'Common Area',
-            assignedTechnician: w.assignedTechnician || w.vendorName || 'Unassigned',
-            priority: w.priority || 'Normal',
-            estimatedCost: w.estimatedCost ? `$${Number(w.estimatedCost).toLocaleString()}` : '$0',
-            scheduledDate: w.scheduledDate || (w.createdAt ? w.createdAt.split('T')[0] : 'Pending'),
-            status: w.status || 'Open',
-          }));
+          .filter((w: any) => ['Open', 'InProgress', 'Pending', 'In Progress', 'New', 'Submitted', 'Assigned'].includes(w.status))
+          .map((w: any, idx: number) => {
+            const prop = properties.find((p: any) => p.id === w.propertyId || p.name === w.propertyName);
+            return {
+              id: w.id || `wo-${idx}`,
+              workOrderId: w.id,
+              propertyId: w.propertyId || prop?.id,
+              unitId: w.unitId,
+              workOrderNumber: w.workOrderNumber || `#WO-${1001 + idx}`,
+              title: w.title || 'General Maintenance Request',
+              propertyName: w.propertyName || prop?.name || 'Property',
+              unitNumber: w.unitNumber ? (w.unitNumber.startsWith('Unit') ? w.unitNumber : `Unit ${w.unitNumber}`) : 'Common Area',
+              assignedTechnician: w.assignedTechnician || w.vendorName || 'Unassigned',
+              priority: w.priority || 'Normal',
+              estimatedCost: w.estimatedCost ? `$${Number(w.estimatedCost).toLocaleString()}` : '$0',
+              scheduledDate: w.scheduledDate || (w.createdAt ? w.createdAt.split('T')[0] : 'Pending'),
+              status: w.status || 'Open',
+            };
+          });
 
         const filtered = openOrders.filter((item: any) =>
           item.workOrderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -603,10 +649,15 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
             const end = new Date(l.endDate);
             const diffDays = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
             const tenant = tenants.find((t: any) => t.id === l.tenantId);
+            const prop = properties.find((p: any) => p.id === l.propertyId || p.name === (l.propertyName || l.property?.name));
             return {
               id: l.id,
+              leaseId: l.id,
+              propertyId: l.propertyId || prop?.id,
+              tenantId: l.tenantId || tenant?.id,
+              unitId: l.unitId,
               unitNumber: l.unitNumber ? (l.unitNumber.startsWith('Unit') ? l.unitNumber : `Unit ${l.unitNumber}`) : (l.unit?.unitNumber ? `Unit ${l.unit.unitNumber}` : 'Unit'),
-              propertyName: l.propertyName || l.property?.name || 'Property',
+              propertyName: l.propertyName || l.property?.name || prop?.name || 'Property',
               tenantName: l.tenantName || (tenant ? `${tenant.firstName} ${tenant.lastName}` : (l.tenant ? `${l.tenant.firstName} ${l.tenant.lastName}` : 'Resident')),
               rentAmount: `$${(l.rentAmount || 0).toLocaleString()}`,
               startDate: l.startDate ? l.startDate.split('T')[0] : 'N/A',
@@ -901,10 +952,67 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
                           );
                         }
 
-                        if (col.accessorKey === 'workOrderNumber' || col.accessorKey === 'receiptNumber') {
+                        if (col.accessorKey === 'workOrderNumber') {
+                          const woId = row.workOrderId || row.id;
                           return (
                             <td key={col.accessorKey} className="px-4 py-3 font-mono font-bold text-primary">
-                              {val}
+                              {woId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/maintenance/work-orders/${woId}` });
+                                  }}
+                                  className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-mono font-bold group"
+                                  title="View Maintenance Work Order"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-primary opacity-60 group-hover:opacity-100" />
+                                </button>
+                              ) : (
+                                val
+                              )}
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'receiptNumber') {
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3 font-mono font-bold text-primary">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onClose();
+                                  navigate({ to: '/payments' });
+                                }}
+                                className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-mono font-bold group"
+                                title="View Payments & Ledger"
+                              >
+                                <span>{val}</span>
+                                <ExternalLink className="w-3 h-3 text-primary opacity-60 group-hover:opacity-100" />
+                              </button>
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'category' && metricType === 'expenses') {
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3 font-bold text-foreground">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onClose();
+                                  navigate({ to: '/accounting/expenses' });
+                                }}
+                                className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left group"
+                                title="View in Accounting Expenses"
+                              >
+                                <span>{val}</span>
+                                <ExternalLink className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
+                              </button>
                             </td>
                           );
                         }
@@ -919,8 +1027,36 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
                           );
                         }
 
-                        if (col.accessorKey === 'propertyName' || col.accessorKey === 'unitNumber') {
-                          const isExpiringUnit = metricType === 'leasesExpiringSoon' && col.accessorKey === 'unitNumber';
+                        if (col.accessorKey === 'propertyName') {
+                          const targetPropId = (metricType === 'properties' || metricType === 'occupancyRate') ? row.id : row.propertyId;
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3 font-bold text-foreground">
+                              {targetPropId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/properties/${targetPropId}` });
+                                  }}
+                                  className="text-foreground hover:text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left group font-bold"
+                                  title="View Property Details"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
+                                </button>
+                              ) : (
+                                val
+                              )}
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'unitNumber') {
+                          const isExpiringUnit = metricType === 'leasesExpiringSoon';
+                          const isRevenueLease = metricType === 'monthlyRevenue' && row.leaseId;
+                          const targetUnitId = row.unitId || ((metricType === 'totalUnits' || metricType === 'occupiedUnits' || metricType === 'vacantUnits') ? row.id : null);
+
                           return (
                             <td key={col.accessorKey} className="px-4 py-3 font-bold text-foreground">
                               {isExpiringUnit ? (
@@ -936,6 +1072,58 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
                                 >
                                   <span>{val}</span>
                                   <ExternalLink className="w-3 h-3 text-muted-foreground opacity-70" />
+                                </button>
+                              ) : isRevenueLease ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/leases/${row.leaseId}` });
+                                  }}
+                                  className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left"
+                                  title="View Lease Details"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-70" />
+                                </button>
+                              ) : targetUnitId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/properties/units/${targetUnitId}` });
+                                  }}
+                                  className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-bold"
+                                  title="View Unit Details"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-70" />
+                                </button>
+                              ) : (
+                                val
+                              )}
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'tenantName') {
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3 font-medium text-foreground">
+                              {row.tenantId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/tenants/${row.tenantId}` });
+                                  }}
+                                  className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left group"
+                                  title="View Resident Profile"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
                                 </button>
                               ) : (
                                 val

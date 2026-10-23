@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import api from '../../api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/Dialog';
 import { Button } from '../../components/ui/Button';
@@ -7,7 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { StatusBadge } from '../../components/StatusBadge';
 import { 
   Wallet, DollarSign, TrendingUp, AlertCircle, 
-  FileSpreadsheet, FileText, Search, X 
+  FileSpreadsheet, FileText, Search, X, ExternalLink 
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -37,6 +38,7 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
   metricType,
   summaryData,
 }) => {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
 
   // 1. Fetch Real Chart of Accounts
@@ -498,7 +500,25 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
                         if (col.accessorKey === 'accountNumber') {
                           return (
                             <td key={col.accessorKey} className="px-4 py-3 font-mono font-bold text-primary">
-                              {val}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onClose();
+                                  if (metricType === 'totalIncome') {
+                                    navigate({ to: '/accounting/income' });
+                                  } else if (metricType === 'totalExpenses') {
+                                    navigate({ to: '/accounting/expenses' });
+                                  } else {
+                                    navigate({ to: '/accounting/chart-of-accounts' });
+                                  }
+                                }}
+                                className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-mono font-bold group"
+                                title="View in Accounting Directory"
+                              >
+                                <span>{val}</span>
+                                <ExternalLink className="w-3 h-3 text-primary opacity-60 group-hover:opacity-100" />
+                              </button>
                             </td>
                           );
                         }
@@ -506,7 +526,29 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
                         if (col.accessorKey === 'accountName' || col.accessorKey === 'financialSegment') {
                           return (
                             <td key={col.accessorKey} className="px-4 py-3 font-bold text-foreground">
-                              {val}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onClose();
+                                  if (metricType === 'totalIncome') {
+                                    navigate({ to: '/accounting/income' });
+                                  } else if (metricType === 'totalExpenses') {
+                                    navigate({ to: '/accounting/expenses' });
+                                  } else if (metricType === 'netProfit') {
+                                    if (row.id === 'np-1') navigate({ to: '/accounting/income' });
+                                    else if (row.id === 'np-2') navigate({ to: '/accounting/expenses' });
+                                    else navigate({ to: '/accounting/chart-of-accounts' });
+                                  } else {
+                                    navigate({ to: '/accounting/chart-of-accounts' });
+                                  }
+                                }}
+                                className="text-foreground hover:text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-bold group"
+                                title="View Accounting Breakdown"
+                              >
+                                <span>{val}</span>
+                                <ExternalLink className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
+                              </button>
                             </td>
                           );
                         }
