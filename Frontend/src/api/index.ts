@@ -33,6 +33,104 @@ const isDemoManager = (): boolean => {
   }
 };
 
+const RESTORE_BIN_STORAGE_KEY = 'doorloop_restore_bin_items';
+const RESTORE_BIN_IDS_KEY = 'doorloop_restore_bin_ids';
+
+export const getSoftDeletedIds = (entityType?: string): string[] => {
+  try {
+    const raw = localStorage.getItem(RESTORE_BIN_IDS_KEY);
+    const ids: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+    if (entityType) return ids[entityType] || [];
+    return Object.values(ids).flat();
+  } catch {
+    return [];
+  }
+};
+
+export const markSoftDeletedId = (entityType: string, id: string) => {
+  try {
+    const raw = localStorage.getItem(RESTORE_BIN_IDS_KEY);
+    const ids: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+    if (!ids[entityType]) ids[entityType] = [];
+    if (!ids[entityType].includes(id)) ids[entityType].push(id);
+    localStorage.setItem(RESTORE_BIN_IDS_KEY, JSON.stringify(ids));
+  } catch {}
+};
+
+export const unmarkSoftDeletedId = (entityType: string, id: string) => {
+  try {
+    const raw = localStorage.getItem(RESTORE_BIN_IDS_KEY);
+    const ids: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+    if (ids[entityType]) {
+      ids[entityType] = ids[entityType].filter((x) => x !== id);
+      localStorage.setItem(RESTORE_BIN_IDS_KEY, JSON.stringify(ids));
+    }
+  } catch {}
+};
+
+const getLocalRestoreBin = (): any[] => {
+  try {
+    const raw = localStorage.getItem(RESTORE_BIN_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveLocalRestoreBin = (items: any[]) => {
+  try {
+    localStorage.setItem(RESTORE_BIN_STORAGE_KEY, JSON.stringify(items));
+  } catch {}
+};
+
+export const softDeleteToBin = async (payload: {
+  entityType: string;
+  entityId: string;
+  title: string;
+  subtitle?: string;
+  data?: any;
+  deletedBy?: string;
+}) => {
+  const userStr = sessionStorage.getItem('user');
+  let userName = 'Property Manager';
+  if (userStr) {
+    try {
+      const u = JSON.parse(userStr);
+      userName = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Property Manager';
+    } catch {}
+  }
+
+  const newItem = {
+    id: `rb-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    entityType: payload.entityType,
+    entityId: payload.entityId,
+    title: payload.title,
+    subtitle: payload.subtitle || '',
+    data: payload.data || {},
+    deletedBy: payload.deletedBy || userName,
+    deletedAt: new Date().toISOString(),
+  };
+
+  const local = getLocalRestoreBin();
+  const filteredLocal = local.filter(
+    (i) => !(i.entityType?.toLowerCase() === payload.entityType?.toLowerCase() && i.entityId === payload.entityId)
+  );
+  filteredLocal.unshift(newItem);
+  saveLocalRestoreBin(filteredLocal);
+  markSoftDeletedId(payload.entityType, payload.entityId);
+
+  try {
+    await apiClient.post('/restore-bin', {
+      ...payload,
+      deletedBy: newItem.deletedBy,
+    });
+  } catch (e) {
+    console.warn('Backend softDelete sync error (fallback active):', e);
+  }
+
+  return newItem;
+};
+
 export const api = {
   ...mockApi,
 
@@ -73,7 +171,10 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/properties');
-        return (res.data || []).map((p: any) => ({
+        const softDeletedIds = getSoftDeletedIds('Property');
+        return (res.data || [])
+          .filter((p: any) => p && p.status !== 'Deleted' && !softDeletedIds.includes(p.id))
+          .map((p: any) => ({
           id: p.id,
           name: p.name,
           address: p.address,
@@ -134,9 +235,30 @@ export const api = {
       const res: any = await apiClient.put(`/properties/${id}`, formData);
       return res.data;
     },
-    delete: async (id: string) => {
-      const res: any = await apiClient.delete(`/properties/${id}`);
-      return res.data;
+    delete: async (id: string, propertyData?: any) => {
+      let propToSave = propertyData;
+      if (!propToSave) {
+        try {
+          propToSave = await api.property.getById(id);
+        } catch {}
+      }
+      await softDeleteToBin({
+        entityType: 'Property',
+        entityId: id,
+        title: propToSave?.name || `Property #${id.substring(0, 8)}`,
+        subtitle: propToSave?.address || propToSave?.streetAddress || '',
+        data: propToSave || { id },
+      });
+      try {
+        const res: any = await apiClient.delete(`/properties/${id}`);
+        return res?.data || { success: true };
+      } catch (e) {
+        return { success: true };
+      }
+    },
+    bulkImport: async (properties: any[]) => {
+      const res: any = await apiClient.post('/properties/bulk-import', { properties });
+      return res?.data || res;
     },
   },
 
@@ -180,7 +302,10 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/units');
-        return (res.data || []).map((u: any) => ({
+        const softDeletedIds = getSoftDeletedIds('Unit');
+        return (res.data || [])
+          .filter((u: any) => u && u.status !== 'Deleted' && !softDeletedIds.includes(u.id))
+          .map((u: any) => ({
           id: u.id,
           propertyId: u.propertyId,
           propertyName: u.property?.name || 'Property',
@@ -230,8 +355,23 @@ export const api = {
       const res: any = await apiClient.put(`/units/${id}`, data);
       return res.data;
     },
-    delete: async (id: string) => {
-      await apiClient.delete(`/units/${id}`);
+    delete: async (id: string, unitData?: any) => {
+      let unitToSave = unitData;
+      if (!unitToSave) {
+        try {
+          unitToSave = await api.unit.getById(id);
+        } catch {}
+      }
+      await softDeleteToBin({
+        entityType: 'Unit',
+        entityId: id,
+        title: unitToSave?.unitNumber ? `Unit ${unitToSave.unitNumber}` : `Unit #${id.substring(0, 8)}`,
+        subtitle: unitToSave?.propertyName ? `${unitToSave.propertyName} • $${unitToSave.rentAmount || 0}/mo` : '',
+        data: unitToSave || { id },
+      });
+      try {
+        await apiClient.delete(`/units/${id}`);
+      } catch (e) {}
       return true;
     },
     assignTenant: async (unitId: string, tenantId: string, tenantName: string) => {
@@ -245,7 +385,10 @@ export const api = {
     getLeases: async () => {
       try {
         const res: any = await apiClient.get('/leases');
-        return (res.data || []).map((l: any) => ({
+        const softDeletedIds = getSoftDeletedIds('Lease');
+        return (res.data || [])
+          .filter((l: any) => l && l.status !== 'Deleted' && !softDeletedIds.includes(l.id))
+          .map((l: any) => ({
           ...l,
           tenantName: l.tenantName || (l.tenant ? `${l.tenant.firstName} ${l.tenant.lastName}` : 'Resident'),
           propertyName: l.propertyName || (l.property ? l.property.name : 'Property'),
@@ -264,8 +407,17 @@ export const api = {
       const res: any = await apiClient.put(`/leases/${id}`, data);
       return res.data;
     },
-    deleteLease: async (id: string) => {
-      await apiClient.delete(`/leases/${id}`);
+    deleteLease: async (id: string, leaseData?: any) => {
+      await softDeleteToBin({
+        entityType: 'Lease',
+        entityId: id,
+        title: leaseData?.leaseNumber ? `Lease #${leaseData.leaseNumber}` : `Lease #${id.substring(0, 8)}`,
+        subtitle: leaseData ? `${leaseData.tenantName || 'Resident'} • ${leaseData.propertyName || 'Property'}` : '',
+        data: leaseData || { id },
+      });
+      try {
+        await apiClient.delete(`/leases/${id}`);
+      } catch (e) {}
       return true;
     },
     updateMoveIn: async (id: string, data: any) => {
@@ -366,7 +518,10 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/tenants');
-        return (res.data || []).map((t: any) => ({
+        const softDeletedIds = getSoftDeletedIds('Tenant');
+        return (res.data || [])
+          .filter((t: any) => t && t.status !== 'Deleted' && !softDeletedIds.includes(t.id))
+          .map((t: any) => ({
           id: t.id,
           firstName: t.firstName,
           lastName: t.lastName,
@@ -458,8 +613,23 @@ export const api = {
       const res: any = await apiClient.put(`/tenants/${id}`, formData);
       return res.data;
     },
-    delete: async (id: string) => {
-      await apiClient.delete(`/tenants/${id}`);
+    delete: async (id: string, tenantData?: any) => {
+      let tToSave = tenantData;
+      if (!tToSave) {
+        try {
+          tToSave = await api.tenant.getById(id);
+        } catch {}
+      }
+      await softDeleteToBin({
+        entityType: 'Tenant',
+        entityId: id,
+        title: tToSave ? `${tToSave.firstName || ''} ${tToSave.lastName || ''}`.trim() : `Tenant #${id.substring(0, 8)}`,
+        subtitle: tToSave?.email ? `${tToSave.email} • ${tToSave.phone || ''}` : '',
+        data: tToSave || { id },
+      });
+      try {
+        await apiClient.delete(`/tenants/${id}`);
+      } catch (e) {}
       return true;
     },
   },
@@ -469,7 +639,10 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/owners');
-        return (res.data || []).map((o: any) => {
+        const softDeletedIds = getSoftDeletedIds('Owner');
+        return (res.data || [])
+          .filter((o: any) => o && !softDeletedIds.includes(o.id))
+          .map((o: any) => {
           const [first = '', ...lastParts] = (o.name || '').split(' ');
           const last = lastParts.join(' ');
           return {
@@ -496,8 +669,24 @@ export const api = {
       const res: any = await apiClient.put(`/owners/${id}`, data);
       return res.data;
     },
-    delete: async (id: string) => {
-      await apiClient.delete(`/owners/${id}`);
+    delete: async (id: string, ownerData?: any) => {
+      let ownerToSave = ownerData;
+      if (!ownerToSave) {
+        try {
+          const list = await api.owner.getAll();
+          ownerToSave = list.find((o: any) => o.id === id);
+        } catch {}
+      }
+      await softDeleteToBin({
+        entityType: 'Owner',
+        entityId: id,
+        title: ownerToSave?.name || `${ownerToSave?.firstName || ''} ${ownerToSave?.lastName || ''}`.trim() || `Owner #${id.substring(0, 8)}`,
+        subtitle: ownerToSave ? `${ownerToSave.email || ''} • ${ownerToSave.phone || ''}` : '',
+        data: ownerToSave || { id },
+      });
+      try {
+        await apiClient.delete(`/owners/${id}`);
+      } catch (e) {}
       return true;
     },
   },
@@ -1014,24 +1203,27 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/invoices');
-        return (res.data || []).map((i: any) => ({
-          id: i.id,
-          tenantId: i.tenantId,
-          tenantName: i.tenantName || (i.tenant ? `${i.tenant.firstName} ${i.tenant.lastName}` : 'Resident'),
-          tenantEmail: i.tenantEmail || i.tenant?.email || '',
-          propertyName: i.propertyName || (i.property ? i.property.name : 'Property'),
-          unitNumber: i.unitNumber || (i.unit ? i.unit.unitNumber : '101'),
-          amount: i.amount || 0,
-          paidAmount: i.paidAmount || 0,
-          balance: i.balance !== undefined && i.balance !== null ? i.balance : ((i.amount || 0) - (i.paidAmount || 0)),
-          dueDate: i.dueDate ? i.dueDate.split('T')[0] : 'N/A',
-          status: i.status || 'Sent',
-          lineItems: Array.isArray(i.lineItems)
-            ? i.lineItems
-            : typeof i.lineItems === 'string'
-            ? JSON.parse(i.lineItems)
-            : [{ description: 'Rent Charge', amount: i.amount || 0 }],
-        }));
+        const softDeletedIds = getSoftDeletedIds('Invoice');
+        return (res.data || [])
+          .filter((i: any) => !softDeletedIds.includes(i.id))
+          .map((i: any) => ({
+            id: i.id,
+            tenantId: i.tenantId,
+            tenantName: i.tenantName || (i.tenant ? `${i.tenant.firstName} ${i.tenant.lastName}` : 'Resident'),
+            tenantEmail: i.tenantEmail || i.tenant?.email || '',
+            propertyName: i.propertyName || (i.property ? i.property.name : 'Property'),
+            unitNumber: i.unitNumber || (i.unit ? i.unit.unitNumber : '101'),
+            amount: i.amount || 0,
+            paidAmount: i.paidAmount || 0,
+            balance: i.balance !== undefined && i.balance !== null ? i.balance : ((i.amount || 0) - (i.paidAmount || 0)),
+            dueDate: i.dueDate ? i.dueDate.split('T')[0] : 'N/A',
+            status: i.status || 'Sent',
+            lineItems: Array.isArray(i.lineItems)
+              ? i.lineItems
+              : typeof i.lineItems === 'string'
+              ? JSON.parse(i.lineItems)
+              : [{ description: 'Rent Charge', amount: i.amount || 0 }],
+          }));
       } catch (e) {
         return [];
       }
@@ -1044,8 +1236,26 @@ export const api = {
       const res: any = await apiClient.put(`/invoices/${id}`, data);
       return res.data;
     },
-    delete: async (id: string) => {
-      await apiClient.delete(`/invoices/${id}`);
+    delete: async (id: string, invoiceData?: any) => {
+      let inv = invoiceData;
+      if (!inv) {
+        try {
+          const list = await api.invoices.getAll();
+          inv = list.find((i: any) => i.id === id);
+        } catch {}
+      }
+      await softDeleteToBin({
+        entityType: 'Invoice',
+        entityId: id,
+        title: inv?.invoiceNumber || `Invoice #${id.substring(0, 8)}`,
+        subtitle: inv ? `${inv.tenantName || 'Tenant'} • $${inv.amount || 0}` : '',
+        data: inv || { id },
+      });
+      try {
+        await apiClient.delete(`/invoices/${id}`);
+      } catch (e) {
+        console.warn('Backend invoice delete sync:', e);
+      }
       return true;
     },
     getAiReminder: async (id: string, tone?: string) => {
@@ -1250,10 +1460,13 @@ export const api = {
       try {
         const res: any = await apiClient.get('/service-requests');
         const list = res.data || [];
-        return list.map((r: any, idx: number) => ({
-          ...r,
-          requestNumber: `#${idx + 1}`,
-        }));
+        const softDeletedIds = getSoftDeletedIds('ServiceRequest');
+        return list
+          .filter((r: any) => !softDeletedIds.includes(r.id))
+          .map((r: any, idx: number) => ({
+            ...r,
+            requestNumber: `#${idx + 1}`,
+          }));
       } catch (e) {
         return [];
       }
@@ -1310,8 +1523,25 @@ export const api = {
       const res: any = await apiClient.put(`/service-requests/${id}`, data);
       return res.data;
     },
-    delete: async (id: string) => {
-      await apiClient.delete(`/service-requests/${id}`);
+    delete: async (id: string, reqData?: any) => {
+      let req = reqData;
+      if (!req) {
+        try {
+          req = await api.serviceRequests.getById(id);
+        } catch {}
+      }
+      await softDeleteToBin({
+        entityType: 'ServiceRequest',
+        entityId: id,
+        title: req?.title || `Request #${id.substring(0, 8)}`,
+        subtitle: req ? `${req.propertyName || 'Property'} • Priority: ${req.priority || 'Normal'}` : '',
+        data: req || { id },
+      });
+      try {
+        await apiClient.delete(`/service-requests/${id}`);
+      } catch (e) {
+        console.warn('Backend service request delete sync:', e);
+      }
       return true;
     },
   },
@@ -1321,20 +1551,23 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/work-orders');
-        return (res.data || []).map((w: any, idx: number) => ({
-          ...w,
-          workOrderNumber: w.workOrderNumber && !w.workOrderNumber.includes('-') && w.workOrderNumber.startsWith('#')
-            ? `#WO-${1001 + idx}`
-            : (w.workOrderNumber ? (w.workOrderNumber.startsWith('#') ? w.workOrderNumber : `#${w.workOrderNumber}`) : `#WO-${1001 + idx}`),
-          propertyName: w.propertyName || 'Property',
-          unitNumber: w.unitNumber || 'Unit 101',
-          vendorName: w.vendorName || w.assignedTechnician || 'Unassigned',
-          assignedTechnician: w.assignedTechnician || w.vendorName || 'Unassigned',
-          scheduledDate: w.scheduledDate || (w.createdAt ? w.createdAt.split('T')[0] : 'N/A'),
-          estimatedCost: Number(w.estimatedCost || 0),
-          actualCost: Number(w.actualCost || w.cost || 0),
-          status: w.status || 'Open',
-        }));
+        const softDeletedIds = getSoftDeletedIds('WorkOrder');
+        return (res.data || [])
+          .filter((w: any) => !softDeletedIds.includes(w.id))
+          .map((w: any, idx: number) => ({
+            ...w,
+            workOrderNumber: w.workOrderNumber && !w.workOrderNumber.includes('-') && w.workOrderNumber.startsWith('#')
+              ? `#WO-${1001 + idx}`
+              : (w.workOrderNumber ? (w.workOrderNumber.startsWith('#') ? w.workOrderNumber : `#${w.workOrderNumber}`) : `#WO-${1001 + idx}`),
+            propertyName: w.propertyName || 'Property',
+            unitNumber: w.unitNumber || 'Unit 101',
+            vendorName: w.vendorName || w.assignedTechnician || 'Unassigned',
+            assignedTechnician: w.assignedTechnician || w.vendorName || 'Unassigned',
+            scheduledDate: w.scheduledDate || (w.createdAt ? w.createdAt.split('T')[0] : 'N/A'),
+            estimatedCost: Number(w.estimatedCost || 0),
+            actualCost: Number(w.actualCost || w.cost || 0),
+            status: w.status || 'Open',
+          }));
       } catch (e) {
         console.error('WorkOrders fetch error:', e);
         return [];
@@ -1356,8 +1589,25 @@ export const api = {
       const res: any = await apiClient.put(`/work-orders/${id}`, data);
       return res.data;
     },
-    delete: async (id: string) => {
-      await apiClient.delete(`/work-orders/${id}`);
+    delete: async (id: string, woData?: any) => {
+      let wo = woData;
+      if (!wo) {
+        try {
+          wo = await api.workOrders.getById(id);
+        } catch {}
+      }
+      await softDeleteToBin({
+        entityType: 'WorkOrder',
+        entityId: id,
+        title: wo?.workOrderNumber || wo?.issue || `Work Order #${id.substring(0, 8)}`,
+        subtitle: wo ? `${wo.propertyName || 'Property'} • ${wo.vendorName || 'Vendor'}` : '',
+        data: wo || { id },
+      });
+      try {
+        await apiClient.delete(`/work-orders/${id}`);
+      } catch (e) {
+        console.warn('Backend work order delete sync:', e);
+      }
       return true;
     },
   },
@@ -1633,8 +1883,11 @@ export const api = {
         const res: any = await apiClient.get('/payments');
         const isDemo = isDemoManager();
         const userCompanyId = getActiveCompanyId();
+        const softDeletedIds = getSoftDeletedIds('Payment');
 
-        const filtered = (res.data || []).filter((p: any) => {
+        const filtered = (res.data || [])
+          .filter((p: any) => !softDeletedIds.includes(p.id))
+          .filter((p: any) => {
           if (userCompanyId && p.companyId && p.companyId !== userCompanyId) return false;
           const pName = p.property?.name || p.propertyName || '';
           if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(pName) && !p.propertyId) return false;
@@ -1693,8 +1946,25 @@ export const api = {
       const res: any = await apiClient.put(`/payments/${id}`, data);
       return res.data;
     },
-    delete: async (id: string) => {
-      await apiClient.delete(`/payments/${id}`);
+    delete: async (id: string, paymentData?: any) => {
+      let pay = paymentData;
+      if (!pay) {
+        try {
+          pay = await api.payments.getById(id);
+        } catch {}
+      }
+      await softDeleteToBin({
+        entityType: 'Payment',
+        entityId: id,
+        title: pay?.referenceNumber || pay?.receiptNumber || `Payment #${id.substring(0, 8)}`,
+        subtitle: pay ? `${pay.tenantName || 'Tenant'} • $${pay.amount || 0} (${pay.paymentMethod || 'ACH'})` : '',
+        data: pay || { id },
+      });
+      try {
+        await apiClient.delete(`/payments/${id}`);
+      } catch (e) {
+        console.warn('Backend payment delete sync:', e);
+      }
       return true;
     },
     void: async (id: string) => {
@@ -3224,6 +3494,163 @@ export const api = {
     test: async (provider: string, data: any) => {
       const res: any = await apiClient.post('/integrations/test', { provider, ...data });
       return res.data;
+    },
+  },
+
+
+  maintenanceRequests: {
+    ...mockApi.serviceRequests,
+    getAll: async () => {
+      return api.serviceRequests.getAll();
+    },
+    getById: async (id: string) => {
+      return api.serviceRequests.getById(id);
+    },
+    create: async (data: any) => {
+      return api.serviceRequests.create(data);
+    },
+    update: async (id: string, data: any) => {
+      return api.serviceRequests.update(id, data);
+    },
+    delete: async (id: string, reqData?: any) => {
+      return api.serviceRequests.delete(id, reqData);
+    },
+  },
+
+  restoreBin: {
+    getAll: async (filters?: { type?: string; search?: string }) => {
+      let remoteItems: any[] = [];
+      try {
+        let url = '/restore-bin';
+        const params = new URLSearchParams();
+        if (filters?.type && filters.type !== 'all' && filters.type !== 'All') {
+          params.append('type', filters.type);
+        }
+        if (filters?.search) {
+          params.append('search', filters.search);
+        }
+        if (params.toString()) {
+          url += `?${params.toString()}`;
+        }
+        const res: any = await apiClient.get(url);
+        if (res && Array.isArray(res.data)) {
+          remoteItems = res.data;
+        }
+      } catch (e) {
+        console.warn('Backend restore-bin fetch fallback to local storage:', e);
+      }
+
+      const localItems = getLocalRestoreBin();
+      
+      // Merge unique items strictly by entityType and entityId
+      const map = new Map<string, any>();
+      localItems.forEach((item) => {
+        if (!item || !item.entityId) return;
+        const key = `${(item.entityType || '').toLowerCase()}_${item.entityId}`;
+        map.set(key, item);
+      });
+      remoteItems.forEach((item) => {
+        if (!item || !item.entityId) return;
+        const key = `${(item.entityType || '').toLowerCase()}_${item.entityId}`;
+        map.set(key, item);
+      });
+
+      let allItems = Array.from(map.values());
+      // Save deduplicated items back to localStorage so stale duplicates are immediately purged
+      saveLocalRestoreBin(allItems);
+
+      if (filters?.type && filters.type !== 'all' && filters.type !== 'All') {
+        allItems = allItems.filter(item => (item.entityType || '').toLowerCase() === filters.type!.toLowerCase());
+      }
+      if (filters?.search && filters.search.trim()) {
+        const q = filters.search.toLowerCase().trim();
+        allItems = allItems.filter(item => 
+          (item.title || '').toLowerCase().includes(q) ||
+          (item.subtitle || '').toLowerCase().includes(q) ||
+          (item.entityType || '').toLowerCase().includes(q)
+        );
+      }
+
+      allItems.sort((a, b) => new Date(b.deletedAt || 0).getTime() - new Date(a.deletedAt || 0).getTime());
+      return allItems;
+    },
+
+    softDelete: softDeleteToBin,
+
+    restore: async (id: string, entityType?: string, entityId?: string) => {
+      const local = getLocalRestoreBin();
+      const target = local.find(i => i.id === id || (entityId && i.entityId === entityId));
+      const targetType = target?.entityType || entityType || '';
+      const targetEntityId = target?.entityId || entityId || id;
+
+      if (target) {
+        unmarkSoftDeletedId(target.entityType, target.entityId);
+        saveLocalRestoreBin(local.filter(i => i.id !== target.id && i.entityId !== targetEntityId));
+      } else if (entityType && entityId) {
+        unmarkSoftDeletedId(entityType, entityId);
+      }
+
+      // If restoring an Owner and we have the snapshot, ensure backend DB recreates the owner
+      if (targetType.toLowerCase() === 'owner' && target?.data) {
+        try {
+          const ownerPayload = {
+            name: target.data.name || target.title,
+            email: target.data.email,
+            phone: target.data.phone || '',
+            payoutMethod: target.data.payoutMethod || 'ACH/Direct Deposit',
+          };
+          if (ownerPayload.name && ownerPayload.email) {
+            await apiClient.post('/owners', ownerPayload).catch(() => {});
+          }
+        } catch {}
+      }
+
+      // Try remote restore
+      try {
+        await apiClient.post(`/restore-bin/${id}/restore`, {
+          entityType: targetType,
+          entityId: targetEntityId,
+          data: target?.data,
+        });
+      } catch (e) {
+        console.warn('Backend restore sync error (local restore active):', e);
+      }
+
+      return { success: true };
+    },
+
+    permanentDelete: async (id: string, entityType?: string, entityId?: string) => {
+      const local = getLocalRestoreBin();
+      const target = local.find(i => i.id === id || (entityId && i.entityId === entityId));
+      if (target) {
+        saveLocalRestoreBin(local.filter(i => i.id !== target.id));
+        unmarkSoftDeletedId(target.entityType, target.entityId);
+      }
+
+      // Try remote permanent delete
+      try {
+        await apiClient.delete(`/restore-bin/${id}`);
+      } catch (e) {
+        console.warn('Backend permanentDelete sync error:', e);
+      }
+
+      return { success: true };
+    },
+
+    emptyBin: async () => {
+      const local = getLocalRestoreBin();
+      local.forEach(i => {
+        unmarkSoftDeletedId(i.entityType, i.entityId);
+      });
+      saveLocalRestoreBin([]);
+
+      try {
+        await apiClient.delete('/restore-bin/actions/empty');
+      } catch (e) {
+        console.warn('Backend emptyBin sync error:', e);
+      }
+
+      return { success: true };
     },
   },
 };

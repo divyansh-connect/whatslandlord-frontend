@@ -57,7 +57,8 @@ export const en = {
     plans: "Plans",
     activeSubscriptions: "Active Subscriptions",
     general: "General",
-    securityAndLogs: "Security & Logs"
+    securityAndLogs: "Security & Logs",
+    restoreBin: "Restore Bin"
   },
   header: {
     home: "Home",

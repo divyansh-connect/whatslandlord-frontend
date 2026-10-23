@@ -227,6 +227,7 @@ import { CommNotificationsPage } from '../features/communication/CommNotificatio
 import { CommScheduledPage } from '../features/communication/CommScheduledPage';
 import { CommActivityPage } from '../features/communication/CommActivityPage';
 import { CommSettingsPage } from '../features/communication/CommSettingsPage';
+import { RestoreBinPage } from '../features/restore-bin/RestoreBinPage';
 
 // --- ROOT ROUTE ---
 const rootRoute = createRootRoute({
@@ -488,6 +489,17 @@ const profileRoute = createRoute({
   component: () => (
     <ProtectedWrapper>
       <UserProfilePage />
+    </ProtectedWrapper>
+  ),
+});
+
+// Restore Bin Route
+const restoreBinRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/restore-bin',
+  component: () => (
+    <ProtectedWrapper>
+      <RestoreBinPage />
     </ProtectedWrapper>
   ),
 });
@@ -6117,6 +6129,7 @@ const routeTree = rootRoute.addChildren([
   adminActivityRoute,
   adminBillingRoute,
   adminPreferencesRoute,
+  restoreBinRoute,
   settingsRoute,
 ]);
 

@@ -6,13 +6,16 @@ import { PageHeader } from '../../components/PageHeader';
 import { DataTable } from '../../components/DataTable';
 import { FilterBar } from '../../components/FilterBar';
 import { FormDialog } from '../../components/FormDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { StatusBadge } from '../../components/StatusBadge';
-import { Plus, Trash2, Edit, Copy, Eye, Download, Lock, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Edit, Copy, Eye, Download, Lock, Loader2, Upload } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import * as XLSX from 'xlsx';
+import { PropertyImportModal } from './PropertyImportModal';
 
 export const PropertiesPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -23,6 +26,7 @@ export const PropertiesPage: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('');
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Query Properties
   const { data: properties = [], isLoading, error } = useQuery({
@@ -36,7 +40,17 @@ export const PropertiesPage: React.FC = () => {
     queryFn: () => api.owner.getAll(),
   });
 
+  const [deletePropertyItem, setDeletePropertyItem] = useState<Property | null>(null);
 
+  const deleteMutation = useMutation({
+    mutationFn: async (prop: Property) => {
+      return api.property.delete(prop.id, prop);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
+      setDeletePropertyItem(null);
+    },
+  });
 
   const duplicateMutation = useMutation({
     mutationFn: async (prop: Property) => {
@@ -81,21 +95,74 @@ export const PropertiesPage: React.FC = () => {
     return matchesSearch && matchesType && matchesStatus && matchesOwner;
   });
 
-  // Export CSV mock
-  const handleExport = () => {
-    const headers = 'Name,Type,Status,Owner,Units,OccupancyRate,Revenue,Address\n';
-    const rows = filteredProperties
-      .map(
-        (p) =>
-          `"${p.name}","${p.type}","${p.status}","${p.owner}",${p.unitsCount},${p.occupancyRate},${p.monthlyRevenue},"${p.address}"`
-      )
-      .join('\n');
-    const blob = new Blob([headers + rows], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.setAttribute('href', url);
-    a.setAttribute('download', 'Properties_Report.csv');
-    a.click();
+  // Comprehensive Export with ALL property details (Excel .xlsx & CSV)
+  const handleExport = (format: 'xlsx' | 'csv' = 'xlsx') => {
+    if (filteredProperties.length === 0) return;
+
+    const exportData = filteredProperties.map((p) => {
+      const ownerName = p.owner && typeof p.owner === 'object' ? p.owner.name : (p.owner || 'Default Owner');
+      return {
+        'Property Name': p.name || '',
+        'Property Type': p.type || 'Apartment',
+        'Status': p.status || 'Active',
+        'Owner Name': ownerName,
+        'Ownership Percentage (%)': p.ownershipPercentage ?? 100,
+        'Management Company': p.managementCompany || 'Apex Property Management',
+        'Street Address': p.streetAddress || p.address || '',
+        'City': p.city || '',
+        'State': p.state || '',
+        'Zip Code': p.zip || '',
+        'Country': p.country || 'USA',
+        'Total Units': p.unitsCount ?? 0,
+        'Occupied Units': p.occupiedUnits ?? 0,
+        'Occupancy Rate (%)': p.occupancyRate ?? 0,
+        'Monthly Revenue ($)': p.monthlyRevenue ?? 0,
+        'Monthly Expenses ($)': p.monthlyExpenses ?? 0,
+        'Year Built': p.yearBuilt ?? '',
+        'Total Buildings': p.totalBuildings ?? 1,
+        'Square Footage': p.squareFootage ?? '',
+        'Purchase Price ($)': p.purchasePrice ?? '',
+        'Current Value ($)': p.currentValue ?? '',
+        'NYC BIN #': p.nycBin || (p as any).bin || '',
+        'Full Address': p.address || '',
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    worksheet['!cols'] = [
+      { wch: 28 }, // Property Name
+      { wch: 18 }, // Type
+      { wch: 14 }, // Status
+      { wch: 22 }, // Owner Name
+      { wch: 24 }, // Ownership %
+      { wch: 25 }, // Management Company
+      { wch: 26 }, // Street Address
+      { wch: 16 }, // City
+      { wch: 10 }, // State
+      { wch: 12 }, // Zip Code
+      { wch: 12 }, // Country
+      { wch: 14 }, // Total Units
+      { wch: 16 }, // Occupied Units
+      { wch: 18 }, // Occupancy Rate
+      { wch: 20 }, // Monthly Revenue
+      { wch: 20 }, // Monthly Expenses
+      { wch: 14 }, // Year Built
+      { wch: 16 }, // Total Buildings
+      { wch: 18 }, // Square Footage
+      { wch: 18 }, // Purchase Price
+      { wch: 18 }, // Current Value
+      { wch: 14 }, // NYC BIN #
+      { wch: 35 }, // Full Address
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Properties');
+
+    if (format === 'xlsx') {
+      XLSX.writeFile(workbook, 'Properties_All_Details.xlsx');
+    } else {
+      XLSX.writeFile(workbook, 'Properties_All_Details.csv');
+    }
   };
 
   const columns: ColumnDef<Property>[] = [
@@ -203,6 +270,15 @@ export const PropertiesPage: React.FC = () => {
           >
             <Edit className="w-4 h-4" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setDeletePropertyItem(row.original)}
+            title="Delete Property"
+            className="text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
         </div>
       ),
     },
@@ -228,10 +304,37 @@ export const PropertiesPage: React.FC = () => {
         <span className="text-xs font-bold text-muted-foreground uppercase">
           {t('properties.showing', { count: filteredProperties.length })}
         </span>
-        <Button variant="outline" size="sm" onClick={handleExport} className="text-xs font-semibold flex items-center gap-1.5">
-          <Download className="w-3.5 h-3.5" />
-          {t('properties.exportCsv')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsImportModalOpen(true)}
+            className="text-xs font-semibold flex items-center gap-1.5 border-dashed hover:bg-primary/5 hover:border-primary/60 text-foreground"
+          >
+            <Upload className="w-3.5 h-3.5 text-primary" />
+            Import Excel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleExport('xlsx')}
+            className="text-xs font-semibold flex items-center gap-1.5 hover:bg-emerald-500/10 hover:border-emerald-500/50"
+            title="Export all property details as Excel (.xlsx)"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-500" />
+            Export Excel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleExport('csv')}
+            className="text-xs font-semibold flex items-center gap-1.5"
+            title="Export all property details as CSV"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {t('properties.exportCsv')}
+          </Button>
+        </div>
       </div>
 
       <FilterBar
@@ -292,6 +395,22 @@ export const PropertiesPage: React.FC = () => {
         data={filteredProperties}
         loading={isLoading}
         error={error ? error.message : null}
+      />
+
+      <ConfirmDialog
+        open={!!deletePropertyItem}
+        onOpenChange={(open) => !open && setDeletePropertyItem(null)}
+        title="Move to Restore Bin"
+        description={`Are you sure you want to delete "${deletePropertyItem?.name}"? It will be moved to the Restore Bin and can be restored anytime.`}
+        confirmText="Move to Restore Bin"
+        variant="destructive"
+        loading={deleteMutation.isPending}
+        onConfirm={() => deletePropertyItem && deleteMutation.mutate(deletePropertyItem)}
+      />
+
+      <PropertyImportModal
+        open={isImportModalOpen}
+        onOpenChange={setIsImportModalOpen}
       />
     </div>
   );

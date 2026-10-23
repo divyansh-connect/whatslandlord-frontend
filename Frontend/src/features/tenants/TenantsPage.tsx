@@ -37,7 +37,7 @@ export const TenantsPage: React.FC<{ filterStatus?: string }> = ({ filterStatus 
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.tenant.delete(id),
+    mutationFn: (id: string) => api.tenant.delete(id, tenants.find((t) => t.id === id)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
       setDeleteId(null);

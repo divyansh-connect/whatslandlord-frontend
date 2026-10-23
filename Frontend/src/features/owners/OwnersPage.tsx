@@ -94,10 +94,12 @@ export const OwnersPage: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => {
-      return api.owner.delete(id);
+      const ownerData = owners.find((o) => o.id === id);
+      return api.owner.delete(id, ownerData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['owners'] });
+      queryClient.invalidateQueries({ queryKey: ['restore-bin-items'] });
     },
   });
 

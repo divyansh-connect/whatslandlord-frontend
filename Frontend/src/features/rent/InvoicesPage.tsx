@@ -84,9 +84,10 @@ export const InvoicesPage: React.FC = () => {
   };
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.invoices.delete(id),
+    mutationFn: (id: string) => api.invoices.delete(id, invoices.find((i) => i.id === id)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices-list'] });
+      queryClient.invalidateQueries({ queryKey: ['restore-bin-items'] });
       setDeleteId(null);
     },
   });

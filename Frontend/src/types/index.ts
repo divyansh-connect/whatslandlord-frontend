@@ -1059,9 +1059,17 @@ export interface ScreeningCheck {
   documentUrl?: string;
   documentName?: string;
 }
-
-
-
-
+export interface RestoreBinItem {
+  id: string;
+  entityType: 'Property' | 'Unit' | 'Tenant' | 'Lease' | 'Owner' | 'Invoice' | 'Payment' | 'WorkOrder' | 'ServiceRequest' | 'Vendor' | 'Document' | string;
+  entityId: string;
+  title: string;
+  subtitle?: string;
+  deletedBy?: string;
+  companyId?: string;
+  deletedAt: string;
+  createdAt?: string;
+  data: any;
+}
 
 

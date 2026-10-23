@@ -7,7 +7,7 @@ import {
   Menu, Bell, Sun, Moon, LogOut, ChevronDown, ChevronRight, User,
   LayoutDashboard, Building2, Home, Key, Users, UserCheck, CreditCard, 
   BookOpen, Wrench, ShieldAlert, FileText, BarChart3, MessageSquare, Bot, Settings, X, Loader2,
-  Briefcase, CalendarCheck, LifeBuoy, Shield
+  Briefcase, CalendarCheck, LifeBuoy, Shield, RotateCcw
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/StatusBadge';
@@ -184,6 +184,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       title: t('nav.aiAssistant'),
       icon: <Bot className="w-5 h-5" />,
       path: '/ai/assistant',
+    },
+    {
+      title: t('nav.restoreBin', 'Restore Bin'),
+      icon: <RotateCcw className="w-5 h-5 text-amber-500" />,
+      path: '/restore-bin',
     },
     {
       title: t('nav.companySettings'),

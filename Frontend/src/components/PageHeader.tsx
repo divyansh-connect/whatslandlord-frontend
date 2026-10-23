@@ -16,6 +16,7 @@ interface PageHeaderProps {
     onClick: () => void;
     icon?: React.ReactNode;
     variant?: 'default' | 'outline' | 'secondary' | 'destructive';
+    className?: string;
   };
 }
 
@@ -44,7 +45,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           <Button
             variant={action.variant || 'default'}
             onClick={action.onClick}
-            className="shadow-sm font-semibold flex items-center gap-1.5"
+            className={action.className || "shadow-sm font-semibold flex items-center gap-1.5"}
           >
             {action.icon}
             {action.label}

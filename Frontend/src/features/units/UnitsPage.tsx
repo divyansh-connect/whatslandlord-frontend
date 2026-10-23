@@ -7,6 +7,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { DataTable } from '../../components/DataTable';
 import { FilterBar } from '../../components/FilterBar';
 import { FormDialog } from '../../components/FormDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -94,10 +95,13 @@ export const UnitsPage: React.FC = () => {
     },
   });
 
+  const [deleteUnitItem, setDeleteUnitItem] = useState<Unit | null>(null);
+
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.unit.delete(id),
+    mutationFn: (unit: Unit) => api.unit.delete(unit.id, unit),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['units'] });
+      setDeleteUnitItem(null);
     },
   });
 
@@ -216,6 +220,15 @@ export const UnitsPage: React.FC = () => {
             className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30"
           >
             <Clock className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setDeleteUnitItem(row.original)}
+            title="Delete Unit"
+            className="text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
+          >
+            <Trash2 className="w-4 h-4" />
           </Button>
         </div>
       ),
@@ -455,6 +468,17 @@ export const UnitsPage: React.FC = () => {
           </div>
         </div>
       </FormDialog>
+
+      <ConfirmDialog
+        open={!!deleteUnitItem}
+        onOpenChange={(open) => !open && setDeleteUnitItem(null)}
+        title="Move to Restore Bin"
+        description={`Are you sure you want to delete Unit "${deleteUnitItem?.unitNumber}"? It will be moved to the Restore Bin and can be restored anytime.`}
+        confirmText="Move to Restore Bin"
+        variant="destructive"
+        loading={deleteMutation.isPending}
+        onConfirm={() => deleteUnitItem && deleteMutation.mutate(deleteUnitItem)}
+      />
     </div>
   );
 };

@@ -9,7 +9,7 @@ import { FilterBar } from '../../components/FilterBar';
 import { StatusBadge } from '../../components/StatusBadge';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Button } from '../../components/ui/Button';
-import { Plus, Eye, Key, AlertTriangle, Play } from 'lucide-react';
+import { Plus, Eye, Key, AlertTriangle, Play, Trash2 } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useTranslation } from 'react-i18next';
 
@@ -24,6 +24,7 @@ export const LeasesPage: React.FC = () => {
 
   // Dialog triggers
   const [terminateId, setTerminateId] = useState<string | null>(null);
+  const [deleteLeaseItem, setDeleteLeaseItem] = useState<Lease | null>(null);
 
   // Queries
   const { data: leases = [], isLoading, error } = useQuery({
@@ -44,6 +45,16 @@ export const LeasesPage: React.FC = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leases'] });
       setTerminateId(null);
+    },
+  });
+
+  const deleteLeaseMutation = useMutation({
+    mutationFn: async (lease: Lease) => {
+      return api.leasing.deleteLease(lease.id, lease);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leases'] });
+      setDeleteLeaseItem(null);
     },
   });
 
@@ -124,13 +135,22 @@ export const LeasesPage: React.FC = () => {
             <Button
               variant="ghost"
               size="icon"
-              className="text-rose-500 hover:bg-rose-500/10"
+              className="text-amber-500 hover:bg-amber-500/10"
               onClick={() => setTerminateId(row.original.id)}
               title={t('leases.actions.terminate')}
             >
               <AlertTriangle className="w-4 h-4" />
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
+            onClick={() => setDeleteLeaseItem(row.original)}
+            title="Delete Lease"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
         </div>
       ),
     },
@@ -197,6 +217,17 @@ export const LeasesPage: React.FC = () => {
         confirmText={t('leases.terminateDialog.confirm')}
         variant="destructive"
         onConfirm={() => terminateId && terminateMutation.mutate(terminateId)}
+      />
+
+      <ConfirmDialog
+        open={!!deleteLeaseItem}
+        onOpenChange={(open) => !open && setDeleteLeaseItem(null)}
+        title="Move to Restore Bin"
+        description={`Are you sure you want to delete Lease "${deleteLeaseItem?.id}"? It will be moved to the Restore Bin and can be restored anytime.`}
+        confirmText="Move to Restore Bin"
+        variant="destructive"
+        loading={deleteLeaseMutation.isPending}
+        onConfirm={() => deleteLeaseItem && deleteLeaseMutation.mutate(deleteLeaseItem)}
       />
     </div>
   );
