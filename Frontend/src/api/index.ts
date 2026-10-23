@@ -772,7 +772,7 @@ export const api = {
           apiClient.get('/units'),
           apiClient.get('/leases'),
           apiClient.get('/payments'),
-          apiClient.get('/expenses'),
+          apiClient.get('/portal/expenses'),
         ]);
 
         const base = metricsRes.status === 'fulfilled' ? ((metricsRes.value as any)?.data || {}) : {};
