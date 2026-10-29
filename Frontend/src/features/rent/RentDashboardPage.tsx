@@ -46,9 +46,13 @@ export const RentDashboardPage: React.FC = () => {
   const paidPayments = allPay.filter((p: any) => p.status === 'Paid');
   const monthlyCollected = paidPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
 
-  const overdueInvoices = allInv.filter((i: any) => i.status === 'Overdue');
+  const overdueInvoices = allInv.filter((i: any) => {
+    const st = String(i.status || '').toLowerCase();
+    const bal = i.balance !== undefined && i.balance !== null ? Number(i.balance) : ((Number(i.amount) || 0) - (Number(i.paidAmount) || 0));
+    return (st === 'overdue' || (st !== 'paid' && st !== 'void' && st !== 'cancelled')) && bal > 0;
+  });
   const outstandingBalance = overdueInvoices.reduce((sum: number, i: any) => {
-    const bal = i.balance !== undefined ? i.balance : ((i.amount || 0) - (i.paidAmount || 0));
+    const bal = i.balance !== undefined && i.balance !== null ? Number(i.balance) : ((Number(i.amount) || 0) - (Number(i.paidAmount) || 0));
     return sum + (bal || 0);
   }, 0);
 
@@ -57,9 +61,7 @@ export const RentDashboardPage: React.FC = () => {
     (p.paidDate && p.paidDate.startsWith(todayStr)) || 
     (p.createdAt && p.createdAt.startsWith(todayStr))
   );
-  const collectedToday = todayTransactions.length > 0 
-    ? todayTransactions.reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
-    : (monthlyCollected > 0 ? Math.round(monthlyCollected * 0.05) : 0);
+  const collectedToday = todayTransactions.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
 
   const activePlans = allPlans.filter((p: any) => p.status === 'Active').length;
   const latePayments = overdueInvoices.length;

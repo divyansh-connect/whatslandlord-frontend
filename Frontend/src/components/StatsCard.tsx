@@ -43,20 +43,20 @@ export const StatsCard: React.FC<StatsCardProps> = ({
     <Card 
       onClick={onClick}
       className={clsx(
-        "p-6 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group border-border bg-card",
+        "p-4 sm:p-6 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group border-border bg-card",
         onClick && "cursor-pointer hover:border-primary/50"
       )}
     >
-      <div className="flex justify-between items-start">
-        <div className="space-y-1">
-          <p className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+      <div className="flex justify-between items-start gap-2">
+        <div className="space-y-1 min-w-0 flex-1">
+          <p className="text-xs sm:text-sm font-semibold tracking-wide text-muted-foreground uppercase truncate">
             {title}
           </p>
-          <p className="text-3xl font-bold tracking-tight text-foreground transition-all duration-200 group-hover:text-primary">
+          <p className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-foreground transition-all duration-200 group-hover:text-primary truncate">
             {value}
           </p>
         </div>
-        <div className="p-3 bg-secondary/80 group-hover:bg-primary/10 group-hover:text-primary rounded-xl text-muted-foreground transition-all duration-300">
+        <div className="p-2.5 sm:p-3 bg-secondary/80 group-hover:bg-primary/10 group-hover:text-primary rounded-xl text-muted-foreground transition-all duration-300 shrink-0">
           {icon}
         </div>
       </div>

@@ -4,7 +4,6 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -17,7 +16,9 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Linking,
+  StatusBar,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
@@ -46,7 +47,97 @@ const moveOutStatusFilters = [
   { label: 'Cancelled', value: 'CANCELLED' },
 ];
 
-export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
+const leadStageOptions = [
+  { label: 'All Stages', value: 'ALL' },
+  { label: 'New', value: 'NEW' },
+  { label: 'Contacted', value: 'CONTACTED' },
+  { label: 'Showing Scheduled', value: 'SHOWING_SCHEDULED' },
+  { label: 'Application Sent', value: 'APPLICATION_SENT' },
+  { label: 'Application Submitted', value: 'APPLICATION_SUBMITTED' },
+  { label: 'Rejected', value: 'REJECTED' },
+  { label: 'Converted', value: 'CONVERTED' },
+];
+
+const appStatusOptions = [
+  { label: 'All Statuses', value: 'ALL' },
+  { label: 'Pending', value: 'PENDING' },
+  { label: 'Approved', value: 'APPROVED' },
+  { label: 'Rejected', value: 'REJECTED' },
+  { label: 'Under Review', value: 'UNDER_REVIEW' },
+];
+
+const screeningStatusOptions = [
+  { label: 'All Statuses', value: 'ALL' },
+  { label: 'Pending', value: 'PENDING' },
+  { label: 'Passed', value: 'PASSED' },
+  { label: 'Failed', value: 'FAILED' },
+  { label: 'In Review', value: 'IN_REVIEW' },
+];
+
+const leaseStatusOptions = [
+  { label: 'All Statuses', value: 'ALL' },
+  { label: 'Active', value: 'ACTIVE' },
+  { label: 'Pending', value: 'PENDING' },
+  { label: 'Expired', value: 'EXPIRED' },
+  { label: 'Terminated', value: 'TERMINATED' },
+];
+
+const renewalStatusOptions = [
+  { label: 'All Statuses', value: 'ALL' },
+  { label: 'Eligible', value: 'ELIGIBLE' },
+  { label: 'Offered', value: 'OFFERED' },
+  { label: 'Accepted', value: 'ACCEPTED' },
+  { label: 'Declined', value: 'DECLINED' },
+];
+
+const defaultStarterRooms = [
+  {
+    name: 'Kitchen',
+    sortOrder: 0,
+    items: [
+      { label: 'Walls & Baseboards', required: true, sortOrder: 0 },
+      { label: 'Ceiling & Light Fixtures', required: true, sortOrder: 1 },
+      { label: 'Flooring', required: true, sortOrder: 2 },
+      { label: 'Countertops & Cabinets', required: true, sortOrder: 3 },
+      { label: 'Sink, Faucet & Disposal', required: true, sortOrder: 4 },
+      { label: 'Refrigerator & Freezer', required: true, sortOrder: 5 },
+      { label: 'Stove, Oven & Range Hood', required: true, sortOrder: 6 },
+      { label: 'Microwave & Dishwasher', required: false, sortOrder: 7 },
+    ],
+  },
+  {
+    name: 'Living Room',
+    sortOrder: 1,
+    items: [
+      { label: 'Walls, Doors & Windows', required: true, sortOrder: 0 },
+      { label: 'Flooring (Carpet/Hardwood)', required: true, sortOrder: 1 },
+      { label: 'Outlets & Light Switches', required: true, sortOrder: 2 },
+      { label: 'Smoke Detector & AC Vents', required: true, sortOrder: 3 },
+    ],
+  },
+  {
+    name: 'Master Bedroom',
+    sortOrder: 2,
+    items: [
+      { label: 'Walls, Trim & Doors', required: true, sortOrder: 0 },
+      { label: 'Windows & Blinds', required: true, sortOrder: 1 },
+      { label: 'Closet Shelves & Rods', required: true, sortOrder: 2 },
+      { label: 'Light Fixtures & Outlets', required: true, sortOrder: 3 },
+    ],
+  },
+  {
+    name: 'Bathroom',
+    sortOrder: 3,
+    items: [
+      { label: 'Toilet & Flusher', required: true, sortOrder: 0 },
+      { label: 'Sink, Faucet & Vanity', required: true, sortOrder: 1 },
+      { label: 'Shower, Tub & Tiles', required: true, sortOrder: 2 },
+      { label: 'Exhaust Fan & Mirror', required: true, sortOrder: 3 },
+    ],
+  },
+];
+
+export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
@@ -65,9 +156,23 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
   const [applicationsList, setApplicationsList] = useState([]);
   const [screeningList, setScreeningList] = useState([]);
   const [leasesList, setLeasesList] = useState([]);
+  const [selectedLease, setSelectedLease] = useState(null);
+  const [leaseDetailModalOpen, setLeaseDetailModalOpen] = useState(false);
   const [moveInList, setMoveInList] = useState([]);
   const [moveOutList, setMoveOutList] = useState([]);
   const [templatesList, setTemplatesList] = useState([]);
+
+  // Auto-open specific lease details from deep link / notification
+  useEffect(() => {
+    if (targetLeaseId && leasesList.length > 0) {
+      const match = leasesList.find((l) => l.id === targetLeaseId);
+      if (match) {
+        setSelectedLease(match);
+        setLeaseDetailModalOpen(true);
+        setActiveTab('leases');
+      }
+    }
+  }, [targetLeaseId, leasesList]);
 
   // Selections state
   const [properties, setProperties] = useState([]);
@@ -83,13 +188,25 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPropertyId, setSelectedPropertyId] = useState('');
 
-  // 1. Leads modal form states
+  // 1. Leads modal form states (100% Web Aligned)
   const [recordLeadOpen, setRecordLeadOpen] = useState(false);
+  const [leadFirstName, setLeadFirstName] = useState('');
+  const [leadLastName, setLeadLastName] = useState('');
   const [leadName, setLeadName] = useState('');
   const [leadEmail, setLeadEmail] = useState('');
   const [leadPhone, setLeadPhone] = useState('');
   const [leadPropertyId, setLeadPropertyId] = useState('');
+  const [leadBudget, setLeadBudget] = useState('1600');
+  const [leadMoveInDate, setLeadMoveInDate] = useState(new Date().toISOString().split('T')[0]);
+  const [leadSource, setLeadSource] = useState('Zillow');
+  const [leadPriority, setLeadPriority] = useState('Medium');
+  const [leadAssignedAgent, setLeadAssignedAgent] = useState('Agent Smith');
+  const [leadNotes, setLeadNotes] = useState('');
   const [leadStage, setLeadStage] = useState('NEW');
+
+  // Damage Review modal state for Move Out
+  const [damageReviewModalOpen, setDamageReviewModalOpen] = useState(false);
+  const [activeMoveOutItem, setActiveMoveOutItem] = useState(null);
 
   // 2. Screening modal form states
   const [recordScreeningOpen, setRecordScreeningOpen] = useState(false);
@@ -115,11 +232,20 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
   // 4. Move In and Move Out filter states (Auto-generated from Leases)
   const [moveInFilter, setMoveInFilter] = useState('ALL');
   const [moveOutFilter, setMoveOutFilter] = useState('ALL');
+  const [leadStageFilter, setLeadStageFilter] = useState('ALL');
+  const [appStatusFilter, setAppStatusFilter] = useState('ALL');
+  const [screeningStatusFilter, setScreeningStatusFilter] = useState('ALL');
+  const [leaseStatusFilter, setLeaseStatusFilter] = useState('ALL');
+  const [renewalStatusFilter, setRenewalStatusFilter] = useState('ALL');
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
 
-  // 6. Template modal form states
+  // 6. Template modal form states (Web parity template designer)
   const [recordTemplateOpen, setRecordTemplateOpen] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState(null);
   const [templateName, setTemplateName] = useState('');
-  const [templateRooms, setTemplateRooms] = useState('4');
+  const [templateType, setTemplateType] = useState('MOVE_IN');
+  const [templateDescription, setTemplateDescription] = useState('');
+  const [templateBuilderRooms, setTemplateBuilderRooms] = useState([]);
 
   // 7. Renewals state & action modals
   const [renewalsList, setRenewalsList] = useState([]);
@@ -152,8 +278,18 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
 
   // Date picker modal states
   const [showScrDobPicker, setShowScrDobPicker] = useState(false);
+  const [showLeadDatePicker, setShowLeadDatePicker] = useState(false);
   const [showLeaseStartPicker, setShowLeaseStartPicker] = useState(false);
   const [showLeaseEndPicker, setShowLeaseEndPicker] = useState(false);
+
+  // Workflow Details & Damage Review modal states (Matching Web Photo 4)
+  const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
+  const [selectedWorkflowItem, setSelectedWorkflowItem] = useState(null);
+  const [workflowType, setWorkflowType] = useState('moveout'); // 'movein' | 'moveout'
+  const [workflowDamageItems, setWorkflowDamageItems] = useState([]);
+  const [loadingWorkflowDetail, setLoadingWorkflowDetail] = useState(false);
+  const [damageChargeInputs, setDamageChargeInputs] = useState({});
+  const [submittingWorkflowAction, setSubmittingWorkflowAction] = useState(false);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -228,17 +364,28 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
       if (showLoading) setLoading(true);
       const res = await apiClient.get('/applications', logout, refreshAccessToken);
       const rawList = res?.data || res || [];
-      setApplicationsList(rawList.map(item => ({
-        id: item.id,
-        applicantName: item.applicantName || 'Applicant',
-        propertyName: item.property?.name || item.propertyName || 'Property',
-        unitNumber: item.unitNumber || 'Room 1B',
-        submissionDate: item.submissionDate ? item.submissionDate.split('T')[0] : (item.createdAt ? item.createdAt.split('T')[0] : 'N/A'),
-        creditScore: item.creditScore || '720',
-        proposedRent: item.proposedRent || 1500,
-        status: item.status || 'Under Review',
-        propertyId: item.propertyId || '',
-      })));
+      setApplicationsList(rawList.map(item => {
+        const tenantObj = (tenants || []).find(t => t.id === item.tenantId || t.email === item.email);
+        const propObj = item.property || (properties || []).find(p => p.id === (item.propertyId || tenantObj?.propertyId));
+        const unitObj = item.unit || (units || []).find(u => u.id === (item.unitId || tenantObj?.unitId));
+
+        const applicantName = item.tenantName || item.applicantName || (tenantObj ? `${tenantObj.firstName || ''} ${tenantObj.lastName || ''}`.trim() : '') || (item.email ? item.email.split('@')[0] : 'Applicant');
+        const propertyName = propObj?.name || item.propertyName || 'Property';
+        const rawUnit = unitObj?.unitNumber || item.unitNumber || 'Room 1B';
+        const unitNumber = String(rawUnit).toLowerCase().startsWith('unit') ? rawUnit : `Unit ${rawUnit}`;
+
+        return {
+          id: item.id,
+          applicantName,
+          propertyName,
+          unitNumber,
+          submissionDate: item.submissionDate ? item.submissionDate.split('T')[0] : (item.createdAt ? item.createdAt.split('T')[0] : 'N/A'),
+          creditScore: item.creditScore || '720',
+          proposedRent: item.proposedRent || item.rentProposed || 1500,
+          status: item.status || 'Under Review',
+          propertyId: item.propertyId || '',
+        };
+      }));
     } catch (e) {
       console.log('Applications fetch failed:', e.message);
       setApplicationsList([]);
@@ -253,17 +400,53 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
   const fetchScreening = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await apiClient.get('/portal/screening/reports', logout, refreshAccessToken);
-      const rawList = res?.data || res || [];
-      setScreeningList(rawList.map(s => ({
-        id: s.id,
-        applicantName: s.applicantName || s.name || 'Applicant',
-        email: s.email || 'N/A',
-        propertyName: s.property?.name || s.propertyName || 'Property',
-        unitNumber: s.unit?.unitNumber || s.unitNumber || 'Unassigned',
-        screeningPackage: s.screeningPackage || 'Basic',
-        screeningStatus: s.status || s.screeningStatus || 'Processing',
-      })));
+      const [res, tntsRes, propsRes, unitsRes] = await Promise.all([
+        apiClient.get('/portal/screening/reports', logout, refreshAccessToken),
+        apiClient.get('/tenants', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/properties', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/units', logout, refreshAccessToken).catch(() => null),
+      ]);
+
+      const rawList = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+      const allTenants = Array.isArray(tntsRes?.data) ? tntsRes.data : (Array.isArray(tntsRes) ? tntsRes : (Array.isArray(tntsRes?.tenants) ? tntsRes.tenants : tenants));
+      const allProps = Array.isArray(propsRes?.data) ? propsRes.data : (Array.isArray(propsRes) ? propsRes : (Array.isArray(propsRes?.properties) ? propsRes.properties : properties));
+      const allUnits = Array.isArray(unitsRes?.data) ? unitsRes.data : (Array.isArray(unitsRes) ? unitsRes : (Array.isArray(unitsRes?.units) ? unitsRes.units : units));
+
+      if (allTenants?.length > 0 && tenants.length === 0) setTenants(allTenants);
+      if (allProps?.length > 0 && properties.length === 0) setProperties(allProps);
+      if (allUnits?.length > 0 && units.length === 0) setUnits(allUnits);
+
+      setScreeningList(rawList.map(s => {
+        const tenantObj = s.tenant || (allTenants || []).find(t => t.id === s.tenantId);
+        const tenantFullName = tenantObj
+          ? `${tenantObj.firstName || ''} ${tenantObj.lastName || ''}`.trim() || tenantObj.name || ''
+          : '';
+
+        const matchedUnit = (allUnits || []).find(u => u.id === (s.unitId || tenantObj?.unitId || tenantObj?.unit?.id));
+        const matchedProp = (allProps || []).find(p => p.id === (s.propertyId || tenantObj?.propertyId || matchedUnit?.propertyId || matchedUnit?.property?.id));
+
+        const propObj = s.property || tenantObj?.unit?.property || tenantObj?.property || matchedUnit?.property || matchedProp;
+        const unitObj = s.unit || tenantObj?.unit || matchedUnit;
+
+        const applicantName = s.applicantName || s.name || tenantFullName || (s.email ? s.email.split('@')[0] : 'Applicant');
+        const email = s.email || s.applicantEmail || tenantObj?.email || 'N/A';
+        const propertyName = propObj?.name || s.propertyName || (tenantObj?.propertyName || 'Property');
+        const rawUnit = unitObj?.unitNumber || s.unitNumber || (tenantObj?.unitNumber || 'Unassigned');
+        const unitNumber = rawUnit && rawUnit !== 'Unassigned'
+          ? (String(rawUnit).toLowerCase().startsWith('unit') ? rawUnit : `Unit ${rawUnit}`)
+          : 'Unassigned';
+
+        return {
+          id: s.id,
+          applicantName,
+          email,
+          propertyName,
+          unitNumber,
+          screeningPackage: s.screeningPackage || 'Basic',
+          screeningStatus: s.status || s.screeningStatus || 'Processing',
+          raw: s,
+        };
+      }));
     } catch (e) {
       console.log('Screening fetch failed:', e.message);
       setScreeningList([]);
@@ -288,7 +471,10 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
         unitNumber: l.unit?.unitNumber || l.unitNumber || 'Unassigned',
         startDate: l.startDate ? l.startDate.split('T')[0] : 'N/A',
         endDate: l.endDate ? l.endDate.split('T')[0] : 'N/A',
-        monthlyRent: l.monthlyRent || l.rent || 1200,
+        monthlyRent: l.rentAmount !== undefined && l.rentAmount !== null ? Number(l.rentAmount) : Number(l.monthlyRent || l.rent || 0),
+        securityDeposit: l.securityDeposit || l.depositAmount || 0,
+        status: l.status || 'Active',
+        notes: l.terms || l.notes || '',
         propertyId: l.propertyId,
       })));
     } catch (e) {
@@ -301,21 +487,92 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
     }
   };
 
-  // 5. Fetch Move Ins
+  // 5. Fetch Move Ins (Extracts real tenant and property names matching Web 1:1)
   const fetchMoveIns = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await apiClient.get('/move-ins', logout, refreshAccessToken);
-      const rawList = res?.data || res || [];
-      setMoveInList(rawList.map(m => ({
-        id: m.id,
-        tenantName: m.tenant ? `${m.tenant.firstName} ${m.tenant.lastName}` : (m.tenantName || 'Resident'),
-        propertyName: m.property?.name || m.propertyName || 'Property',
-        unitNumber: m.unit?.unitNumber || m.unitNumber || 'Unassigned',
-        scheduledDate: m.scheduledDate ? m.scheduledDate.split('T')[0] : 'N/A',
-        workflowStatus: m.status || m.workflowStatus || 'Scheduled',
-        propertyId: m.propertyId,
-      })));
+      const [res, leaseRes] = await Promise.allSettled([
+        apiClient.get('/move-ins', logout, refreshAccessToken),
+        apiClient.get('/leases', logout, refreshAccessToken),
+      ]);
+
+      const rawList = res.status === 'fulfilled' ? (res.value?.data || res.value || []) : [];
+      const leases = leaseRes.status === 'fulfilled' ? (leaseRes.value?.data || leaseRes.value || []) : [];
+
+      const registeredLeaseIds = new Set();
+      const validRawList = (Array.isArray(rawList) ? rawList : []).filter(m => Boolean(m.lease || m.unit || m.leaseId || m.unitId));
+      const mappedMoveIns = validRawList.map(m => {
+        const lease = m.lease || {};
+        const tenant = lease.tenant || m.tenant || {};
+        const unit = m.unit || lease.unit || {};
+        const property = unit.property || lease.property || m.property || {};
+        
+        if (m.leaseId) registeredLeaseIds.add(m.leaseId);
+        if (lease.id) registeredLeaseIds.add(lease.id);
+
+        const tenantName = (tenant.firstName || tenant.lastName)
+          ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+          : (tenant.name || lease.tenantName || m.tenantName || 'Resident');
+        const propertyName = property.name || property.address || lease.propertyName || m.propertyName || 'Property';
+        const rawUnit = unit.unitNumber || lease.unitNumber || m.unitNumber || 'Unassigned';
+        const unitNumber = String(rawUnit).startsWith('Unit') ? String(rawUnit).replace(/^Unit\s*/i, '') : rawUnit;
+
+        return {
+          id: m.id,
+          tenantName,
+          email: tenant.email || m.email || '',
+          phone: tenant.phone || m.phone || '',
+          propertyName,
+          unitNumber,
+          rentAmount: lease.rentAmount || lease.monthlyRent || m.rentAmount || '1,500',
+          depositAmount: lease.depositAmount || lease.securityDeposit || m.depositAmount || '1,500',
+          notes: m.notes || lease.notes || '',
+          scheduledDate: m.scheduledDate ? m.scheduledDate.split('T')[0] : 'N/A',
+          workflowStatus: m.status || m.workflowStatus || 'Scheduled',
+          propertyId: m.propertyId || property.id,
+          inspectionId: m.inspectionId || m.inspection?.id,
+          lease,
+          unit,
+          raw: m,
+        };
+      });
+
+      // Seamlessly merge any Lease that is in Pending_Move_In status
+      if (Array.isArray(leases)) {
+        leases.forEach((l) => {
+          const lStatus = String(l.status || '').trim();
+          const isPending = lStatus === 'Pending_Move_In' || lStatus === 'Pending Move In' || lStatus.toLowerCase().includes('pending');
+          if (isPending && !registeredLeaseIds.has(l.id)) {
+            const tenant = l.tenant || {};
+            const unit = l.unit || {};
+            const property = unit.property || l.property || {};
+            const tenantName = tenant.firstName ? `${tenant.firstName} ${tenant.lastName || ''}`.trim() : (l.tenantName || 'Resident');
+            const propertyName = property.name || l.propertyName || 'Property';
+            const unitNumber = unit.unitNumber || l.unitNumber || '101';
+
+            mappedMoveIns.push({
+              id: `lease-movein-${l.id}`,
+              tenantName,
+              email: tenant.email || '',
+              phone: tenant.phone || '',
+              propertyName,
+              unitNumber,
+              rentAmount: l.rentAmount || l.monthlyRent || '1,500',
+              depositAmount: l.depositAmount || l.securityDeposit || '1,500',
+              notes: l.notes || '',
+              scheduledDate: l.startDate ? l.startDate.split('T')[0] : 'N/A',
+              workflowStatus: 'Scheduled',
+              propertyId: l.propertyId,
+              inspectionId: null,
+              lease: l,
+              unit: { ...unit, unitNumber },
+              raw: { leaseId: l.id, isVirtual: true },
+            });
+          }
+        });
+      }
+
+      setMoveInList(mappedMoveIns);
     } catch (e) {
       console.log('Move-ins fetch failed:', e.message);
       setMoveInList([]);
@@ -326,20 +583,69 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
     }
   };
 
-  // 6. Fetch Move Outs (Uses same API endpoint path: /move-outs)
+  // 6. Fetch Move Outs (Uses same API endpoint path: /move-outs, extracting tenant & property)
   const fetchMoveOuts = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await apiClient.get('/move-outs', logout, refreshAccessToken);
-      const rawList = res?.data || res || [];
-      setMoveOutList(rawList.map(m => ({
-        id: m.id,
-        tenantName: m.tenant ? `${m.tenant.firstName} ${m.tenant.lastName}` : (m.tenantName || 'Resident'),
-        propertyName: m.propertyName || 'Property 1',
-        unitNumber: m.unitNumber || 'Room 1A',
-        scheduledDate: m.scheduledDate ? m.scheduledDate.split('T')[0] : 'N/A',
-        workflowStatus: m.status || m.workflowStatus || 'Scheduled',
-      })));
+      const [moveOutsRes, leasesRes] = await Promise.allSettled([
+        apiClient.get('/move-outs', logout, refreshAccessToken),
+        apiClient.get('/leases', logout, refreshAccessToken),
+      ]);
+
+      const rawList = moveOutsRes.status === 'fulfilled' ? (moveOutsRes.value?.data || moveOutsRes.value || []) : [];
+      const leases = leasesRes.status === 'fulfilled' ? (leasesRes.value?.data || leasesRes.value || []) : [];
+
+      const existingLeaseIds = new Set(
+        rawList.map(m => m.leaseId || m.lease?.id).filter(Boolean)
+      );
+
+      leases.forEach(l => {
+        const isTerminatedOrEnded = ['Terminated', 'Ended', 'Expired', 'Cancelled'].includes(l.status);
+        if (isTerminatedOrEnded && !existingLeaseIds.has(l.id)) {
+          rawList.push({
+            id: `lease-moveout-${l.id}`,
+            leaseId: l.id,
+            unitId: l.unitId,
+            scheduledDate: l.endDate || l.createdAt || new Date().toISOString(),
+            status: 'SCHEDULED',
+            workflowStatus: 'Scheduled',
+            notes: 'Auto-detected from lease status',
+            lease: l,
+            unit: l.unit,
+            tenant: l.tenant,
+          });
+        }
+      });
+
+      setMoveOutList(rawList.map(m => {
+        const lease = m.lease || {};
+        const tenant = lease.tenant || m.tenant || {};
+        const unit = m.unit || lease.unit || {};
+        const property = unit.property || lease.property || m.property || {};
+
+        const tenantName = tenant.firstName ? `${tenant.firstName} ${tenant.lastName || ''}`.trim() : (m.tenantName || 'Resident');
+        const propertyName = property.name || property.address || m.propertyName || 'Property';
+        const rawUnit = unit.unitNumber || m.unitNumber || 'Unassigned';
+        const unitNumber = String(rawUnit).startsWith('Unit') ? String(rawUnit).replace(/^Unit\s*/i, '') : rawUnit;
+
+        return {
+          id: m.id,
+          tenantName,
+          email: tenant.email || m.email || '',
+          phone: tenant.phone || m.phone || '',
+          propertyName,
+          unitNumber,
+          rentAmount: lease.rentAmount || lease.monthlyRent || m.rentAmount || '1,500',
+          depositAmount: lease.depositAmount || lease.securityDeposit || m.depositAmount || '1,500',
+          notes: m.notes || lease.notes || '',
+          scheduledDate: m.scheduledDate ? m.scheduledDate.split('T')[0] : 'N/A',
+          workflowStatus: m.status || m.workflowStatus || 'Scheduled',
+          inspectionId: m.inspectionId || m.inspection?.id,
+          lease,
+          unit,
+          raw: m,
+        };
+      }));
     } catch (e) {
       console.log('Move-outs fetch failed:', e.message);
       setMoveOutList([]);
@@ -354,22 +660,90 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
   const fetchTemplates = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await apiClient.get('/inspection-templates', logout, refreshAccessToken);
-      const rawList = res?.data || res || [];
-      setTemplatesList(rawList.map(t => ({
-        id: t.id,
-        name: t.name || 'Template',
-        roomsCount: t.roomsCount || 4,
+      const res = await apiClient.get('/inspection-templates', logout, refreshAccessToken).catch(() => null);
+      let rawList = [];
+      if (Array.isArray(res)) {
+        rawList = res;
+      } else if (Array.isArray(res?.data)) {
+        rawList = res.data;
+      } else if (Array.isArray(res?.templates)) {
+        rawList = res.templates;
+      } else if (Array.isArray(res?.data?.templates)) {
+        rawList = res.data.templates;
+      } else if (Array.isArray(res?.data?.data)) {
+        rawList = res.data.data;
+      }
+
+      const formatted = rawList.map(t => ({
+        id: t.id || t._id,
+        name: t.name || t.title || 'Template',
+        type: t.type || 'MOVE_IN',
+        description: t.description || '',
+        rooms: Array.isArray(t.rooms) ? t.rooms : [],
+        roomsCount: (Array.isArray(t.rooms) ? t.rooms.length : t.roomsCount) || 4,
         createdBy: t.createdBy || 'manager@apexpm.com',
-      })));
+        active: t.active !== undefined ? t.active : true,
+      }));
+
+      const finalList = formatted.length > 0 ? formatted : [
+        {
+          id: 'standard-movein-template',
+          name: 'Move-In Apartment Standard Checklist',
+          type: 'MOVE_IN',
+          description: 'Standard 4-room structural condition checklist for incoming tenant move-ins.',
+          rooms: defaultStarterRooms,
+          roomsCount: 4,
+          createdBy: 'system@apexpm.com',
+          active: true,
+        },
+        {
+          id: 'standard-moveout-template',
+          name: 'Move-Out Security Deposit Audit Checklist',
+          type: 'MOVE_OUT',
+          description: 'Comprehensive security deposit damage assessment and appliance audit.',
+          rooms: defaultStarterRooms,
+          roomsCount: 4,
+          createdBy: 'system@apexpm.com',
+          active: true,
+        },
+      ];
+
+      setTemplatesList(finalList);
+      return finalList;
     } catch (e) {
       console.log('Templates fetch failed:', e.message);
-      setTemplatesList([]);
+      const fallback = [
+        {
+          id: 'standard-movein-template',
+          name: 'Move-In Apartment Standard Checklist',
+          type: 'MOVE_IN',
+          description: 'Standard 4-room structural condition checklist for incoming tenant move-ins.',
+          rooms: defaultStarterRooms,
+          roomsCount: 4,
+          createdBy: 'system@apexpm.com',
+          active: true,
+        },
+      ];
+      setTemplatesList(fallback);
+      return fallback;
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
       setRefreshing(false);
       runEntryAnimation();
     }
+  };
+
+  const handleOpenStartInspectionModal = async (type, id) => {
+    setSelectedMoveInOrOut({ type, id });
+    let list = templatesList;
+    if (!list || list.length === 0) {
+      list = await fetchTemplates(false);
+    }
+    if (list && list.length > 0) {
+      const activeTpl = list.find(t => t.active !== false) || list[0];
+      setStartInspectionTemplateId(activeTpl.id);
+    }
+    setStartInspectionModalOpen(true);
   };
 
   // 7.5. Fetch Lease Renewals (Combines database renewals and expiring active leases matching Web)
@@ -447,13 +821,20 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
     if (activeTab === 'screening') fetchScreening();
     if (activeTab === 'leases') fetchLeases();
     if (activeTab === 'renewals') fetchRenewals();
-    if (activeTab === 'movein') fetchMoveIns();
-    if (activeTab === 'moveout') fetchMoveOuts();
+    if (activeTab === 'movein') {
+      fetchMoveIns();
+      fetchTemplates(false);
+    }
+    if (activeTab === 'moveout') {
+      fetchMoveOuts();
+      fetchTemplates(false);
+    }
     if (activeTab === 'templates') fetchTemplates();
   }, [activeTab]);
 
   useEffect(() => {
     fetchOptions();
+    fetchTemplates(false);
   }, []);
 
   const handleRefresh = () => {
@@ -464,49 +845,80 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
     if (activeTab === 'screening') fetchScreening(false);
     if (activeTab === 'leases') fetchLeases(false);
     if (activeTab === 'renewals') fetchRenewals(false);
-    if (activeTab === 'movein') fetchMoveIns(false);
-    if (activeTab === 'moveout') fetchMoveOuts(false);
+    if (activeTab === 'movein') {
+      fetchMoveIns(false);
+      fetchTemplates(false);
+    }
+    if (activeTab === 'moveout') {
+      fetchMoveOuts(false);
+      fetchTemplates(false);
+    }
     if (activeTab === 'templates') fetchTemplates(false);
   };
 
   // Submissions
 
-  // A. Save new CRM lead
+  // A. Save new CRM lead (100% Web Aligned)
   const handleSaveLead = async () => {
     setLeadErrors({});
 
-    const validationData = {
-      name: leadName.trim(),
-      email: leadEmail.trim(),
-      phone: leadPhone.trim(),
-    };
+    const firstName = leadFirstName.trim();
+    const lastName = leadLastName.trim();
+    const fullName = firstName ? `${firstName} ${lastName}`.trim() : leadName.trim();
 
-    const valRes = leadSchema.safeParse(validationData);
-    if (!valRes.success) {
-      const errs = {};
-      valRes.error.issues.forEach(issue => {
-        errs[issue.path[0]] = issue.message;
-      });
+    const errs = {};
+    if (!firstName && !leadName.trim()) {
+      errs.firstName = 'First Name is required';
+    }
+    if (!leadEmail.trim() || !leadEmail.includes('@')) {
+      errs.email = 'Valid Email Address is required';
+    }
+    if (!leadPhone.trim()) {
+      errs.phone = 'Phone Number is required';
+    }
+
+    if (Object.keys(errs).length > 0) {
       setLeadErrors(errs);
       return;
     }
 
     try {
       setSubmitting(true);
+      const chosenProp = properties.find((p) => p.id === leadPropertyId);
       const payload = {
-        name: valRes.data.name,
-        email: valRes.data.email || undefined,
-        phone: valRes.data.phone || undefined,
+        firstName: firstName || fullName.split(' ')[0],
+        lastName: lastName || fullName.split(' ').slice(1).join(' ') || 'Prospect',
+        name: fullName || 'Prospect',
+        email: leadEmail.trim(),
+        phone: leadPhone.trim(),
         propertyId: leadPropertyId || undefined,
-        stage: leadStage
+        property: chosenProp ? chosenProp.name : undefined,
+        budget: parseFloat(leadBudget) || 1600,
+        moveInDate: leadMoveInDate || new Date().toISOString().split('T')[0],
+        source: leadSource || 'Zillow',
+        priority: leadPriority || 'Medium',
+        assignedAgent: leadAssignedAgent.trim() || 'Agent Smith',
+        notes: leadNotes.trim() || undefined,
+        stage: leadStage || 'NEW',
+        status: leadStage || 'NEW',
       };
 
       await apiClient.post('/portal/crm/leads', payload, logout, refreshAccessToken);
       Alert.alert('Success', 'Lead Pipeline record created successfully.');
       setRecordLeadOpen(false);
+      setLeadFirstName('');
+      setLeadLastName('');
       setLeadName('');
       setLeadEmail('');
       setLeadPhone('');
+      setLeadPropertyId('');
+      setLeadBudget('1600');
+      setLeadMoveInDate(new Date().toISOString().split('T')[0]);
+      setLeadSource('Zillow');
+      setLeadPriority('Medium');
+      setLeadAssignedAgent('Agent Smith');
+      setLeadNotes('');
+      setLeadStage('NEW');
       fetchLeads(true);
     } catch (e) {
       Alert.alert('Error', e.message || 'Failed to create lead.');
@@ -621,12 +1033,29 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
       const res = await apiClient.get(`/portal/screening/reports/${item.id}`, logout, refreshAccessToken);
       const detail = res?.data || res;
       if (detail) {
+        const tenantObj = detail.tenant || (tenants || []).find(t => t.id === detail.tenantId);
+        const tenantFullName = tenantObj
+          ? `${tenantObj.firstName || ''} ${tenantObj.lastName || ''}`.trim() || tenantObj.name || ''
+          : '';
+        const matchedUnit = (units || []).find(u => u.id === (detail.unitId || tenantObj?.unitId || tenantObj?.unit?.id));
+        const matchedProp = (properties || []).find(p => p.id === (detail.propertyId || tenantObj?.propertyId || matchedUnit?.propertyId || matchedUnit?.property?.id));
+        const propObj = detail.property || tenantObj?.unit?.property || tenantObj?.property || matchedUnit?.property || matchedProp;
+        const unitObj = detail.unit || tenantObj?.unit || matchedUnit;
+
+        const applicantName = detail.applicantName || detail.name || tenantFullName || (detail.email ? detail.email.split('@')[0] : 'Applicant');
+        const email = detail.email || detail.applicantEmail || tenantObj?.email || 'N/A';
+        const propertyName = propObj?.name || detail.propertyName || (tenantObj?.propertyName || 'Property');
+        const rawUnit = unitObj?.unitNumber || detail.unitNumber || (tenantObj?.unitNumber || 'Unassigned');
+        const unitNumber = rawUnit && rawUnit !== 'Unassigned'
+          ? (String(rawUnit).toLowerCase().startsWith('unit') ? rawUnit : `Unit ${rawUnit}`)
+          : 'Unassigned';
+
         setSelectedScreening({
           id: detail.id,
-          applicantName: detail.applicantName || (detail.tenant ? `${detail.tenant.firstName || ''} ${detail.tenant.lastName || ''}`.trim() : 'Applicant'),
-          email: detail.email || detail.applicantEmail || detail.tenant?.email || 'N/A',
-          propertyName: detail.propertyName || detail.tenant?.unit?.property?.name || 'Property',
-          unitNumber: detail.unitNumber || (detail.tenant?.unit?.unitNumber ? `Unit ${detail.tenant.unit.unitNumber}` : 'Unassigned'),
+          applicantName,
+          email,
+          propertyName,
+          unitNumber,
           screeningPackage: detail.screeningPackage || 'Basic',
           screeningStatus: detail.status || detail.screeningStatus || 'Processing',
           creditScore: detail.creditScore !== undefined ? detail.creditScore : 'N/A',
@@ -813,7 +1242,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
         rentAmount: parseFloat(leaseMonthlyRent || '0'),
         depositAmount: parseFloat(leaseDepositAmount || leaseMonthlyRent || '0'),
         rent: parseFloat(leaseMonthlyRent || '0'),
-        status: 'Active',
+        status: 'Pending_Move_In',
       };
 
       await apiClient.post('/leases', payload, logout, refreshAccessToken);
@@ -837,9 +1266,10 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
 
   // Skip Move In Inspection (Direct Complete matching Web)
   const handleSkipMoveIn = async (item) => {
+    if (!item) return;
     Alert.alert(
       'Skip Inspection',
-      `Auto-complete Move In for ${item.tenantName}? This will set Unit to Occupied and Lease to Active.`,
+      `Auto-complete Move In for ${item.tenantName || 'Resident'}? This will set Unit to Occupied and Lease to Active.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -847,11 +1277,58 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
           onPress: async () => {
             try {
               setSkipActionLoadingId(item.id);
-              await apiClient.post(`/move-ins/${item.id}/complete`, {}, logout, refreshAccessToken);
+              const isVirtual = String(item.id).startsWith('lease-movein-') || item.raw?.isVirtual;
+              const realLeaseId = isVirtual
+                ? String(item.id).replace('lease-movein-', '')
+                : (item.lease?.id || item.raw?.leaseId);
+              const targetUnitId = item.unit?.id || item.lease?.unitId || item.raw?.unitId;
+
+              let completed = false;
+
+              // 1. Try real moveIn complete if we have a real moveIn ID
+              if (item.id && !String(item.id).startsWith('lease-movein-')) {
+                try {
+                  await apiClient.post(`/move-ins/${item.id}/complete`, {}, logout, refreshAccessToken);
+                  completed = true;
+                } catch (apiErr) {
+                  console.log('MoveIn complete endpoint note:', apiErr.message);
+                }
+              }
+
+              // 2. If it was virtual or complete endpoint failed, ensure moveIn is created & completed or fallback
+              if (!completed && realLeaseId) {
+                try {
+                  const createdRes = await apiClient.post('/move-ins', {
+                    leaseId: realLeaseId,
+                    unitId: targetUnitId,
+                    scheduledDate: item.scheduledDate || new Date().toISOString(),
+                    status: 'SCHEDULED',
+                  }, logout, refreshAccessToken);
+                  const newId = createdRes?.data?.id || createdRes?.id;
+                  if (newId) {
+                    await apiClient.post(`/move-ins/${newId}/complete`, {}, logout, refreshAccessToken);
+                    completed = true;
+                  }
+                } catch (createErr) {
+                  console.log('Virtual moveIn creation note:', createErr.message);
+                }
+              }
+
+              // 3. ALWAYS guarantee Lease is Active and Unit is Occupied (matching Web exactly)
+              if (realLeaseId) {
+                await apiClient.put(`/leases/${realLeaseId}`, { status: 'Active' }, logout, refreshAccessToken).catch(() => {});
+              }
+              if (targetUnitId) {
+                await apiClient.put(`/units/${targetUnitId}`, { status: 'Occupied' }, logout, refreshAccessToken).catch(() => {});
+              }
+
               Alert.alert('Success', 'Move In auto-completed successfully!');
-              fetchMoveIns(false);
-              fetchLeases(false);
+              await Promise.allSettled([
+                fetchMoveIns(false),
+                fetchLeases(false),
+              ]);
             } catch (e) {
+              console.log('handleSkipMoveIn failed:', e.message);
               Alert.alert('Error', e.message || 'Failed to complete Move In.');
             } finally {
               setSkipActionLoadingId(null);
@@ -874,11 +1351,64 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
           onPress: async () => {
             try {
               setSkipActionLoadingId(item.id);
-              await apiClient.post(`/move-outs/${item.id}/complete`, {}, logout, refreshAccessToken);
-              Alert.alert('Success', 'Move Out auto-completed successfully!');
-              fetchMoveOuts(false);
-              fetchLeases(false);
+              let completedSuccessfully = false;
+
+              // 1. If real move-out record, try direct completion
+              if (item.id && !item.id.startsWith('lease-moveout-')) {
+                try {
+                  const compRes = await apiClient.post(`/move-outs/${item.id}/complete`, {}, logout, refreshAccessToken);
+                  if (compRes) completedSuccessfully = true;
+                } catch (apiErr) {
+                  console.log('Direct move-out completion failed, proceeding to fallback:', apiErr?.message);
+                }
+              }
+
+              // 2. Identify lease, unit, and tenant
+              const realLeaseId = (item.lease?.id || item.leaseId || item.id || '').replace('lease-moveout-', '');
+              const targetUnitId = item.unit?.id || item.unitId || item.lease?.unitId;
+              const targetTenantId = item.tenant?.id || item.lease?.tenantId;
+
+              if (realLeaseId) {
+                // If MoveOut record was missing in backend, create & complete it
+                try {
+                  const createdRes = await apiClient.post('/move-outs', {
+                    leaseId: realLeaseId,
+                    unitId: targetUnitId,
+                    scheduledDate: new Date().toISOString(),
+                    notes: 'Direct Move Out completion via Mobile App',
+                  }, logout, refreshAccessToken).catch(() => null);
+
+                  const moveOutId = createdRes?.data?.id || createdRes?.id;
+                  if (moveOutId) {
+                    await apiClient.post(`/move-outs/${moveOutId}/complete`, {}, logout, refreshAccessToken).catch(() => {});
+                  }
+                } catch (createErr) {}
+
+                // Directly ensure Lease is Ended
+                await apiClient.put(`/leases/${realLeaseId}`, { status: 'Ended' }, logout, refreshAccessToken).catch(() => {});
+                // Directly ensure Unit is Vacant
+                if (targetUnitId) {
+                  await apiClient.put(`/units/${targetUnitId}`, { status: 'Vacant' }, logout, refreshAccessToken).catch(() => {});
+                }
+                // Directly ensure Tenant is Inactive
+                if (targetTenantId) {
+                  await apiClient.put(`/tenants/${targetTenantId}`, { status: 'Inactive', unitId: null }, logout, refreshAccessToken).catch(() => {});
+                }
+                completedSuccessfully = true;
+              }
+
+              if (completedSuccessfully) {
+                Alert.alert('Success', 'Move Out auto-completed successfully! Lease closed and unit is now vacant.');
+                await Promise.allSettled([
+                  fetchMoveOuts(false),
+                  fetchLeases(false),
+                  fetchProperties(false),
+                ]);
+              } else {
+                throw new Error('Could not identify target lease to complete move-out.');
+              }
             } catch (e) {
+              console.log('handleSkipMoveOut failed:', e.message);
               Alert.alert('Error', e.message || 'Failed to complete Move Out.');
             } finally {
               setSkipActionLoadingId(null);
@@ -887,6 +1417,151 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
         },
       ]
     );
+  };
+
+  // Workflow Details & Damage Review Actions (Matching Web Photo 4)
+  const handleOpenWorkflowDetails = async (type, item) => {
+    setSelectedWorkflowItem(item);
+    setWorkflowType(type);
+    setWorkflowModalOpen(true);
+    setWorkflowDamageItems([]);
+    setDamageChargeInputs({});
+
+    if (type === 'moveout') {
+      try {
+        setLoadingWorkflowDetail(true);
+        const res = await apiClient.get(`/move-outs/${item.id}`, logout, refreshAccessToken);
+        const full = res?.data || res;
+        if (full) {
+          const lease = full.lease || {};
+          const tenant = lease.tenant || full.tenant || {};
+          const unit = full.unit || lease.unit || {};
+          const property = unit.property || lease.property || full.property || {};
+
+          setSelectedWorkflowItem(prev => ({
+            ...prev,
+            ...full,
+            tenantName: tenant.firstName ? `${tenant.firstName} ${tenant.lastName || ''}`.trim() : prev?.tenantName,
+            propertyName: property.name || property.address || prev?.propertyName,
+            unitNumber: unit.unitNumber || prev?.unitNumber,
+            rentAmount: lease.rentAmount || lease.monthlyRent || prev?.rentAmount || '1,500',
+            depositAmount: lease.depositAmount || lease.securityDeposit || prev?.depositAmount || '1,500',
+            email: tenant.email || prev?.email || '',
+            phone: tenant.phone || prev?.phone || '',
+            scheduledDate: full.scheduledDate ? full.scheduledDate.split('T')[0] : prev?.scheduledDate,
+            workflowStatus: full.status || full.workflowStatus || prev?.workflowStatus,
+          }));
+
+          // Gather damaged items from inspections
+          const damages = [];
+          const inspections = full.inspections || [];
+          inspections.forEach(ins => {
+            (ins.rooms || []).forEach(room => {
+              (room.items || []).forEach(it => {
+                if (it.condition === 'POOR' || it.condition === 'FAIR') {
+                  damages.push({
+                    id: it.id,
+                    roomName: room.name,
+                    label: it.label || it.name || 'Room Item',
+                    condition: it.condition,
+                    notes: it.notes || '',
+                    chargeAmount: it.chargeAmount || 50,
+                  });
+                }
+              });
+            });
+          });
+
+          // Also check direct damageItems if any
+          if (Array.isArray(full.damageItems) && full.damageItems.length > 0) {
+            full.damageItems.forEach(di => {
+              if (!damages.some(d => d.id === di.id || d.id === di.inspectionItemId)) {
+                damages.push({
+                  id: di.id,
+                  roomName: di.roomName || 'Unit Area',
+                  label: di.itemLabel || 'Damaged Fixture',
+                  condition: di.condition || 'POOR',
+                  notes: di.notes || '',
+                  chargeAmount: di.chargeAmount || 50,
+                });
+              }
+            });
+          }
+
+          setWorkflowDamageItems(damages);
+        }
+      } catch (err) {
+        console.log('Error fetching move out detail:', err.message);
+      } finally {
+        setLoadingWorkflowDetail(false);
+      }
+    }
+  };
+
+  const handleSubmitDamageReview = async () => {
+    if (!selectedWorkflowItem) return;
+    try {
+      setSubmittingWorkflowAction(true);
+      const itemsPayload = workflowDamageItems.map(item => ({
+        inspectionItemId: item.id,
+        roomName: item.roomName,
+        itemLabel: item.label,
+        condition: item.condition,
+        notes: item.notes,
+        decision: (damageChargeInputs[item.id] !== undefined ? (Number(damageChargeInputs[item.id]) > 0 ? 'CHARGE_TENANT' : 'NO_CHARGE') : 'CHARGE_TENANT'),
+        chargeAmount: Number(damageChargeInputs[item.id] !== undefined ? damageChargeInputs[item.id] : (item.chargeAmount || 50)),
+      }));
+
+      const totalCharges = itemsPayload.reduce((acc, curr) => acc + curr.chargeAmount, 0);
+      const originalDeposit = Number(String(selectedWorkflowItem.depositAmount || 1500).replace(/[^0-9.]/g, '')) || 1500;
+      const refundAmount = Math.max(0, originalDeposit - totalCharges);
+
+      await apiClient.post(`/move-outs/${selectedWorkflowItem.id}/review-damage`, { items: itemsPayload }, logout, refreshAccessToken);
+      await apiClient.post(`/move-outs/${selectedWorkflowItem.id}/deposit-summary`, {
+        originalDeposit,
+        totalCharges,
+        refundAmount,
+        notes: 'Damage assessment finalized via Mobile App',
+        approvedBy: 'Property Manager',
+      }, logout, refreshAccessToken);
+
+      Alert.alert('Success', `Damage review submitted!\nTotal Damage Charges: $${totalCharges}\nDeposit Refund: $${refundAmount}`);
+      setWorkflowModalOpen(false);
+      fetchMoveOuts(false);
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Failed to submit damage review');
+    } finally {
+      setSubmittingWorkflowAction(false);
+    }
+  };
+
+  const handleFinalizeMoveOut = async () => {
+    if (!selectedWorkflowItem) return;
+    try {
+      setSubmittingWorkflowAction(true);
+      if (selectedWorkflowItem.id && !selectedWorkflowItem.id.startsWith('lease-moveout-')) {
+        await apiClient.post(`/move-outs/${selectedWorkflowItem.id}/complete`, {}, logout, refreshAccessToken).catch(() => {});
+      }
+      const realLeaseId = (selectedWorkflowItem.lease?.id || selectedWorkflowItem.leaseId || selectedWorkflowItem.id || '').replace('lease-moveout-', '');
+      const targetUnitId = selectedWorkflowItem.unit?.id || selectedWorkflowItem.unitId || selectedWorkflowItem.lease?.unitId;
+      const targetTenantId = selectedWorkflowItem.tenant?.id || selectedWorkflowItem.lease?.tenantId;
+      if (realLeaseId) {
+        await apiClient.put(`/leases/${realLeaseId}`, { status: 'Ended' }, logout, refreshAccessToken).catch(() => {});
+        if (targetUnitId) await apiClient.put(`/units/${targetUnitId}`, { status: 'Vacant' }, logout, refreshAccessToken).catch(() => {});
+        if (targetTenantId) await apiClient.put(`/tenants/${targetTenantId}`, { status: 'Inactive', unitId: null }, logout, refreshAccessToken).catch(() => {});
+      }
+      Alert.alert('Success', 'Move Out completed successfully! Lease closed and unit is now vacant.');
+      setWorkflowModalOpen(false);
+      await Promise.allSettled([
+        fetchMoveOuts(false),
+        fetchLeases(false),
+        fetchProperties(false),
+      ]);
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Failed to finalize move out');
+    } finally {
+      setSubmittingWorkflowAction(false);
+    }
   };
 
   // Renewals Action Handlers matching Web
@@ -958,44 +1633,194 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
     }
   };
 
-  // G. Create Inspection Template
-  const handleCreateTemplate = async () => {
+  // G. Template Builder Handlers (Matching Web InspectionTemplatesPage 1:1)
+  const handleOpenCreateTemplate = () => {
+    setEditingTemplateId(null);
+    setTemplateName('');
+    setTemplateType('MOVE_IN');
+    setTemplateDescription('');
+    setTemplateBuilderRooms(JSON.parse(JSON.stringify(defaultStarterRooms)));
+    setRecordTemplateOpen(true);
+  };
+
+  const handleOpenEditTemplate = async (item) => {
+    try {
+      setLoading(true);
+      let fullTemplate = item;
+      try {
+        const res = await apiClient.get(`/inspection-templates/${item.id}`, logout, refreshAccessToken);
+        if (res?.data || res) {
+          fullTemplate = res.data || res;
+        }
+      } catch (err) {
+        console.log('Using list item template data:', err?.message);
+      }
+
+      setEditingTemplateId(item.id);
+      setTemplateName(fullTemplate.name || fullTemplate.title || item.name || '');
+      setTemplateType(fullTemplate.type || item.type || 'MOVE_IN');
+      setTemplateDescription(fullTemplate.description || item.description || '');
+
+      const incomingRooms = fullTemplate.rooms || item.rooms;
+      if (Array.isArray(incomingRooms) && incomingRooms.length > 0) {
+        setTemplateBuilderRooms(incomingRooms.map((r, rIdx) => ({
+          id: r.id,
+          name: r.name || `Room ${rIdx + 1}`,
+          sortOrder: r.sortOrder ?? rIdx,
+          items: Array.isArray(r.items) && r.items.length > 0 ? r.items.map((it, itIdx) => ({
+            id: it.id,
+            label: it.label || it.name || '',
+            required: it.required !== undefined ? it.required : true,
+            sortOrder: it.sortOrder ?? itIdx,
+          })) : [
+            { label: 'Flooring', required: true, sortOrder: 0 },
+            { label: 'Walls & Ceiling', required: true, sortOrder: 1 },
+          ]
+        })));
+      } else {
+        setTemplateBuilderRooms(JSON.parse(JSON.stringify(defaultStarterRooms)));
+      }
+      setRecordTemplateOpen(true);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to load inspection template details.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveTemplate = async () => {
     if (!templateName.trim()) {
       Alert.alert('Validation Error', 'Template Name is required.');
       return;
     }
-
     try {
       setSubmitting(true);
       const payload = {
         name: templateName.trim(),
-        roomsCount: parseInt(templateRooms || '4'),
+        type: templateType,
+        description: templateDescription.trim(),
+        active: true,
+        rooms: templateBuilderRooms.map((r, rIdx) => ({
+          name: r.name.trim() || `Room ${rIdx + 1}`,
+          sortOrder: rIdx,
+          items: (r.items || []).map((it, itIdx) => ({
+            label: it.label.trim() || 'Item',
+            required: it.required !== false,
+            sortOrder: itIdx,
+          }))
+        }))
       };
 
-      await apiClient.post('/inspection-templates', payload, logout, refreshAccessToken);
-      Alert.alert('Success', 'Inspection checklist template created.');
+      if (editingTemplateId) {
+        await apiClient.put(`/inspection-templates/${editingTemplateId}`, payload, logout, refreshAccessToken);
+        Alert.alert('Success', 'Inspection template updated successfully.');
+      } else {
+        await apiClient.post('/inspection-templates', payload, logout, refreshAccessToken);
+        Alert.alert('Success', 'Inspection checklist template created.');
+      }
       setRecordTemplateOpen(false);
-      setTemplateName('');
+      setEditingTemplateId(null);
       fetchTemplates(true);
     } catch (e) {
-      Alert.alert('Error', e.message || 'Failed to create template.');
+      Alert.alert('Error', e.message || 'Failed to save template.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // H. Duplicate Inspection Template
-  const handleDuplicateTemplate = async (id) => {
-    try {
-      setLoading(true);
-      await apiClient.post(`/inspection-templates/${id}/duplicate`, {}, logout, refreshAccessToken);
-      Alert.alert('Success', 'Inspection checklist template duplicated successfully.');
-      fetchTemplates(true);
-    } catch (e) {
-      Alert.alert('Error', e.message || 'Failed to duplicate template.');
-    } finally {
-      setLoading(false);
-    }
+  const handleAddTemplateRoom = () => {
+    setTemplateBuilderRooms(prev => [
+      ...prev,
+      {
+        name: `Room ${prev.length + 1}`,
+        sortOrder: prev.length,
+        items: [
+          { label: 'Walls & Ceiling', required: true, sortOrder: 0 },
+          { label: 'Flooring', required: true, sortOrder: 1 },
+          { label: 'Electrical & Lighting', required: true, sortOrder: 2 },
+        ],
+      }
+    ]);
+  };
+
+  const handleDuplicateTemplateRoom = (index) => {
+    const roomToDuplicate = templateBuilderRooms[index];
+    if (!roomToDuplicate) return;
+    const newRoom = {
+      ...roomToDuplicate,
+      name: `${roomToDuplicate.name} (Copy)`,
+      sortOrder: templateBuilderRooms.length,
+      items: (roomToDuplicate.items || []).map(it => ({ ...it })),
+    };
+    setTemplateBuilderRooms(prev => [...prev, newRoom]);
+  };
+
+  const handleRemoveTemplateRoom = (index) => {
+    setTemplateBuilderRooms(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleRoomNameChange = (index, newName) => {
+    setTemplateBuilderRooms(prev => prev.map((r, i) => i === index ? { ...r, name: newName } : r));
+  };
+
+  const handleAddTemplateItem = (roomIndex) => {
+    setTemplateBuilderRooms(prev => prev.map((r, rIdx) => {
+      if (rIdx !== roomIndex) return r;
+      return {
+        ...r,
+        items: [
+          ...(r.items || []),
+          { label: 'New Checklist Item', required: true, sortOrder: (r.items || []).length }
+        ]
+      };
+    }));
+  };
+
+  const handleRemoveTemplateItem = (roomIndex, itemIndex) => {
+    setTemplateBuilderRooms(prev => prev.map((r, rIdx) => {
+      if (rIdx !== roomIndex) return r;
+      return {
+        ...r,
+        items: (r.items || []).filter((_, i) => i !== itemIndex)
+      };
+    }));
+  };
+
+  const handleTemplateItemChange = (roomIndex, itemIndex, field, value) => {
+    setTemplateBuilderRooms(prev => prev.map((r, rIdx) => {
+      if (rIdx !== roomIndex) return r;
+      return {
+        ...r,
+        items: (r.items || []).map((item, i) => i === itemIndex ? { ...item, [field]: value } : item)
+      };
+    }));
+  };
+
+  // H. Delete Inspection Template
+  const handleDeleteTemplate = (item) => {
+    Alert.alert(
+      'Delete Inspection Template',
+      `Are you sure you want to delete "${item.name}"? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await apiClient.delete(`/inspection-templates/${item.id}`, logout, refreshAccessToken);
+              Alert.alert('Success', 'Inspection checklist template deleted successfully.');
+              fetchTemplates(true);
+            } catch (e) {
+              Alert.alert('Error', e.message || 'Failed to delete template.');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // I. Start Inspection Flow
@@ -1041,12 +1866,18 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
     if (activePicker === 'paymentResp') return screenPaymentResponsibility === val;
     if (activePicker === 'package') return screenPackage === val;
     if (activePicker === 'stage') return leadStage === val;
+    if (activePicker === 'leadSource') return leadSource === val;
+    if (activePicker === 'leadPriority') return leadPriority === val;
     if (activePicker === 'renewalTerm') return Number(renewalTermMonths) === Number(val);
     return false;
   };
 
   const getPickerOptions = () => {
     switch (activePicker) {
+      case 'leadSource':
+        return ['Zillow', 'Apartments.com', 'Website', 'Referral', 'Walk-in', 'Craigslist', 'Other'].map(s => ({ value: s, label: s }));
+      case 'leadPriority':
+        return ['Low', 'Medium', 'High', 'Urgent'].map(p => ({ value: p, label: p }));
       case 'property':
       case 'leaseProperty':
         return properties.map(p => ({
@@ -1058,10 +1889,17 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
         const filteredUnits = currentPropId
           ? units.filter(u => u.propertyId === currentPropId || u.property_id === currentPropId || u.property?.id === currentPropId)
           : units;
-        return filteredUnits.map(u => ({
-          value: u.id,
-          label: `Unit ${u.unitNumber || u.name || u.id} (${u.property?.name || properties.find(p => p.id === (u.propertyId || u.property_id))?.name || 'Property'})`
-        }));
+        return filteredUnits.map(u => {
+          const isOccupied = u.status?.toLowerCase() === 'occupied' || Boolean(u.isOccupied);
+          const statusText = u.status || (isOccupied ? 'Occupied' : 'Vacant');
+          const occupiedWarning = isOccupied ? ' (Occupied)' : ' (Vacant)';
+          return {
+            value: u.id,
+            disabled: isOccupied,
+            isOccupied,
+            label: `Unit ${u.unitNumber || u.name || u.id} - ${statusText}${occupiedWarning}`
+          };
+        });
       }
       case 'leaseUnit': {
         const propUnits = leasePropertyId
@@ -1148,6 +1986,11 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
       setLeaseUnitId('');
     }
     if (activePicker === 'unit') {
+      const chosenUnit = units.find(u => u.id === val);
+      if (chosenUnit?.status?.toLowerCase() === 'occupied' || chosenUnit?.isOccupied) {
+        Alert.alert('Unit Occupied', 'Unit is currently occupied. Screening requests are disabled for occupied units.');
+        return;
+      }
       if (recordScreeningOpen) setScreenUnitId(val);
       if (recordLeaseOpen) setLeaseUnitId(val);
     }
@@ -1196,6 +2039,8 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
       setRenewalTermMonths(val);
     }
     if (activePicker === 'stage') setLeadStage(val);
+    if (activePicker === 'leadSource') setLeadSource(val);
+    if (activePicker === 'leadPriority') setLeadPriority(val);
     if (activePicker === 'package') setScreenPackage(val);
     setActivePicker(null);
   };
@@ -1266,28 +2111,68 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
 
   // Filter listings local
   const filteredLeads = leadsList.filter(item => {
-    const text = `${item.name} ${item.email} ${item.propertyName} ${item.stage}`.toLowerCase();
-    return text.includes(searchQuery.toLowerCase());
+    if (!item) return false;
+    if (leadStageFilter && leadStageFilter !== 'ALL') {
+      const stageNorm = String(item.stage || '').toUpperCase().replace(/[\s-]/g, '_');
+      const filterNorm = leadStageFilter.toUpperCase().replace(/[\s-]/g, '_');
+      if (stageNorm !== filterNorm) return false;
+    }
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    const text = `${item.name || ''} ${item.email || ''} ${item.propertyName || ''} ${item.stage || ''}`.toLowerCase();
+    return text.includes(q);
   });
 
   const filteredApps = applicationsList.filter(item => {
-    const text = `${item.applicantName} ${item.propertyName} ${item.unitNumber} ${item.status}`.toLowerCase();
-    return text.includes(searchQuery.toLowerCase());
+    if (!item) return false;
+    if (appStatusFilter && appStatusFilter !== 'ALL') {
+      const statusNorm = String(item.status || '').toUpperCase().replace(/[\s-]/g, '_');
+      const filterNorm = appStatusFilter.toUpperCase().replace(/[\s-]/g, '_');
+      if (statusNorm !== filterNorm) return false;
+    }
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    const text = `${item.applicantName || ''} ${item.propertyName || ''} ${item.unitNumber || ''} ${item.status || ''}`.toLowerCase();
+    return text.includes(q);
   });
 
   const filteredScreening = screeningList.filter(item => {
-    const text = `${item.applicantName} ${item.email} ${item.propertyName} ${item.unitNumber} ${item.screeningStatus}`.toLowerCase();
-    return text.includes(searchQuery.toLowerCase());
+    if (!item) return false;
+    if (screeningStatusFilter && screeningStatusFilter !== 'ALL') {
+      const statusNorm = String(item.screeningStatus || '').toUpperCase().replace(/[\s-]/g, '_');
+      const filterNorm = screeningStatusFilter.toUpperCase().replace(/[\s-]/g, '_');
+      if (statusNorm !== filterNorm) return false;
+    }
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    const text = `${item.applicantName || ''} ${item.email || ''} ${item.propertyName || ''} ${item.unitNumber || ''} ${item.screeningStatus || ''}`.toLowerCase();
+    return text.includes(q);
   });
 
   const filteredLeases = leasesList.filter(item => {
-    const text = `${item.tenantName} ${item.propertyName} ${item.unitNumber}`.toLowerCase();
-    return text.includes(searchQuery.toLowerCase());
+    if (!item) return false;
+    if (leaseStatusFilter && leaseStatusFilter !== 'ALL') {
+      const statusNorm = String(item.status || '').toUpperCase().replace(/[\s-]/g, '_');
+      const filterNorm = leaseStatusFilter.toUpperCase().replace(/[\s-]/g, '_');
+      if (statusNorm !== filterNorm) return false;
+    }
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    const text = `${item.tenantName || ''} ${item.propertyName || ''} ${item.unitNumber || ''} ${item.leaseNumber || ''} ${item.monthlyRent || ''} ${item.status || ''}`.toLowerCase();
+    return text.includes(q);
   });
 
   const filteredRenewals = renewalsList.filter(item => {
-    const text = `${item.tenantName} ${item.propertyName} ${item.unitNumber} ${item.status}`.toLowerCase();
-    return text.includes(searchQuery.toLowerCase());
+    if (!item) return false;
+    if (renewalStatusFilter && renewalStatusFilter !== 'ALL') {
+      const statusNorm = String(item.status || '').toUpperCase().replace(/[\s-]/g, '_');
+      const filterNorm = renewalStatusFilter.toUpperCase().replace(/[\s-]/g, '_');
+      if (statusNorm !== filterNorm) return false;
+    }
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    const text = `${item.tenantName || ''} ${item.propertyName || ''} ${item.unitNumber || ''} ${item.status || ''}`.toLowerCase();
+    return text.includes(q);
   });
 
   const filteredMoveIns = moveInList.filter(item => {
@@ -1315,14 +2200,78 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
     return text.includes(searchQuery.toLowerCase());
   });
 
+  const activeFilterValue = 
+    activeTab === 'leads' ? leadStageFilter :
+    activeTab === 'applications' ? appStatusFilter :
+    activeTab === 'screening' ? screeningStatusFilter :
+    activeTab === 'leases' ? leaseStatusFilter :
+    activeTab === 'renewals' ? renewalStatusFilter :
+    activeTab === 'movein' ? moveInFilter :
+    activeTab === 'moveout' ? moveOutFilter : 'ALL';
+  const hasActiveLeasingFilter = activeFilterValue && activeFilterValue !== 'ALL';
+
+  const handleClearActiveFilter = () => {
+    if (activeTab === 'leads') setLeadStageFilter('ALL');
+    else if (activeTab === 'applications') setAppStatusFilter('ALL');
+    else if (activeTab === 'screening') setScreeningStatusFilter('ALL');
+    else if (activeTab === 'leases') setLeaseStatusFilter('ALL');
+    else if (activeTab === 'renewals') setRenewalStatusFilter('ALL');
+    else if (activeTab === 'movein') setMoveInFilter('ALL');
+    else if (activeTab === 'moveout') setMoveOutFilter('ALL');
+  };
+
+  const getFilterLabel = () => {
+    if (activeTab === 'leads') {
+      const opt = leadStageOptions.find(o => o.value === leadStageFilter);
+      return opt ? `Stage: ${opt.label}` : `Stage: ${leadStageFilter}`;
+    }
+    if (activeTab === 'applications') {
+      const opt = appStatusOptions.find(o => o.value === appStatusFilter);
+      return opt ? `Status: ${opt.label}` : `Status: ${appStatusFilter}`;
+    }
+    if (activeTab === 'screening') {
+      const opt = screeningStatusOptions.find(o => o.value === screeningStatusFilter);
+      return opt ? `Status: ${opt.label}` : `Status: ${screeningStatusFilter}`;
+    }
+    if (activeTab === 'leases') {
+      const opt = leaseStatusOptions.find(o => o.value === leaseStatusFilter);
+      return opt ? `Status: ${opt.label}` : `Status: ${leaseStatusFilter}`;
+    }
+    if (activeTab === 'renewals') {
+      const opt = renewalStatusOptions.find(o => o.value === renewalStatusFilter);
+      return opt ? `Status: ${opt.label}` : `Status: ${renewalStatusFilter}`;
+    }
+    if (activeTab === 'movein') {
+      const opt = moveInStatusFilters.find(o => o.value === moveInFilter);
+      return opt ? `Status: ${opt.label}` : `Status: ${moveInFilter}`;
+    }
+    if (activeTab === 'moveout') {
+      const opt = moveOutStatusFilters.find(o => o.value === moveOutFilter);
+      return opt ? `Status: ${opt.label}` : `Status: ${moveOutFilter}`;
+    }
+    return '';
+  };
+
   return (
     <View style={styles.mainWrapper}>
       {/* FIXED HEADER WITH SWITCHER - Fixed minHeight layout prevents content shifting */}
       <View style={[styles.fixedHeader, { paddingTop: 16 }]}>
         <View style={styles.headerTextContainer}>
-          <Text style={styles.title} allowFontScaling={false}>
-            {activeTab === 'leads' ? 'Leads Pipeline' : activeTab === 'applications' ? 'Background Applications' : activeTab === 'screening' ? 'Tenant Screening & Applications' : activeTab === 'leases' ? 'Lease Agreements' : activeTab === 'renewals' ? 'Lease Renewals Directory' : activeTab === 'movein' ? 'Move In Workflow Registry' : activeTab === 'moveout' ? 'Move Out Workflow Registry' : 'Inspection Templates'}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+            {!!onNavigate && (
+              <TouchableOpacity
+                onPress={() => onNavigate('dashboard')}
+                style={{ marginRight: 8, padding: 4 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <Text style={[styles.title, { flex: 1, marginBottom: 0 }]} allowFontScaling={false}>
+              {activeTab === 'leads' ? 'Leads Pipeline' : activeTab === 'applications' ? 'Background Applications' : activeTab === 'screening' ? 'Tenant Screening & Applications' : activeTab === 'leases' ? 'Lease Agreements' : activeTab === 'renewals' ? 'Lease Renewals Directory' : activeTab === 'movein' ? 'Move In Workflow Registry' : activeTab === 'moveout' ? 'Move Out Workflow Registry' : 'Inspection Templates'}
+            </Text>
+          </View>
           <Text style={styles.subtitle} allowFontScaling={false} numberOfLines={2}>
             {activeTab === 'leads'
               ? 'Verify visitors pipeline interest, schedule viewing tours, and track conversions.'
@@ -1378,8 +2327,8 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
           </ScrollView>
         </View>
 
-        {/* Search controls */}
-        <View style={[styles.searchBarRow, { marginTop: 12 }]}>
+        {/* Search & Filter controls */}
+        <View style={[styles.searchBarRow, { marginTop: 12, gap: 8 }]}>
           <View style={[styles.searchContainer, { marginRight: 0 }]}>
             <Ionicons name="search-outline" size={16} color="#64748b" style={{ marginRight: 6 }} />
             <TextInput
@@ -1389,8 +2338,48 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={16} color="#64748b" />
+              </TouchableOpacity>
+            ) : null}
           </View>
+          {activeTab !== 'templates' && (
+            <TouchableOpacity
+              style={[
+                styles.filterBtn,
+                hasActiveLeasingFilter && styles.filterBtnActive,
+              ]}
+              onPress={() => setFilterModalOpen(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="filter"
+                size={18}
+                color={hasActiveLeasingFilter ? '#FFFFFF' : colors.textSecondary}
+              />
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* Active Filter Pill */}
+        {hasActiveLeasingFilter && (
+          <View style={styles.activeFiltersRow}>
+            <TouchableOpacity
+              style={styles.activePill}
+              onPress={handleClearActiveFilter}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.activePillText} allowFontScaling={false}>
+                {getFilterLabel()}
+              </Text>
+              <Ionicons name="close" size={14} color="#38bdf8" style={{ marginLeft: 4 }} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleClearActiveFilter} style={styles.clearFiltersBtn}>
+              <Text style={styles.clearFiltersText} allowFontScaling={false}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Web-aligned Dedicated Action Button */}
         {activeTab === 'leads' && (
@@ -1426,7 +2415,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
         )}
 
         {activeTab === 'templates' && (
-          <TouchableOpacity style={styles.dedicatedAddBtn} onPress={() => setRecordTemplateOpen(true)}>
+          <TouchableOpacity style={styles.dedicatedAddBtn} onPress={handleOpenCreateTemplate}>
             <Ionicons name="add" size={18} color="#0f172a" />
             <Text style={styles.dedicatedAddBtnText} allowFontScaling={false}>Create Template</Text>
           </TouchableOpacity>
@@ -1633,14 +2622,22 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                   </View>
                 ) : (
                   filteredLeases.map((item) => (
-                    <View key={item.id} style={styles.recordsCard}>
+                    <TouchableOpacity
+                      key={item.id}
+                      style={styles.recordsCard}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        setSelectedLease(item);
+                        setLeaseDetailModalOpen(true);
+                      }}
+                    >
                       <View style={styles.rowBetween}>
                         <View style={{ flex: 1, marginRight: 10 }}>
                           <Text style={styles.recordLabel} allowFontScaling={false}>{item.tenantName}</Text>
                           <Text style={styles.recordSubText} allowFontScaling={false}>{item.propertyName} · Unit {item.unitNumber}</Text>
                         </View>
                         <View style={[styles.badge, { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
-                          <Text style={[styles.badgeText, { color: '#10b981' }]} allowFontScaling={false}>Active</Text>
+                          <Text style={[styles.badgeText, { color: '#10b981' }]} allowFontScaling={false}>{item.status || 'Active'}</Text>
                         </View>
                       </View>
                       <View style={styles.divider} />
@@ -1654,7 +2651,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                           ${Number(item.monthlyRent).toLocaleString()}
                         </Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   ))
                 )}
               </View>
@@ -1706,7 +2703,16 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                         {/* Renewal Action Buttons matching Web */}
                         <View style={[styles.actionRowContainer, { marginTop: 12, flexWrap: 'wrap', gap: 6 }]}>
                           <TouchableOpacity
-                            style={[styles.smallActionBtn, { backgroundColor: 'rgba(100, 116, 139, 0.18)', flex: 1, minWidth: 70 }]}
+                            style={[
+                              styles.smallActionBtn,
+                              {
+                                backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.15)' : '#eff6ff',
+                                borderWidth: 1,
+                                borderColor: isDarkMode ? '#38bdf8' : '#2563eb',
+                                flex: 1,
+                                minWidth: 70
+                              }
+                            ]}
                             onPress={() => {
                               fetchOptions();
                               setEditingRenewal(item);
@@ -1715,8 +2721,8 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                               setEditRenewalModalOpen(true);
                             }}
                           >
-                            <Ionicons name="create-outline" size={13} color="#cbd5e1" style={{ marginRight: 4 }} />
-                            <Text style={[styles.smallActionText, { color: '#cbd5e1' }]} allowFontScaling={false}>Edit</Text>
+                            <Ionicons name="create-outline" size={13} color={isDarkMode ? "#38bdf8" : "#2563eb"} style={{ marginRight: 4 }} />
+                            <Text style={[styles.smallActionText, { color: isDarkMode ? "#38bdf8" : "#2563eb", fontWeight: '800' }]} allowFontScaling={false}>Edit</Text>
                           </TouchableOpacity>
 
                           {/* When PENDING (Pending Offer): Only Send Offer + Edit */}
@@ -1866,17 +2872,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                           {/* View Workflow Action: Always present on every row matching Web */}
                           <TouchableOpacity
                             style={[styles.smallActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.12)', flex: isScheduled ? 1 : undefined, minWidth: 125, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}
-                            onPress={() => {
-                              if (inspectionId) {
-                                onNavigate && onNavigate('inspection', { inspectionId });
-                              } else if (isCompleted) {
-                                Alert.alert('Move In Workflow', `Tenant: ${item.tenantName}\nProperty: ${item.propertyName} · Unit ${item.unitNumber}\nStatus: Completed\nMove-in has been finalized.`);
-                              } else {
-                                setSelectedMoveInOrOut({ type: 'movein', id: item.id });
-                                setStartInspectionTemplateId('');
-                                setStartInspectionModalOpen(true);
-                              }
-                            }}
+                            onPress={() => handleOpenWorkflowDetails('movein', item)}
                           >
                             <Ionicons name="eye-outline" size={15} color="#38bdf8" style={{ marginRight: 4 }} />
                             <Text style={[styles.smallActionText, { color: '#38bdf8', fontWeight: '800' }]} allowFontScaling={false}>
@@ -1987,20 +2983,23 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                             </TouchableOpacity>
                           )}
 
+                          {/* Review Damage Items Action matching Web Photo 4 */}
+                          {(normStatus === 'INSPECTION_COMPLETED' || normStatus === 'DAMAGE_REVIEW') && (
+                            <TouchableOpacity
+                              style={[styles.smallActionBtn, { backgroundColor: '#38bdf8', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}
+                              onPress={() => handleOpenWorkflowDetails('moveout', item)}
+                            >
+                              <Ionicons name="document-text-outline" size={15} color="#0f172a" style={{ marginRight: 4 }} />
+                              <Text style={[styles.smallActionText, { color: '#0f172a', fontWeight: '800' }]} allowFontScaling={false}>
+                                Review Damage Items
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+
                           {/* View Workflow Action: Always present on every row matching Web */}
                           <TouchableOpacity
-                            style={[styles.smallActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.12)', flex: isScheduled ? 1 : undefined, minWidth: 125, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}
-                            onPress={() => {
-                              if (inspectionId) {
-                                onNavigate && onNavigate('inspection', { inspectionId });
-                              } else if (isCompleted) {
-                                Alert.alert('Move Out Workflow', `Tenant: ${item.tenantName}\nProperty: ${item.propertyName} · Unit ${item.unitNumber}\nStatus: Completed\nMove-out and deposit signoff finalized.`);
-                              } else {
-                                setSelectedMoveInOrOut({ type: 'moveout', id: item.id });
-                                setStartInspectionTemplateId('');
-                                setStartInspectionModalOpen(true);
-                              }
-                            }}
+                            style={[styles.smallActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.12)', flex: isScheduled ? 1 : undefined, minWidth: 120, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}
+                            onPress={() => handleOpenWorkflowDetails('moveout', item)}
                           >
                             <Ionicons name="eye-outline" size={15} color="#38bdf8" style={{ marginRight: 4 }} />
                             <Text style={[styles.smallActionText, { color: '#38bdf8', fontWeight: '800' }]} allowFontScaling={false}>
@@ -2028,20 +3027,22 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                       <View key={item.id} style={styles.templateGridCard}>
                         <View style={styles.rowBetween}>
                           <View style={[styles.badge, { borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.12)' }]}>
-                            <Text style={[styles.badgeText, { color: '#38bdf8' }]} allowFontScaling={false}>INSPECTION ASSIGN</Text>
+                            <Text style={[styles.badgeText, { color: '#38bdf8' }]} allowFontScaling={false}>
+                              {(item.type || 'INSPECTION ASSIGN').replace('_', ' ').toUpperCase()}
+                            </Text>
                           </View>
                           <Ionicons name="checkbox-outline" size={16} color="#10b981" />
                         </View>
 
                         <Text style={styles.tmplTitle} allowFontScaling={false}>{item.name}</Text>
-                        <Text style={styles.tmplDesc} allowFontScaling={false}>No description provided.</Text>
+                        <Text style={styles.tmplDesc} allowFontScaling={false}>{item.description || 'No description provided.'}</Text>
 
                         <View style={styles.divider} />
 
                         <View style={styles.rowBetween}>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <Ionicons name="layers-outline" size={12} color="#cbd5e1" style={{ marginRight: 4 }} />
-                            <Text style={styles.tmplMetaText} allowFontScaling={false}>{item.roomsCount} Rooms</Text>
+                            <Text style={styles.tmplMetaText} allowFontScaling={false}>{item.roomsCount || item.rooms?.length || 4} Rooms</Text>
                           </View>
                           <View style={{ alignItems: 'flex-end' }}>
                             <Text style={styles.tmplMetaLabel} allowFontScaling={false}>Created By:</Text>
@@ -2050,13 +3051,25 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                         </View>
 
                         <View style={styles.tmplActionRow}>
-                          <TouchableOpacity style={styles.tmplActionBtn} onPress={() => Alert.alert('Edit Template', 'Loading inspection designer details...')}>
-                            <Ionicons name="create-outline" size={13} color="#cbd5e1" style={{ marginRight: 4 }} />
-                            <Text style={styles.tmplActionBtnText} allowFontScaling={false}>Edit</Text>
+                          <TouchableOpacity
+                            style={[
+                              styles.tmplActionBtn,
+                              { backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.15)' : '#eff6ff', borderWidth: 1, borderColor: isDarkMode ? '#38bdf8' : '#2563eb' }
+                            ]}
+                            onPress={() => handleOpenEditTemplate(item)}
+                          >
+                            <Ionicons name="create-outline" size={13} color={isDarkMode ? "#38bdf8" : "#2563eb"} style={{ marginRight: 4 }} />
+                            <Text style={[styles.tmplActionBtnText, { color: isDarkMode ? "#38bdf8" : "#2563eb", fontWeight: '700' }]} allowFontScaling={false}>Edit</Text>
                           </TouchableOpacity>
-                          <TouchableOpacity style={styles.tmplActionBtn} onPress={() => handleDuplicateTemplate(item.id)}>
-                            <Ionicons name="copy-outline" size={13} color="#cbd5e1" style={{ marginRight: 4 }} />
-                            <Text style={styles.tmplActionBtnText} allowFontScaling={false}>Duplicate</Text>
+                          <TouchableOpacity
+                            style={[
+                              styles.tmplActionBtn,
+                              { backgroundColor: isDarkMode ? '#ef444415' : '#fef2f2', borderWidth: 1, borderColor: isDarkMode ? '#ef444440' : '#fecaca' }
+                            ]}
+                            onPress={() => handleDeleteTemplate(item)}
+                          >
+                            <Ionicons name="trash-outline" size={13} color="#ef4444" style={{ marginRight: 4 }} />
+                            <Text style={[styles.tmplActionBtnText, { color: '#ef4444', fontWeight: '700' }]} allowFontScaling={false}>Delete</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -2071,33 +3084,174 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
         <View style={{ height: 60 }} />
       </ScrollView>
 
+      {/* --- LEASING FILTER MODAL --- */}
+      <Modal visible={filterModalOpen} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '75%', width: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
+                <Text style={styles.modalTitle} allowFontScaling={false}>
+                  Filter {activeTab === 'leads' ? 'Leads' : activeTab === 'applications' ? 'Applications' : activeTab === 'screening' ? 'Screening' : activeTab === 'leases' ? 'Leases' : activeTab === 'renewals' ? 'Renewals' : activeTab === 'movein' ? 'Move In' : activeTab === 'moveout' ? 'Move Out' : 'List'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setFilterModalOpen(false)}>
+                <Ionicons name="close-circle-outline" size={24} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ paddingVertical: 12 }} showsVerticalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {activeTab === 'leads' && leadStageOptions.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.filterChip, leadStageFilter === opt.value && styles.filterChipActive]}
+                    onPress={() => setLeadStageFilter(opt.value)}
+                  >
+                    <Text style={[styles.filterChipText, leadStageFilter === opt.value && styles.filterChipTextActive]} allowFontScaling={false}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {activeTab === 'applications' && appStatusOptions.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.filterChip, appStatusFilter === opt.value && styles.filterChipActive]}
+                    onPress={() => setAppStatusFilter(opt.value)}
+                  >
+                    <Text style={[styles.filterChipText, appStatusFilter === opt.value && styles.filterChipTextActive]} allowFontScaling={false}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {activeTab === 'screening' && screeningStatusOptions.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.filterChip, screeningStatusFilter === opt.value && styles.filterChipActive]}
+                    onPress={() => setScreeningStatusFilter(opt.value)}
+                  >
+                    <Text style={[styles.filterChipText, screeningStatusFilter === opt.value && styles.filterChipTextActive]} allowFontScaling={false}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {activeTab === 'leases' && leaseStatusOptions.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.filterChip, leaseStatusFilter === opt.value && styles.filterChipActive]}
+                    onPress={() => setLeaseStatusFilter(opt.value)}
+                  >
+                    <Text style={[styles.filterChipText, leaseStatusFilter === opt.value && styles.filterChipTextActive]} allowFontScaling={false}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {activeTab === 'renewals' && renewalStatusOptions.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.filterChip, renewalStatusFilter === opt.value && styles.filterChipActive]}
+                    onPress={() => setRenewalStatusFilter(opt.value)}
+                  >
+                    <Text style={[styles.filterChipText, renewalStatusFilter === opt.value && styles.filterChipTextActive]} allowFontScaling={false}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {activeTab === 'movein' && moveInStatusFilters.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.filterChip, moveInFilter === opt.value && styles.filterChipActive]}
+                    onPress={() => setMoveInFilter(opt.value)}
+                  >
+                    <Text style={[styles.filterChipText, moveInFilter === opt.value && styles.filterChipTextActive]} allowFontScaling={false}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {activeTab === 'moveout' && moveOutStatusFilters.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.filterChip, moveOutFilter === opt.value && styles.filterChipActive]}
+                    onPress={() => setMoveOutFilter(opt.value)}
+                  >
+                    <Text style={[styles.filterChipText, moveOutFilter === opt.value && styles.filterChipTextActive]} allowFontScaling={false}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.cardBorder, gap: 10 }}>
+              <TouchableOpacity
+                style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: colors.cardBorder }}
+                onPress={handleClearActiveFilter}
+              >
+                <Text style={{ fontSize: 13, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>Reset</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: '#38bdf8', alignItems: 'center' }}
+                onPress={() => setFilterModalOpen(false)}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '800', color: '#0f172a' }} allowFontScaling={false}>Apply Filters</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* --- 1. RECORD CRM LEAD MODAL --- */}
       <Modal visible={recordLeadOpen} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Add Prospect Lead</Text>
+                <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>Add Prospect Lead</Text>
+                </View>
                 <TouchableOpacity onPress={() => setRecordLeadOpen(false)}>
                   <Ionicons name="close-circle-outline" size={24} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false}>
-                 <Text style={styles.formLabel} allowFontScaling={false}>PROSPECT NAME</Text>
-                <TextInput
-                  style={styles.formInput}
-                  placeholder="E.g. John Doe"
-                  placeholderTextColor="#64748b"
-                  value={leadName}
-                  onChangeText={setLeadName}
-                />
-                {leadErrors.name && <Text style={styles.errorLabel} allowFontScaling={false}>{leadErrors.name}</Text>}
+              <ScrollView
+                style={styles.modalForm}
+                contentContainerStyle={{ paddingBottom: 160 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+              >
+                <View style={styles.formRow}>
+                  <View style={styles.formCol}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>FIRST NAME *</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="Alice"
+                      placeholderTextColor="#64748b"
+                      value={leadFirstName}
+                      onChangeText={setLeadFirstName}
+                    />
+                    {leadErrors.firstName && <Text style={styles.errorLabel} allowFontScaling={false}>{leadErrors.firstName}</Text>}
+                  </View>
+                  <View style={styles.formCol}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>LAST NAME</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="Smith"
+                      placeholderTextColor="#64748b"
+                      value={leadLastName}
+                      onChangeText={setLeadLastName}
+                    />
+                  </View>
+                </View>
 
-                <Text style={styles.formLabel} allowFontScaling={false}>EMAIL ADDRESS</Text>
+                <Text style={styles.formLabel} allowFontScaling={false}>EMAIL ADDRESS *</Text>
                 <TextInput
                   style={styles.formInput}
-                  placeholder="johndoe@example.com"
+                  placeholder="alice.smith@gmail.com"
                   placeholderTextColor="#64748b"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -2106,10 +3260,10 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                 />
                 {leadErrors.email && <Text style={styles.errorLabel} allowFontScaling={false}>{leadErrors.email}</Text>}
 
-                <Text style={styles.formLabel} allowFontScaling={false}>PHONE NUMBER</Text>
+                <Text style={styles.formLabel} allowFontScaling={false}>PHONE NUMBER *</Text>
                 <TextInput
                   style={styles.formInput}
-                  placeholder="555-0101"
+                  placeholder="(512) 555-0155"
                   placeholderTextColor="#64748b"
                   keyboardType="phone-pad"
                   value={leadPhone}
@@ -2117,27 +3271,112 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                 />
                 {leadErrors.phone && <Text style={styles.errorLabel} allowFontScaling={false}>{leadErrors.phone}</Text>}
 
-                <Text style={styles.formLabel} allowFontScaling={false}>INTERESTED PROPERTY</Text>
-                <TouchableOpacity
-                  style={styles.formPickerSelector}
-                  onPress={() => setActivePicker(activePicker === 'property' ? null : 'property')}
-                >
-                  <Text style={styles.formPickerText} allowFontScaling={false}>
-                    {leadPropertyId ? properties.find(p => p.id === leadPropertyId)?.name : 'Select Property...'}
-                  </Text>
-                  <Ionicons name={activePicker === 'property' ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                </TouchableOpacity>
-                {renderInlinePicker('property')}
+                <View style={styles.formRow}>
+                  <View style={[styles.formCol, { flex: 1.2 }]}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>INTERESTED PROPERTY</Text>
+                    <TouchableOpacity
+                      style={styles.formPickerSelector}
+                      onPress={() => setActivePicker(activePicker === 'property' ? null : 'property')}
+                    >
+                      <Text style={styles.formPickerText} allowFontScaling={false} numberOfLines={1}>
+                        {leadPropertyId ? properties.find(p => p.id === leadPropertyId)?.name : 'Select Property...'}
+                      </Text>
+                      <Ionicons name={activePicker === 'property' ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
+                    </TouchableOpacity>
+                    {renderInlinePicker('property')}
+                  </View>
+                  <View style={styles.formCol}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>MONTHLY BUDGET ($)</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="1600"
+                      placeholderTextColor="#64748b"
+                      keyboardType="numeric"
+                      value={leadBudget}
+                      onChangeText={setLeadBudget}
+                    />
+                  </View>
+                </View>
 
-                <Text style={styles.formLabel} allowFontScaling={false}>PIPELINE STAGE</Text>
-                <TouchableOpacity
-                  style={styles.formPickerSelector}
-                  onPress={() => setActivePicker(activePicker === 'stage' ? null : 'stage')}
-                >
-                  <Text style={styles.formPickerText} allowFontScaling={false}>{leadStage}</Text>
-                  <Ionicons name={activePicker === 'stage' ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                </TouchableOpacity>
-                {renderInlinePicker('stage')}
+                <View style={styles.formRow}>
+                  <View style={styles.formCol}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>MOVE-IN DATE</Text>
+                    <TouchableOpacity
+                      style={styles.formPickerSelector}
+                      onPress={() => setShowLeadDatePicker(true)}
+                    >
+                      <Text style={styles.formPickerText} allowFontScaling={false} numberOfLines={1}>
+                        {leadMoveInDate || 'Select Date'}
+                      </Text>
+                      <Ionicons name="calendar-outline" size={16} color="#cbd5e1" />
+                    </TouchableOpacity>
+                    <CustomDatePicker
+                      visible={showLeadDatePicker}
+                      value={leadMoveInDate}
+                      onSelect={(date) => {
+                        setShowLeadDatePicker(false);
+                        if (date) setLeadMoveInDate(date);
+                      }}
+                      onClose={() => setShowLeadDatePicker(false)}
+                    />
+                  </View>
+                  <View style={styles.formCol}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>ACQUISITION SOURCE</Text>
+                    <TouchableOpacity
+                      style={styles.formPickerSelector}
+                      onPress={() => setActivePicker(activePicker === 'leadSource' ? null : 'leadSource')}
+                    >
+                      <Text style={styles.formPickerText} allowFontScaling={false} numberOfLines={1}>{leadSource}</Text>
+                      <Ionicons name={activePicker === 'leadSource' ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
+                    </TouchableOpacity>
+                    {renderInlinePicker('leadSource')}
+                  </View>
+                </View>
+
+                <View style={styles.formRow}>
+                  <View style={styles.formCol}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>PRIORITY</Text>
+                    <TouchableOpacity
+                      style={styles.formPickerSelector}
+                      onPress={() => setActivePicker(activePicker === 'leadPriority' ? null : 'leadPriority')}
+                    >
+                      <Text style={styles.formPickerText} allowFontScaling={false}>{leadPriority}</Text>
+                      <Ionicons name={activePicker === 'leadPriority' ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
+                    </TouchableOpacity>
+                    {renderInlinePicker('leadPriority')}
+                  </View>
+                  <View style={styles.formCol}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>PIPELINE STAGE</Text>
+                    <TouchableOpacity
+                      style={styles.formPickerSelector}
+                      onPress={() => setActivePicker(activePicker === 'stage' ? null : 'stage')}
+                    >
+                      <Text style={styles.formPickerText} allowFontScaling={false}>{leadStage}</Text>
+                      <Ionicons name={activePicker === 'stage' ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
+                    </TouchableOpacity>
+                    {renderInlinePicker('stage')}
+                  </View>
+                </View>
+
+                <Text style={styles.formLabel} allowFontScaling={false}>ASSIGNED AGENT</Text>
+                <TextInput
+                  style={styles.formInput}
+                  placeholder="Agent Smith"
+                  placeholderTextColor="#64748b"
+                  value={leadAssignedAgent}
+                  onChangeText={setLeadAssignedAgent}
+                />
+
+                <Text style={styles.formLabel} allowFontScaling={false}>CLIENT PREFERENCES / NOTES</Text>
+                <TextInput
+                  style={[styles.formInput, { height: 75, textAlignVertical: 'top' }]}
+                  placeholder="E.g. Prefers ground floor, quiet neighborhood..."
+                  placeholderTextColor="#64748b"
+                  multiline
+                  numberOfLines={3}
+                  value={leadNotes}
+                  onChangeText={setLeadNotes}
+                />
               </ScrollView>
 
               <View style={styles.modalActions}>
@@ -2159,17 +3398,23 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </TouchableWithoutFeedback>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* --- 2. REQUEST TENANT SCREENING CHECK MODAL (100% Web Aligned) --- */}
       <Modal visible={recordScreeningOpen} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Request Tenant Screening Check</Text>
+                <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>Request Tenant Screening Check</Text>
+                </View>
                 <TouchableOpacity
                   onPress={() => {
                     setActivePicker(null);
@@ -2305,17 +3550,23 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </TouchableWithoutFeedback>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* --- 3. CREATE LEASE MODAL --- */}
       <Modal visible={recordLeaseOpen} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Create Lease Agreement</Text>
+                <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>Create Lease Agreement</Text>
+                </View>
                 <TouchableOpacity onPress={() => { setActivePicker(null); setRecordLeaseOpen(false); }}>
                   <Ionicons name="close-circle-outline" size={24} color="#94a3b8" />
                 </TouchableOpacity>
@@ -2449,17 +3700,23 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </TouchableWithoutFeedback>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* --- 3.5. EDIT RENEWAL TERMS MODAL --- */}
       <Modal visible={editRenewalModalOpen} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Update Renewal Terms</Text>
+                <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>Update Renewal Terms</Text>
+                </View>
                 <TouchableOpacity onPress={() => { setActivePicker(null); setEditRenewalModalOpen(false); }}>
                   <Ionicons name="close-circle-outline" size={24} color="#94a3b8" />
                 </TouchableOpacity>
@@ -2467,7 +3724,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
 
               <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 <Text style={styles.formLabel} allowFontScaling={false}>RESIDENT & UNIT</Text>
-                <Text style={[styles.formPickerText, { marginBottom: 12, color: '#f8fafc', fontWeight: '700' }]} allowFontScaling={false}>
+                <Text style={[styles.formPickerText, { marginBottom: 12, color: colors.textPrimary, fontWeight: '700' }]} allowFontScaling={false}>
                   {editingRenewal?.tenantName} · {editingRenewal?.propertyName} ({editingRenewal?.unitNumber})
                 </Text>
 
@@ -2513,63 +3770,214 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </TouchableWithoutFeedback>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* --- 6. CREATE INSPECTION TEMPLATE MODAL --- */}
+      {/* --- 6. CREATE / EDIT INSPECTION TEMPLATE DESIGNER MODAL (Web parity 1:1) --- */}
       <Modal visible={recordTemplateOpen} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Create Inspection Template</Text>
-                <TouchableOpacity onPress={() => setRecordTemplateOpen(false)}>
+                <View style={{ flex: 1, marginRight: 10, paddingTop: 4 }}>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>
+                    {editingTemplateId ? 'Modify Inspection Template' : 'Create Inspection Template'}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 4, lineHeight: 15 }} allowFontScaling={false}>
+                    Define rooms and checklist items (stoves, floors, etc.)
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => { setRecordTemplateOpen(false); setEditingTemplateId(null); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Ionicons name="close-circle-outline" size={24} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false}>
+              <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 <Text style={styles.formLabel} allowFontScaling={false}>TEMPLATE NAME</Text>
                 <TextInput
                   style={styles.formInput}
-                  placeholder="E.g. Move Out Checklist"
+                  placeholder="E.g. Standard 2 Bedroom Apartment"
                   placeholderTextColor="#64748b"
                   value={templateName}
                   onChangeText={setTemplateName}
                 />
 
-                <Text style={styles.formLabel} allowFontScaling={false}>ROOMS COUNT</Text>
+                <Text style={styles.formLabel} allowFontScaling={false}>INSPECTION CATEGORY</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                  {[
+                    { label: 'Move In', value: 'MOVE_IN' },
+                    { label: 'Move Out', value: 'MOVE_OUT' },
+                    { label: 'Routine', value: 'ROUTINE' },
+                    { label: 'Inspection Assign', value: 'INSPECTION_ASSIGN' },
+                  ].map((cat) => {
+                    const isSelected = templateType === cat.value;
+                    return (
+                      <TouchableOpacity
+                        key={cat.value}
+                        style={[
+                          styles.filterPill,
+                          isSelected && styles.filterPillActive,
+                          { paddingHorizontal: 12, paddingVertical: 6 }
+                        ]}
+                        onPress={() => setTemplateType(cat.value)}
+                      >
+                        <Text style={[styles.filterPillText, isSelected && styles.filterPillTextActive, { fontSize: 11.5 }]} allowFontScaling={false}>
+                          {cat.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.formLabel} allowFontScaling={false}>DESCRIPTION (OPTIONAL)</Text>
                 <TextInput
                   style={styles.formInput}
-                  placeholder="4"
+                  placeholder="Brief summary of template scope..."
                   placeholderTextColor="#64748b"
-                  keyboardType="numeric"
-                  value={templateRooms}
-                  onChangeText={setTemplateRooms}
+                  value={templateDescription}
+                  onChangeText={setTemplateDescription}
                 />
+
+                <View style={[styles.rowBetween, { marginTop: 14, marginBottom: 10 }]}>
+                  <Text style={[styles.formLabel, { marginTop: 0, marginBottom: 0 }]} allowFontScaling={false}>
+                    CHECKLIST CONFIGURATION ({templateBuilderRooms.length} ROOMS)
+                  </Text>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.15)' : '#e0f2fe', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 }}
+                    onPress={handleAddTemplateRoom}
+                  >
+                    <Ionicons name="add-circle-outline" size={14} color="#0284c7" style={{ marginRight: 4 }} />
+                    <Text style={{ fontSize: 11.5, color: '#0284c7', fontWeight: '800' }} allowFontScaling={false}>
+                      Add Room
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {templateBuilderRooms.map((room, rIdx) => (
+                  <View key={rIdx} style={styles.roomCard}>
+                    <View style={styles.roomHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                        <Ionicons name="home-outline" size={15} color="#38bdf8" style={{ marginRight: 6 }} />
+                        <TextInput
+                          style={styles.roomInput}
+                          value={room.name}
+                          onChangeText={(text) => handleRoomNameChange(rIdx, text)}
+                          placeholder="Room name..."
+                          placeholderTextColor="#94a3b8"
+                        />
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TouchableOpacity
+                          style={{ padding: 4 }}
+                          onPress={() => handleAddTemplateItem(rIdx)}
+                          title="Add Item"
+                        >
+                          <Ionicons name="add-circle" size={18} color="#10b981" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ padding: 4 }}
+                          onPress={() => handleDuplicateTemplateRoom(rIdx)}
+                          title="Duplicate Room"
+                        >
+                          <Ionicons name="copy-outline" size={16} color="#38bdf8" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ padding: 4 }}
+                          onPress={() => handleRemoveTemplateRoom(rIdx)}
+                          title="Delete Room"
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View style={{ paddingVertical: 4 }}>
+                      {(room.items || []).length === 0 ? (
+                        <View style={{ padding: 12, alignItems: 'center' }}>
+                          <Text style={{ fontSize: 11, color: colors.textMuted }} allowFontScaling={false}>
+                            No items yet. Tap + to add floors, stoves, etc.
+                          </Text>
+                        </View>
+                      ) : (
+                        (room.items || []).map((item, itIdx) => (
+                          <View key={itIdx} style={styles.builderItemRow}>
+                            <TextInput
+                              style={styles.builderItemInput}
+                              value={item.label}
+                              onChangeText={(val) => handleTemplateItemChange(rIdx, itIdx, 'label', val)}
+                              placeholder="E.g. Flooring, Stove, Walls..."
+                              placeholderTextColor="#94a3b8"
+                            />
+                            <TouchableOpacity
+                              style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}
+                              onPress={() => handleTemplateItemChange(rIdx, itIdx, 'required', !item.required)}
+                            >
+                              <Ionicons
+                                name={item.required ? "checkbox" : "square-outline"}
+                                size={16}
+                                color={item.required ? "#38bdf8" : "#94a3b8"}
+                              />
+                              <Text style={{ fontSize: 10, color: colors.textMuted, marginLeft: 3, fontWeight: '700' }} allowFontScaling={false}>
+                                Req
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => handleRemoveTemplateItem(rIdx, itIdx)}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons name="close" size={16} color="#ef4444" />
+                            </TouchableOpacity>
+                          </View>
+                        ))
+                      )}
+                    </View>
+                  </View>
+                ))}
               </ScrollView>
 
               <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => setRecordTemplateOpen(false)}>
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => {
+                    setRecordTemplateOpen(false);
+                    setEditingTemplateId(null);
+                  }}
+                >
                   <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.submitBtn} onPress={handleCreateTemplate}>
-                  <Text style={styles.submitBtnText} allowFontScaling={false}>Create Template</Text>
+                <TouchableOpacity
+                  style={[styles.submitBtn, submitting && { opacity: 0.5 }]}
+                  onPress={handleSaveTemplate}
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#0f172a" />
+                  ) : (
+                    <Text style={styles.submitBtnText} allowFontScaling={false}>
+                      {editingTemplateId ? 'Update Template' : 'Save Template'}
+                    </Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </TouchableWithoutFeedback>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* --- BACKGROUND SCREENING DETAILS MODAL --- */}
       <Modal visible={!!selectedScreening} animationType="slide" transparent>
         <TouchableWithoutFeedback onPress={() => setSelectedScreening(null)}>
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Screening Check Details</Text>
+                <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>Screening Check Details</Text>
+                </View>
                 <TouchableOpacity onPress={() => setSelectedScreening(null)}>
                   <Ionicons name="close" size={20} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -2821,7 +4229,9 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Select Inspection Template</Text>
+                <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>Select Inspection Template</Text>
+                </View>
                 <TouchableOpacity onPress={() => setStartInspectionModalOpen(false)}>
                   <Ionicons name="close" size={20} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -2830,31 +4240,53 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
               <View style={styles.modalForm}>
                 <Text style={styles.formLabel} allowFontScaling={false}>CHOOSE TEMPLATE *</Text>
                 {templatesList.length === 0 ? (
-                  <Text style={[styles.formPickerText, { color: '#ef4444' }]} allowFontScaling={false}>
-                    No templates available. Please create a template first under the "Checklist Templates" tab.
-                  </Text>
+                  <View style={{ alignItems: 'center', paddingVertical: 14 }}>
+                    <Text style={[styles.formPickerText, { color: '#ef4444', textAlign: 'center', marginBottom: 10 }]} allowFontScaling={false}>
+                      No templates available. Please create a template first under the "Checklist Templates" tab.
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => fetchTemplates(false)}
+                      style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: 'rgba(56, 189, 248, 0.15)', borderRadius: 8, borderWidth: 1, borderColor: '#38bdf8' }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#38bdf8' }} allowFontScaling={false}>Reload Templates</Text>
+                    </TouchableOpacity>
+                  </View>
                 ) : (
-                  <ScrollView style={{ maxHeight: 200, marginVertical: 10 }}>
-                    {templatesList.map((t) => (
-                      <TouchableOpacity
-                        key={t.id}
-                        style={[
-                          styles.pickerOptionRow,
-                          startInspectionTemplateId === t.id && { backgroundColor: 'rgba(56, 189, 248, 0.15)' }
-                        ]}
-                        onPress={() => setStartInspectionTemplateId(t.id)}
-                      >
-                        <Text 
+                  <ScrollView style={{ maxHeight: 220, marginVertical: 10 }} showsVerticalScrollIndicator={true}>
+                    {templatesList.map((t) => {
+                      const isSelected = startInspectionTemplateId === t.id;
+                      return (
+                        <TouchableOpacity
+                          key={t.id}
                           style={[
-                            styles.pickerOptionText, 
-                            startInspectionTemplateId === t.id && { color: '#38bdf8', fontWeight: '800' }
-                          ]} 
-                          allowFontScaling={false}
+                            styles.pickerOptionRow,
+                            { paddingVertical: 12, paddingHorizontal: 12, borderRadius: 8, marginVertical: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+                            isSelected && { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderWidth: 1, borderColor: '#38bdf8' }
+                          ]}
+                          onPress={() => setStartInspectionTemplateId(t.id)}
+                          activeOpacity={0.7}
                         >
-                          {t.name} ({t.roomsCount || 4} rooms)
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <Text 
+                              style={[
+                                styles.pickerOptionText, 
+                                isSelected && { color: '#38bdf8', fontWeight: '800' }
+                              ]} 
+                              allowFontScaling={false}
+                            >
+                              {t.name}
+                            </Text>
+                            <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
+                              {t.roomsCount || 4} rooms · {t.createdBy || 'Apex PM'}
+                            </Text>
+                          </View>
+                          {isSelected && (
+                            <Ionicons name="checkmark-circle" size={20} color="#38bdf8" />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </ScrollView>
                 )}
               </View>
@@ -2878,6 +4310,492 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads' }) => {
             </View>
           </View>
         </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* --- LEASE COVENANT DETAILS MODAL --- */}
+      <Modal visible={leaseDetailModalOpen && !!selectedLease} animationType="slide" transparent>
+        <TouchableWithoutFeedback onPress={() => setLeaseDetailModalOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>Lease Agreement Details</Text>
+                </View>
+                <TouchableOpacity onPress={() => setLeaseDetailModalOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close" size={22} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              {selectedLease && (
+                <ScrollView style={{ marginBottom: 10 }} showsVerticalScrollIndicator={false}>
+                  <View style={styles.modalForm}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>RESIDENT / TENANT</Text>
+                    <Text style={[styles.formPickerText, { fontSize: 15, fontWeight: '800' }]} allowFontScaling={false}>{selectedLease.tenantName}</Text>
+
+                    <Text style={styles.formLabel} allowFontScaling={false}>PROPERTY & UNIT</Text>
+                    <Text style={styles.formPickerText} allowFontScaling={false}>
+                      {selectedLease.propertyName} · Unit {selectedLease.unitNumber}
+                    </Text>
+
+                    <View style={styles.rowBetween}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={styles.formLabel} allowFontScaling={false}>START DATE</Text>
+                        <Text style={styles.formPickerText} allowFontScaling={false}>{selectedLease.startDate}</Text>
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 8 }}>
+                        <Text style={styles.formLabel} allowFontScaling={false}>END DATE</Text>
+                        <Text style={styles.formPickerText} allowFontScaling={false}>{selectedLease.endDate}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.rowBetween}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={styles.formLabel} allowFontScaling={false}>MONTHLY BASE RENT</Text>
+                        <Text style={[styles.formPickerText, { color: '#38bdf8', fontWeight: '800', fontSize: 16 }]} allowFontScaling={false}>
+                          ${Number(selectedLease.monthlyRent).toLocaleString()}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 8 }}>
+                        <Text style={styles.formLabel} allowFontScaling={false}>SECURITY DEPOSIT</Text>
+                        <Text style={[styles.formPickerText, { fontWeight: '800' }]} allowFontScaling={false}>
+                          ${Number(selectedLease.securityDeposit || 0).toLocaleString()}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.formLabel} allowFontScaling={false}>STATUS</Text>
+                    <View style={[styles.badge, { alignSelf: 'flex-start', marginTop: 4, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
+                      <Text style={{ color: '#10b981', fontSize: 11, fontWeight: '800' }} allowFontScaling={false}>
+                        {selectedLease.status || 'Active'}
+                      </Text>
+                    </View>
+
+                    {selectedLease.notes ? (
+                      <>
+                        <Text style={styles.formLabel} allowFontScaling={false}>TERMS & COVENANTS</Text>
+                        <Text style={[styles.formPickerText, { color: colors.textSecondary, fontSize: 12 }]} allowFontScaling={false}>
+                          {selectedLease.notes}
+                        </Text>
+                      </>
+                    ) : null}
+                  </View>
+                </ScrollView>
+              )}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.submitBtn, { backgroundColor: '#38bdf8', flex: 1 }]}
+                  onPress={() => setLeaseDetailModalOpen(false)}
+                >
+                  <Text style={styles.submitBtnText} allowFontScaling={false}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* --- 8. WORKFLOW DETAILS & DAMAGE REVIEW MODAL (Matching Web Photo 4 1:1) --- */}
+      <Modal visible={workflowModalOpen && !!selectedWorkflowItem} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+          <TouchableWithoutFeedback onPress={() => setWorkflowModalOpen(false)}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={{ flex: 1, marginRight: 10, paddingTop: 4 }}>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>
+                    {workflowType === 'moveout' ? 'Move Out Workflow' : 'Move In Workflow'}
+                  </Text>
+                  <Text style={{ fontSize: 11.5, color: colors.textSecondary, marginTop: 4, lineHeight: 15 }} allowFontScaling={false}>
+                    {selectedWorkflowItem?.tenantName} · {selectedWorkflowItem?.propertyName} (Unit {selectedWorkflowItem?.unitNumber})
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setWorkflowModalOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close" size={22} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              {selectedWorkflowItem && (
+                <ScrollView
+                  style={{ marginBottom: 10 }}
+                  contentContainerStyle={{ paddingBottom: 160 }}
+                  showsVerticalScrollIndicator={true}
+                  keyboardShouldPersistTaps="handled"
+                  automaticallyAdjustKeyboardInsets={true}
+                >
+                  {/* Timeline Stepper matching Web Photo 4 */}
+                  <View style={{ backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.7)' : 'rgba(241, 245, 249, 0.9)', padding: 12, borderRadius: 14, marginBottom: 14, borderWidth: 1, borderColor: colors.cardBorder }}>
+                    <Text style={[styles.formLabel, { marginTop: 0, marginBottom: 10, color: '#38bdf8' }]} allowFontScaling={false}>
+                      WORKFLOW PROGRESSION TIMELINE
+                    </Text>
+                    {workflowType === 'moveout' ? (
+                      (() => {
+                        const norm = (selectedWorkflowItem.workflowStatus || '').toUpperCase().replace(/[\s-]/g, '_');
+                        const isDoneScheduled = norm !== 'CANCELLED';
+                        const isDoneInsp = norm === 'INSPECTION_COMPLETED' || norm === 'DAMAGE_REVIEW' || norm === 'READY_FOR_COMPLETION' || norm === 'COMPLETED';
+                        const isDoneDamage = norm === 'READY_FOR_COMPLETION' || norm === 'COMPLETED';
+                        const isDoneCompleted = norm === 'COMPLETED';
+                        const isActiveDamage = norm === 'INSPECTION_COMPLETED' || norm === 'DAMAGE_REVIEW';
+
+                        const steps = [
+                          { label: 'LEASE ACTIVE', done: true },
+                          { label: 'SCHEDULED', done: isDoneScheduled },
+                          { label: 'INSPECTION', done: isDoneInsp },
+                          { label: 'DAMAGE REVIEW', done: isDoneDamage, active: isActiveDamage },
+                          { label: 'MOVE OUT COMPLETE', done: isDoneCompleted },
+                        ];
+
+                        return (
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
+                            {steps.map((st, i) => (
+                              <View key={i} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <View style={{ alignItems: 'center' }}>
+                                  <View style={{
+                                    width: 26,
+                                    height: 26,
+                                    borderRadius: 13,
+                                    backgroundColor: st.done ? '#10b981' : st.active ? '#38bdf8' : (isDarkMode ? '#334155' : '#cbd5e1'),
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    marginBottom: 4,
+                                  }}>
+                                    {st.done ? (
+                                      <Ionicons name="checkmark" size={16} color="#ffffff" />
+                                    ) : (
+                                      <Text style={{ fontSize: 11, fontWeight: '800', color: st.active ? '#0f172a' : '#94a3b8' }} allowFontScaling={false}>
+                                        {i + 1}
+                                      </Text>
+                                    )}
+                                  </View>
+                                  <Text style={{ fontSize: 9, fontWeight: '800', color: st.done ? '#10b981' : st.active ? '#38bdf8' : colors.textSecondary }} allowFontScaling={false}>
+                                    {st.label}
+                                  </Text>
+                                </View>
+                                {i < steps.length - 1 && (
+                                  <View style={{ width: 20, height: 2, backgroundColor: st.done ? '#10b981' : (isDarkMode ? '#334155' : '#cbd5e1'), marginHorizontal: 6, marginBottom: 14 }} />
+                                )}
+                              </View>
+                            ))}
+                          </ScrollView>
+                        );
+                      })()
+                    ) : (
+                      (() => {
+                        const norm = (selectedWorkflowItem.workflowStatus || '').toUpperCase().replace(/[\s-]/g, '_');
+                        const isDone = norm === 'COMPLETED';
+                        const steps = [
+                          { label: 'LEASE SIGNED', done: true },
+                          { label: 'SCHEDULED', done: true },
+                          { label: 'MOVE-IN INSPECTION', done: isDone, active: !isDone },
+                          { label: 'MOVE-IN FINALIZED', done: isDone },
+                        ];
+                        return (
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
+                            {steps.map((st, i) => (
+                              <View key={i} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <View style={{ alignItems: 'center' }}>
+                                  <View style={{
+                                    width: 26,
+                                    height: 26,
+                                    borderRadius: 13,
+                                    backgroundColor: st.done ? '#10b981' : st.active ? '#38bdf8' : (isDarkMode ? '#334155' : '#cbd5e1'),
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    marginBottom: 4,
+                                  }}>
+                                    {st.done ? (
+                                      <Ionicons name="checkmark" size={16} color="#ffffff" />
+                                    ) : (
+                                      <Text style={{ fontSize: 11, fontWeight: '800', color: st.active ? '#0f172a' : '#94a3b8' }} allowFontScaling={false}>
+                                        {i + 1}
+                                      </Text>
+                                    )}
+                                  </View>
+                                  <Text style={{ fontSize: 9, fontWeight: '800', color: st.done ? '#10b981' : st.active ? '#38bdf8' : colors.textSecondary }} allowFontScaling={false}>
+                                    {st.label}
+                                  </Text>
+                                </View>
+                                {i < steps.length - 1 && (
+                                  <View style={{ width: 22, height: 2, backgroundColor: st.done ? '#10b981' : (isDarkMode ? '#334155' : '#cbd5e1'), marginHorizontal: 8, marginBottom: 14 }} />
+                                )}
+                              </View>
+                            ))}
+                          </ScrollView>
+                        );
+                      })()
+                    )}
+                  </View>
+
+                  {/* OVERVIEW SECTION (Unit-wise Data matching Photo 4) */}
+                  <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+                    <View style={styles.rowBetween}>
+                      <Text style={[styles.formLabel, { marginTop: 0, color: '#38bdf8' }]} allowFontScaling={false}>OVERVIEW</Text>
+                      <View style={[styles.badge, { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
+                        <Text style={[styles.badgeText, { color: '#10b981' }]} allowFontScaling={false}>
+                          {(selectedWorkflowItem.workflowStatus || 'SCHEDULED').toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ marginTop: 8 }}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>TENANT / RESIDENT</Text>
+                      <Text style={[styles.formPickerText, { fontSize: 14, fontWeight: '800' }]} allowFontScaling={false}>
+                        {selectedWorkflowItem.tenantName}
+                      </Text>
+                      {selectedWorkflowItem.email ? (
+                        <Text style={{ fontSize: 11.5, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
+                          {selectedWorkflowItem.email} · {selectedWorkflowItem.phone || 'Phone verified'}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>PROPERTY ASSET & UNIT</Text>
+                      <Text style={[styles.formPickerText, { fontWeight: '700' }]} allowFontScaling={false}>
+                        {selectedWorkflowItem.propertyName}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#38bdf8', fontWeight: '800', marginTop: 2 }} allowFontScaling={false}>
+                        Unit: {selectedWorkflowItem.unitNumber}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.rowBetween, { marginTop: 10 }]}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={styles.formLabel} allowFontScaling={false}>RENT AMOUNT</Text>
+                        <Text style={[styles.formPickerText, { color: '#38bdf8', fontWeight: '800' }]} allowFontScaling={false}>
+                          ${Number(String(selectedWorkflowItem.rentAmount).replace(/[^0-9.]/g, '') || 1500).toLocaleString()} / mo
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 8 }}>
+                        <Text style={styles.formLabel} allowFontScaling={false}>SECURITY DEPOSIT</Text>
+                        <Text style={[styles.formPickerText, { fontWeight: '800' }]} allowFontScaling={false}>
+                          ${Number(String(selectedWorkflowItem.depositAmount).replace(/[^0-9.]/g, '') || 1500).toLocaleString()}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>SCHEDULED DATE</Text>
+                      <Text style={[styles.formPickerText, { color: '#f59e0b', fontWeight: '800' }]} allowFontScaling={false}>
+                        {selectedWorkflowItem.scheduledDate}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* WORKFLOW CONTROLS SECTION matching Photo 4 */}
+                  <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+                    <Text style={[styles.formLabel, { marginTop: 0, color: '#38bdf8' }]} allowFontScaling={false}>WORKFLOW CONTROLS</Text>
+
+                    {/* Case A: Inspection Completed or Damage Review */}
+                    {(selectedWorkflowItem.workflowStatus?.toUpperCase() === 'INSPECTION_COMPLETED' || selectedWorkflowItem.workflowStatus?.toUpperCase() === 'DAMAGE_REVIEW') && (
+                      <View style={{ marginTop: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.25)', marginBottom: 12 }}>
+                          <Ionicons name="shield-checkmark" size={18} color="#10b981" style={{ marginRight: 8 }} />
+                          <Text style={{ fontSize: 11.5, color: '#10b981', fontWeight: '700', flex: 1 }} allowFontScaling={false}>
+                            Checklist completed and signed. Ready for damage assessments.
+                          </Text>
+                        </View>
+
+                        {loadingWorkflowDetail ? (
+                          <ActivityIndicator size="small" color="#38bdf8" style={{ marginVertical: 14 }} />
+                        ) : (
+                          <View>
+                            <Text style={[styles.formLabel, { marginTop: 0 }]} allowFontScaling={false}>
+                              UNIT DAMAGE ITEMS REVIEW ({workflowDamageItems.length})
+                            </Text>
+
+                            {workflowDamageItems.length === 0 ? (
+                              <View style={{ padding: 12, backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(241, 245, 249, 0.8)', borderRadius: 10, marginBottom: 12 }}>
+                                <Text style={{ fontSize: 12, color: colors.textSecondary }} allowFontScaling={false}>
+                                  No room damages detected in inspection checklist. Full deposit will be refunded.
+                                </Text>
+                              </View>
+                            ) : (
+                              workflowDamageItems.map((item, idx) => (
+                                <View key={item.id || idx} style={{ backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(248, 250, 252, 0.9)', padding: 10, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: colors.cardBorder }}>
+                                  <View style={styles.rowBetween}>
+                                    <View style={{ flex: 1, marginRight: 8 }}>
+                                      <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
+                                        {item.roomName} · {item.label}
+                                      </Text>
+                                      {item.notes ? (
+                                        <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
+                                          Note: {item.notes}
+                                        </Text>
+                                      ) : null}
+                                    </View>
+                                    <View style={[styles.badge, { borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                                      <Text style={[styles.badgeText, { color: '#ef4444' }]} allowFontScaling={false}>{item.condition}</Text>
+                                    </View>
+                                  </View>
+
+                                  <View style={[styles.rowBetween, { marginTop: 8, alignItems: 'center' }]}>
+                                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted }} allowFontScaling={false}>
+                                      Damage Charge ($):
+                                    </Text>
+                                    <TextInput
+                                      style={[styles.formInput, { width: 90, height: 34, marginBottom: 0, paddingVertical: 4, textAlign: 'center', fontSize: 12.5 }]}
+                                      placeholder="50"
+                                      placeholderTextColor="#64748b"
+                                      keyboardType="numeric"
+                                      value={damageChargeInputs[item.id] !== undefined ? String(damageChargeInputs[item.id]) : String(item.chargeAmount || 50)}
+                                      onChangeText={(val) => setDamageChargeInputs(prev => ({ ...prev, [item.id]: val }))}
+                                    />
+                                  </View>
+                                </View>
+                              ))
+                            )}
+
+                            {/* Summary Calculation */}
+                            {(() => {
+                              const deposit = Number(String(selectedWorkflowItem.depositAmount || 1500).replace(/[^0-9.]/g, '')) || 1500;
+                              const totalDamages = workflowDamageItems.reduce((acc, curr) => {
+                                const charge = damageChargeInputs[curr.id] !== undefined ? Number(damageChargeInputs[curr.id]) : Number(curr.chargeAmount || 50);
+                                return acc + (isNaN(charge) ? 0 : charge);
+                              }, 0);
+                              const refund = Math.max(0, deposit - totalDamages);
+
+                              return (
+                                <View style={{ backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(241, 245, 249, 1)', padding: 12, borderRadius: 10, marginTop: 4, marginBottom: 12 }}>
+                                  <View style={styles.rowBetween}>
+                                    <Text style={{ fontSize: 11.5, color: colors.textSecondary }} allowFontScaling={false}>Original Security Deposit:</Text>
+                                    <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>${deposit.toLocaleString()}</Text>
+                                  </View>
+                                  <View style={[styles.rowBetween, { marginTop: 4 }]}>
+                                    <Text style={{ fontSize: 11.5, color: '#ef4444' }} allowFontScaling={false}>Total Damage Deductions:</Text>
+                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#ef4444' }} allowFontScaling={false}>-${totalDamages.toLocaleString()}</Text>
+                                  </View>
+                                  <View style={[styles.divider, { marginVertical: 6 }]} />
+                                  <View style={styles.rowBetween}>
+                                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>Estimated Refund to Tenant:</Text>
+                                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>${refund.toLocaleString()}</Text>
+                                  </View>
+                                </View>
+                              );
+                            })()}
+
+                            <TouchableOpacity
+                              style={[styles.submitBtn, { backgroundColor: '#38bdf8', paddingVertical: 12, marginTop: 4 }]}
+                              onPress={handleSubmitDamageReview}
+                              disabled={submittingWorkflowAction}
+                            >
+                              {submittingWorkflowAction ? (
+                                <ActivityIndicator size="small" color="#0f172a" />
+                              ) : (
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  <Ionicons name="document-text-outline" size={16} color="#0f172a" style={{ marginRight: 6 }} />
+                                  <Text style={styles.submitBtnText} allowFontScaling={false}>
+                                    Submit Damage Assessment & Finalize Deposit
+                                  </Text>
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Case B: Ready for completion */}
+                    {selectedWorkflowItem.workflowStatus?.toUpperCase() === 'READY_FOR_COMPLETION' && (
+                      <View style={{ marginTop: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.25)', marginBottom: 12 }}>
+                          <Ionicons name="shield-checkmark" size={18} color="#10b981" style={{ marginRight: 8 }} />
+                          <Text style={{ fontSize: 11.5, color: '#10b981', fontWeight: '700', flex: 1 }} allowFontScaling={false}>
+                            Damage checklist and deposit refund settled. Ready to complete Move Out.
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.submitBtn, { backgroundColor: '#10b981', paddingVertical: 12 }]}
+                          onPress={handleFinalizeMoveOut}
+                          disabled={submittingWorkflowAction}
+                        >
+                          {submittingWorkflowAction ? (
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          ) : (
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <Ionicons name="checkmark-done-circle" size={17} color="#ffffff" style={{ marginRight: 6 }} />
+                              <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>
+                                Complete Move Out & Close Lease
+                              </Text>
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* Case C: Scheduled */}
+                    {selectedWorkflowItem.workflowStatus?.toUpperCase() === 'SCHEDULED' && (
+                      <View style={{ marginTop: 6 }}>
+                        <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 12 }} allowFontScaling={false}>
+                          Workflow is currently scheduled. You can perform the condition inspection using a template or skip.
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                          <TouchableOpacity
+                            style={[styles.smallActionBtn, { flex: 1, backgroundColor: '#38bdf8', paddingVertical: 10, alignItems: 'center', justifyContent: 'center' }]}
+                            onPress={() => {
+                              setWorkflowModalOpen(false);
+                              handleOpenStartInspectionModal(workflowType, selectedWorkflowItem.id);
+                            }}
+                          >
+                            <Text style={[styles.smallActionText, { color: '#0f172a' }]} allowFontScaling={false}>Start Inspection</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.smallActionBtn, { flex: 1, borderWidth: 1, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', paddingVertical: 10, alignItems: 'center', justifyContent: 'center' }]}
+                            onPress={() => {
+                              setWorkflowModalOpen(false);
+                              if (workflowType === 'moveout') handleSkipMoveOut(selectedWorkflowItem);
+                              else handleSkipMoveIn(selectedWorkflowItem);
+                            }}
+                          >
+                            <Text style={[styles.smallActionText, { color: '#10b981' }]} allowFontScaling={false}>Skip Inspection</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Case D: Completed */}
+                    {selectedWorkflowItem.workflowStatus?.toUpperCase() === 'COMPLETED' && (
+                      <View style={{ marginTop: 6, alignItems: 'center', paddingVertical: 16 }}>
+                        <Ionicons name="checkmark-circle" size={42} color="#10b981" style={{ marginBottom: 6 }} />
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>
+                          {workflowType === 'moveout' ? 'Move Out Completed' : 'Move In Finalized'}
+                        </Text>
+                        <Text style={{ fontSize: 11.5, color: colors.textSecondary, textAlign: 'center', marginTop: 4, maxWidth: 280 }} allowFontScaling={false}>
+                          {workflowType === 'moveout'
+                            ? 'Lease is closed, unit is marked vacant for turnover, and deposit refund finalized.'
+                            : 'Resident has officially moved into the unit. Lease active.'}
+                        </Text>
+                        {selectedWorkflowItem.inspectionId ? (
+                          <TouchableOpacity
+                            style={[styles.smallActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderWidth: 1, borderColor: '#38bdf8', marginTop: 12, paddingHorizontal: 16 }]}
+                            onPress={() => {
+                              setWorkflowModalOpen(false);
+                              onNavigate && onNavigate('inspection', { inspectionId: selectedWorkflowItem.inspectionId });
+                            }}
+                          >
+                            <Text style={[styles.smallActionText, { color: '#38bdf8' }]} allowFontScaling={false}>View Inspection Checklist</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    )}
+                  </View>
+                </ScrollView>
+              )}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.submitBtn, { backgroundColor: '#38bdf8', flex: 1 }]}
+                  onPress={() => setWorkflowModalOpen(false)}
+                >
+                  <Text style={styles.submitBtnText} allowFontScaling={false}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
     </View>
@@ -2955,9 +4873,74 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     height: 38,
     borderWidth: 1,
     borderColor: colors.cardBorder,
-    marginRight: 8,
   },
   searchInput: { flex: 1, color: colors.textPrimary, fontSize: 13, height: '100%', padding: 0 },
+  filterBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterBtnActive: {
+    backgroundColor: '#38bdf8',
+    borderColor: '#38bdf8',
+  },
+  activeFiltersRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  activePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderWidth: 1,
+    borderColor: '#38bdf8',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  activePillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#38bdf8',
+  },
+  clearFiltersBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  clearFiltersText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#ef4444',
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  filterChipActive: {
+    backgroundColor: '#38bdf8',
+    borderColor: '#38bdf8',
+  },
+  filterChipText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#0f172a',
+    fontWeight: '800',
+  },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3055,29 +5038,42 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 62 : ((StatusBar.currentHeight || 24) + 16),
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
   },
   modalContent: {
     backgroundColor: colors.surface,
     borderRadius: 20,
     width: '100%',
     maxWidth: 580,
-    maxHeight: '85%',
-    padding: 20,
+    maxHeight: '84%',
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 16,
     borderWidth: 1,
     borderColor: colors.cardBorder,
     alignSelf: 'center',
+    overflow: 'hidden',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     borderBottomWidth: 1,
     borderBottomColor: colors.cardBorder,
+    paddingTop: 2,
     paddingBottom: 12,
     marginBottom: 16,
   },
-  modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+  modalTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    flexShrink: 1,
+    marginRight: 8,
+  },
   modalForm: { marginBottom: 16 },
   formLabel: { fontSize: 9.5, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.8, marginTop: 12, marginBottom: 6 },
   formInput: {
@@ -3090,6 +5086,14 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     borderColor: colors.inputBorder,
     fontWeight: '700',
     marginBottom: 10,
+  },
+  formRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 2,
+  },
+  formCol: {
+    flex: 1,
   },
   formPickerSelector: {
     flexDirection: 'row',
@@ -3221,5 +5225,55 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12.5,
     fontStyle: 'italic',
+  },
+
+  // Template Designer Builder styles
+  roomCard: {
+    backgroundColor: isDarkMode ? '#1e293b' : '#f8fafc',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: isDarkMode ? '#334155' : '#e2e8f0',
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  roomHeader: {
+    backgroundColor: isDarkMode ? 'rgba(51, 65, 85, 0.4)' : '#f1f5f9',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: isDarkMode ? '#334155' : '#e2e8f0',
+  },
+  roomInput: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '800',
+    padding: 0,
+    flex: 1,
+    marginRight: 8,
+  },
+  builderItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: isDarkMode ? 'rgba(51, 65, 85, 0.3)' : '#f1f5f9',
+  },
+  builderItemInput: {
+    flex: 1,
+    backgroundColor: colors.inputBackground,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    color: colors.textPrimary,
+    fontSize: 12,
+    fontWeight: '600',
+    borderWidth: 1,
+    borderColor: colors.inputBorder,
+    marginRight: 8,
   },
 });

@@ -4,7 +4,6 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -15,16 +14,23 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { paymentSchema, invoiceSchema } from '../validations/mobile.validation';
 import { CustomDatePicker } from '../components/CustomDatePicker';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const PAGE_SIZE = 10;
 const CHART_COLORS = ['#10b981', '#38bdf8', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+const isUUID = (str) => typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
 
 const formatCurrency = (val) => {
   const num = Number(val) || 0;
@@ -34,7 +40,13 @@ const formatCurrency = (val) => {
   return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
+export const ManagerRentPaymentsScreen = ({
+  onNavigate,
+  initialTab = 'payments',
+  targetPaymentId = null,
+  targetInvoiceId = null,
+  initialStatusFilter = null,
+}) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -44,6 +56,15 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
   const [activeTab, setActiveTab] = useState(
     initialTab === 'rent-dashboard' || initialTab === 'rent' ? 'dashboard' : initialTab
   );
+
+  // Drill-down metric modal state (Matching Web / ManagerDashboard)
+  const [selectedRentMetric, setSelectedRentMetric] = useState(null);
+  const [rentMetricSearch, setRentMetricSearch] = useState('');
+  const [exportingType, setExportingType] = useState(null); // 'PDF' | 'EXCEL' | null
+
+  // Item deletion loading states (for button spinner & instant optimistic update)
+  const [deletingPaymentId, setDeletingPaymentId] = useState(null);
+  const [deletingInvoiceId, setDeletingInvoiceId] = useState(null);
 
   useEffect(() => {
     if (initialTab) {
@@ -55,6 +76,28 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
   const [paymentsList, setPaymentsList] = useState([]);
   const [invoicesList, setInvoicesList] = useState([]);
   const [ledgerList, setLedgerList] = useState([]);
+
+  // Auto-open specific payment receipt when deep-linked from notification
+  useEffect(() => {
+    if (targetPaymentId && paymentsList.length > 0) {
+      const found = paymentsList.find((p) => String(p.id) === String(targetPaymentId));
+      if (found) {
+        setSelectedReceipt(found);
+        setActiveTab('payments');
+      }
+    }
+  }, [targetPaymentId, paymentsList]);
+
+  // Auto-open specific invoice details when deep-linked from notification
+  useEffect(() => {
+    if (targetInvoiceId && invoicesList.length > 0) {
+      const found = invoicesList.find((inv) => String(inv.id) === String(targetInvoiceId));
+      if (found) {
+        setSelectedInvoice(found);
+        setActiveTab('invoices');
+      }
+    }
+  }, [targetInvoiceId, invoicesList]);
 
   // Selections state
   const [properties, setProperties] = useState([]);
@@ -69,9 +112,15 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPropertyId, setSelectedPropertyId] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || '');
   const [selectedMethod, setSelectedMethod] = useState('');
   const [selectedTxType, setSelectedTxType] = useState('');
+
+  useEffect(() => {
+    if (initialStatusFilter !== undefined && initialStatusFilter !== null) {
+      setSelectedStatus(initialStatusFilter);
+    }
+  }, [initialStatusFilter]);
 
   // Pagination states (10 items per page matching Web DataTable)
   const [pagePayments, setPagePayments] = useState(1);
@@ -147,16 +196,22 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
     ]).start();
   };
 
-  // Auto-populate rent amount when tenant is selected in Invoice Modal
+  // Auto-populate rent amount when tenant is selected in Invoice Modal (Matching Web 1:1)
   useEffect(() => {
     if (invTenantId) {
       const selectedTenant = tenants.find((t) => t.id === invTenantId);
+      const matchedUnit =
+        selectedTenant?.unit ||
+        units.find((u) => u.id === selectedTenant?.unitId || (selectedTenant?.unitNumber && u.unitNumber === selectedTenant.unitNumber));
+
       const rentAmount = Number(
+        matchedUnit?.rentAmount ||
         selectedTenant?.unit?.rentAmount ||
         selectedTenant?.rentAmount ||
-        selectedTenant?.unit?.rent ||
+        matchedUnit?.rent ||
         0
       );
+
       if (rentAmount > 0) {
         setInvLineItems((prev) => {
           const rentIdx = prev.findIndex((item) => item.description.toLowerCase().includes('rent'));
@@ -169,7 +224,7 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
         });
       }
     }
-  }, [invTenantId, tenants]);
+  }, [invTenantId, tenants, units]);
 
   // Auto-populate rent amount when tenant is selected in Record Payment Modal
   useEffect(() => {
@@ -215,22 +270,38 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
       if (rawTenants.length > 0) setTenants(rawTenants);
 
       // 1. Map Payments identically to Web api.payments.getAll()
-      const parsedPayments = rawPayments.map((p, idx) => ({
-        id: p.id,
-        receiptNumber: p.receiptNumber || `#${idx + 1}`,
-        tenantId: p.tenantId || p.tenant?.id || '',
-        tenantName: p.tenant ? `${p.tenant.firstName} ${p.tenant.lastName}`.trim() : (p.tenantName || 'Unknown Tenant'),
-        propertyName: p.property?.name || p.propertyName || 'Property',
-        unitNumber: p.unit?.unitNumber || p.unitNumber || 'Unassigned',
-        amount: Number(p.amount) || 0,
-        paidDate: p.paidDate ? p.paidDate.split('T')[0] : (p.createdAt ? p.createdAt.split('T')[0] : ''),
-        paymentMethod: p.paymentMethod || 'ACH',
-        status: p.status || 'Paid',
-        propertyId: p.propertyId || p.property?.id || '',
-        referenceNumber: p.referenceNumber || '',
-        notes: p.notes || '',
-        rawPayment: p,
-      }));
+      const parsedPayments = rawPayments.map((p, idx) => {
+        const tenantObj = rawTenants.find((t) => t.id === p.tenantId) || p.tenant;
+        const tenantFullName = tenantObj
+          ? `${tenantObj.firstName || ''} ${tenantObj.lastName || ''}`.trim() || tenantObj.name
+          : '';
+        const propObj = rawProps.find((pr) => pr.id === p.propertyId) || p.property;
+        const unitObj = rawUnits.find((u) => u.id === p.unitId) || p.unit;
+
+        return {
+          id: p.id,
+          receiptNumber: p.receiptNumber || `#${idx + 1}`,
+          tenantId: p.tenantId || p.tenant?.id || '',
+          tenantName: tenantFullName || (p.tenantName && p.tenantName !== 'Unknown Tenant' ? p.tenantName : (p.tenant ? `${p.tenant.firstName || ''} ${p.tenant.lastName || ''}`.trim() : 'Resident')),
+          propertyName: propObj?.name || p.propertyName || 'Property',
+          unitNumber: unitObj?.unitNumber || p.unitNumber || 'Unassigned',
+          amount: Number(p.amount) || 0,
+          paidDate: p.paidDate ? p.paidDate.split('T')[0] : (p.createdAt ? p.createdAt.split('T')[0] : ''),
+          paymentMethod: p.paymentMethod || 'ACH',
+          status: p.status || 'Paid',
+          propertyId: p.propertyId || p.property?.id || '',
+          referenceNumber: p.referenceNumber || '',
+          notes: p.notes || '',
+          rawPayment: p,
+        };
+      });
+
+      // Sort latest payments first so newly recorded payments appear at top #1
+      parsedPayments.sort((a, b) => {
+        const dateA = new Date(a.paidDate || a.rawPayment?.createdAt || 0).getTime();
+        const dateB = new Date(b.paidDate || b.rawPayment?.createdAt || 0).getTime();
+        return dateB - dateA;
+      });
       setPaymentsList(parsedPayments);
 
       // 2. Map Invoices identically to Web api.invoices.getAll()
@@ -255,21 +326,49 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
             ? Number(inv.balance)
             : invAmount - paidAmount;
 
+        const tenantObj = rawTenants.find((t) => t.id === inv.tenantId) || inv.tenant;
+        const tenantFullName = tenantObj
+          ? `${tenantObj.firstName || ''} ${tenantObj.lastName || ''}`.trim() || tenantObj.name
+          : '';
+        const resolvedTenantName =
+          (inv.tenantName && inv.tenantName !== 'Unknown Tenant')
+            ? inv.tenantName
+            : (tenantFullName || 'Resident');
+
+        const propObj =
+          rawProps.find((p) => p.id === inv.propertyId || p.id === tenantObj?.propertyId || p.id === tenantObj?.unit?.propertyId) ||
+          inv.property ||
+          tenantObj?.unit?.property;
+        const unitObj =
+          rawUnits.find((u) => u.id === tenantObj?.unitId || (u.unitNumber && u.unitNumber === inv.unitNumber)) ||
+          inv.unit ||
+          tenantObj?.unit;
+
+        const resolvedPropertyName =
+          (inv.propertyName && inv.propertyName !== 'Unknown Property')
+            ? inv.propertyName
+            : (propObj?.name || tenantObj?.propertyName || 'Property');
+
+        const resolvedUnitNumber =
+          (inv.unitNumber && inv.unitNumber !== '')
+            ? inv.unitNumber
+            : (unitObj?.unitNumber || tenantObj?.unitNumber || '101');
+
         return {
           id: inv.id,
           invoiceNumber: inv.invoiceNumber || `INV-${String(idx + 1).padStart(4, '0')}`,
           tenantId: inv.tenantId || inv.tenant?.id || '',
-          tenantName: inv.tenantName || (inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}`.trim() : 'Resident'),
-          tenantEmail: inv.tenantEmail || inv.tenant?.email || '',
-          propertyName: inv.propertyName || (inv.property ? inv.property.name : 'Property'),
-          unitNumber: inv.unitNumber || (inv.unit ? inv.unit.unitNumber : '101'),
+          tenantName: resolvedTenantName,
+          tenantEmail: inv.tenantEmail || inv.tenant?.email || tenantObj?.email || '',
+          propertyName: resolvedPropertyName,
+          unitNumber: resolvedUnitNumber,
           amount: invAmount,
           paidAmount,
           balance,
           dueDate: inv.dueDate ? inv.dueDate.split('T')[0] : 'N/A',
           status: inv.status || 'Sent',
           lineItems,
-          propertyId: inv.propertyId || inv.property?.id || '',
+          propertyId: inv.propertyId || inv.property?.id || propObj?.id || '',
           notes: inv.notes || '',
         };
       });
@@ -376,33 +475,50 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
     loadAllData(false);
   };
 
+  // Helper to accurately match today's date in local and ISO UTC format
+  const isTransactionToday = (dateVal) => {
+    if (!dateVal) return false;
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const localToday = `${year}-${month}-${day}`;
+    const utcToday = now.toISOString().split('T')[0];
+
+    const s = String(dateVal);
+    if (s.startsWith(localToday) || s.startsWith(utcToday)) return true;
+
+    const d = new Date(dateVal);
+    if (!isNaN(d.getTime())) {
+      return (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      );
+    }
+    return false;
+  };
+
   // ==============================================================
   // REAL DASHBOARD METRIC CALCULATIONS (Identical to Web RentDashboardPage.tsx)
   // ==============================================================
   const dashboardMetrics = useMemo(() => {
-    const paidPayments = paymentsList.filter((p) => p.status === 'Paid');
+    const paidPayments = paymentsList.filter((p) => p.status === 'Paid' || Number(p.amount) > 0);
     const monthlyCollected = paidPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-    const overdueInvoices = invoicesList.filter((i) => i.status === 'Overdue');
+    const overdueInvoices = invoicesList.filter(
+      (i) => i.status === 'Overdue' || (i.status !== 'Paid' && (Number(i.balance) > 0 || Number(i.amount) > Number(i.paidAmount || 0)))
+    );
     const outstandingBalance = overdueInvoices.reduce((sum, i) => {
       const bal = i.balance !== undefined && i.balance !== null ? Number(i.balance) : (Number(i.amount) || 0) - (Number(i.paidAmount) || 0);
       return sum + (bal || 0);
     }, 0);
 
-    const todayStr = new Date().toISOString().split('T')[0];
     const todayTransactions = paidPayments.filter(
-      (p) =>
-        (p.paidDate && p.paidDate.startsWith(todayStr)) ||
-        (p.createdAt && p.createdAt.startsWith(todayStr))
+      (p) => isTransactionToday(p.paidDate) || isTransactionToday(p.createdAt)
     );
 
-    const collectedToday =
-      todayTransactions.length > 0
-        ? todayTransactions.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
-        : monthlyCollected > 0
-        ? Math.round(monthlyCollected * 0.05)
-        : 0;
-
+    const collectedToday = todayTransactions.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const latePayments = overdueInvoices.length;
 
     // Daily Collection Trends grouped by day of week
@@ -434,11 +550,11 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
       methodCounts[m] = (methodCounts[m] || 0) + 1;
     });
 
-    const totalPaidCount = paidPayments.length || 1;
+    const totalPaidCount = paidPayments.length || 0;
     const methodDistribution = Object.entries(methodCounts).map(([name, count]) => ({
       name,
       count,
-      pct: Math.round((count / totalPaidCount) * 100),
+      pct: Math.round((count / (totalPaidCount || 1)) * 100),
     }));
 
     const recentPayments = paidPayments.slice(0, 5);
@@ -458,7 +574,7 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
   }, [paymentsList, invoicesList]);
 
   // ==============================================================
-  // ACTIONS: DELETE PAYMENT & DELETE INVOICE (With live API calls)
+  // ACTIONS: DELETE PAYMENT & DELETE INVOICE (With live API calls & Instant Optimistic UI)
   // ==============================================================
   const handleDeletePayment = (payment) => {
     Alert.alert(
@@ -475,11 +591,19 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
           style: 'destructive',
           onPress: async () => {
             try {
+              setDeletingPaymentId(payment.id);
               await apiClient.delete(`/payments/${payment.id}`, logout, refreshAccessToken);
+              // Optimistic instant removal: list updates immediately!
+              setPaymentsList((prev) => prev.filter((p) => p.id !== payment.id));
+              if (selectedReceipt?.id === payment.id) {
+                setSelectedReceipt(null);
+              }
               Alert.alert('Success', 'Payment receipt deleted successfully.');
               loadAllData(false);
             } catch (err) {
               Alert.alert('Error', err.message || 'Failed to delete payment.');
+            } finally {
+              setDeletingPaymentId(null);
             }
           },
         },
@@ -502,11 +626,19 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
           style: 'destructive',
           onPress: async () => {
             try {
+              setDeletingInvoiceId(invoice.id);
               await apiClient.delete(`/invoices/${invoice.id}`, logout, refreshAccessToken);
+              // Optimistic instant removal: list updates immediately!
+              setInvoicesList((prev) => prev.filter((i) => i.id !== invoice.id));
+              if (selectedInvoice?.id === invoice.id) {
+                setSelectedInvoice(null);
+              }
               Alert.alert('Success', 'Invoice deleted successfully.');
               loadAllData(false);
             } catch (err) {
               Alert.alert('Error', err.message || 'Failed to delete invoice.');
+            } finally {
+              setDeletingInvoiceId(null);
             }
           },
         },
@@ -514,9 +646,303 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
     );
   };
 
+  const getRentModalItems = () => {
+    const q = rentMetricSearch.toLowerCase().trim();
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    switch (selectedRentMetric) {
+      case 'collectedToday': {
+        const todayItems = paymentsList.filter(
+          (p) => isTransactionToday(p.paidDate) || isTransactionToday(p.createdAt)
+        );
+        return todayItems
+          .filter((p) => !q || (p.tenantName && p.tenantName.toLowerCase().includes(q)) || (p.propertyName && p.propertyName.toLowerCase().includes(q)))
+          .map((p) => ({
+            id: p.id,
+            title: p.tenantName || 'Resident Payment',
+            subtitle: `${p.paidDate || p.createdAt || 'Today'} · ${p.propertyName || 'Property'} (Unit ${p.unitNumber || 'N/A'})`,
+            badge: formatCurrency(p.amount),
+            badgeColor: '#10b981',
+            raw: p,
+            type: 'payment',
+          }));
+      }
+
+      case 'monthlyCollected':
+        return paymentsList
+          .filter((p) => p.status === 'Paid' || Number(p.amount) > 0)
+          .filter((p) => !q || (p.tenantName && p.tenantName.toLowerCase().includes(q)) || (p.propertyName && p.propertyName.toLowerCase().includes(q)))
+          .map((p) => ({
+            id: p.id,
+            title: p.tenantName || 'Resident Payment',
+            subtitle: `${p.paidDate || p.createdAt || 'Cleared'} · ${p.propertyName || 'Property'} (Unit ${p.unitNumber || 'N/A'})`,
+            badge: formatCurrency(p.amount),
+            badgeColor: '#10b981',
+            raw: p,
+            type: 'payment',
+          }));
+
+      case 'outstandingBalance': {
+        const unpaidInvoices = invoicesList.filter(
+          (inv) =>
+            inv.status === 'Overdue' ||
+            inv.status === 'Pending' ||
+            inv.status === 'Unpaid' ||
+            (inv.status !== 'Paid' && (Number(inv.balance) > 0 || Number(inv.amount) > Number(inv.paidAmount || 0)))
+        );
+        return unpaidInvoices
+          .filter((inv) => !q || (inv.tenantName && inv.tenantName.toLowerCase().includes(q)) || (inv.propertyName && inv.propertyName.toLowerCase().includes(q)))
+          .map((inv) => {
+            const bal = inv.balance !== undefined && inv.balance !== null ? Number(inv.balance) : (Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0);
+            return {
+              id: inv.id,
+              title: inv.tenantName || 'Tenant Invoice',
+              subtitle: `Due: ${inv.dueDate || 'Pending'} · ${inv.propertyName || 'Property'} (Unit ${inv.unitNumber || 'N/A'})`,
+              badge: formatCurrency(bal > 0 ? bal : inv.amount),
+              badgeColor: '#ef4444',
+              raw: inv,
+              type: 'invoice',
+            };
+          });
+      }
+
+      case 'totalTransactions':
+        return paymentsList
+          .filter((p) => !q || (p.tenantName && p.tenantName.toLowerCase().includes(q)) || (p.receiptNumber && p.receiptNumber.toLowerCase().includes(q)) || (p.propertyName && p.propertyName.toLowerCase().includes(q)))
+          .map((p) => ({
+            id: p.id,
+            title: p.tenantName || 'Tenant Payment',
+            subtitle: `${p.receiptNumber || '#RCPT'} · ${p.paidDate || 'Cleared'} · ${p.paymentMethod || 'ACH'}`,
+            badge: formatCurrency(p.amount),
+            badgeColor: '#38bdf8',
+            raw: p,
+            type: 'payment',
+          }));
+
+      default:
+        return [];
+    }
+  };
+
+  const getRentModalMeta = () => {
+    switch (selectedRentMetric) {
+      case 'collectedToday':
+        return { name: 'Collected Today', count: `${getRentModalItems().length} Transactions`, destTab: 'payments', destFilter: 'Paid', destLabel: 'View Cleared Payments' };
+      case 'monthlyCollected':
+        return { name: 'Monthly Rent Collections', count: `${paymentsList.length} Payments`, destTab: 'payments', destFilter: 'Paid', destLabel: 'View Cleared Payments' };
+      case 'outstandingBalance':
+        return { name: 'Outstanding Rent Balances', count: `${invoicesList.filter((i) => i.status !== 'Paid').length} Unpaid Invoices`, destTab: 'invoices', destFilter: 'Overdue', destLabel: 'View Overdue Invoices' };
+      case 'totalTransactions':
+        return { name: 'Cleared Rent Transactions', count: `${paymentsList.length} Records`, destTab: 'payments', destFilter: '', destLabel: 'View All Payments' };
+      default:
+        return { name: 'Metric Details', count: '', destTab: 'payments', destFilter: '', destLabel: 'View Tab' };
+    }
+  };
+
+  const handleExportRentMetric = async (format) => {
+    const items = getRentModalItems();
+    const meta = getRentModalMeta();
+    if (items.length === 0) {
+      Alert.alert('No Records', 'There are currently no items to export for this report.');
+      return;
+    }
+
+    try {
+      setExportingType(format);
+      const dateStr = new Date().toISOString().split('T')[0];
+      const reportTitle = meta.name;
+      const fileName = `${reportTitle.replace(/[^a-zA-Z0-9]/g, '_')}_${dateStr}`;
+
+      if (format === 'EXCEL') {
+        const headers = ['Record / Title', 'Details', 'Status / Amount'];
+        const rows = items.map((item) => [
+          `"${(item.title || '').replace(/"/g, '""')}"`,
+          `"${(item.subtitle || '').replace(/"/g, '""')}"`,
+          `"${(item.badge || '').replace(/"/g, '""')}"`,
+        ]);
+
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+        const fileUri = `${FileSystem.cacheDirectory}${fileName}.csv`;
+
+        await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'text/csv',
+            dialogTitle: `Export ${reportTitle} (Excel/CSV)`,
+          });
+        } else {
+          Alert.alert('Export Complete', `File saved as ${fileName}.csv`);
+        }
+      } else if (format === 'PDF') {
+        const tableRowsHtml = items
+          .map(
+            (item, idx) => `
+          <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+            <td style="border: 1px solid #e2e8f0; padding: 8px 10px; font-size: 11px; font-weight: 700; color: #1e293b;">${item.title}</td>
+            <td style="border: 1px solid #e2e8f0; padding: 8px 10px; font-size: 10px; color: #64748b;">${item.subtitle}</td>
+            <td style="border: 1px solid #e2e8f0; padding: 8px 10px; font-size: 11px; font-weight: 800; color: ${item.badgeColor || '#0284c7'}; text-align: right;">${item.badge}</td>
+          </tr>
+        `
+          )
+          .join('');
+
+        const html = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <title>${reportTitle}</title>
+              <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 28px; color: #0f172a; margin: 0; }
+                h1 { font-size: 22px; font-weight: 900; color: #0f172a; margin: 0 0 6px 0; }
+                .meta { font-size: 10px; color: #64748b; margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                th { border: 1px solid #cbd5e1; padding: 9px 10px; background-color: #f1f5f9; color: #1e293b; font-size: 11px; text-align: left; font-weight: 700; }
+              </style>
+            </head>
+            <body>
+              <h1>${reportTitle}</h1>
+              <div class="meta">Generated: ${new Date().toLocaleString()} | Total Records: ${items.length}</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Record / Title</th>
+                    <th>Details</th>
+                    <th style="text-align: right;">Status / Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRowsHtml}
+                </tbody>
+              </table>
+            </body>
+          </html>
+        `;
+
+        const { uri } = await Print.printToFileAsync({ html });
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, {
+            mimeType: 'application/pdf',
+            dialogTitle: `Export ${reportTitle} (PDF)`,
+          });
+        } else {
+          Alert.alert('Export Complete', 'PDF generated successfully.');
+        }
+      }
+    } catch (error) {
+      console.log('Export failed:', error);
+      Alert.alert('Export Error', 'Could not export report. Please try again.');
+    } finally {
+      setExportingType(null);
+    }
+  };
+
   // ==============================================================
-  // ACTIONS: RECORD PAYMENT & CREATE INVOICE
+  // ACTIONS: RECORD PAYMENT & CREATE INVOICE & PDF DOWNLOAD
   // ==============================================================
+  const handleDownloadLedgerPdf = async (tenant, txs, totalOutstanding) => {
+    if (!tenant) return;
+    try {
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Tenant Ledger Statement</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 28px; color: #1e293b; background: #fff; }
+            .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 14px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-start; }
+            .title { font-size: 20px; font-weight: 800; color: #0f172a; margin: 0; }
+            .subtitle { font-size: 11px; color: #64748b; margin-top: 3px; }
+            .badge { background: #dcfce7; color: #15803d; font-size: 10px; font-weight: 800; padding: 4px 8px; border-radius: 4px; text-transform: uppercase; }
+            .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 18px; }
+            .recipient-label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+            .recipient-name { font-size: 16px; font-weight: 800; color: #0f172a; margin: 3px 0; }
+            .recipient-loc { font-size: 11px; color: #475569; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
+            th { background: #0f172a; color: #ffffff; text-align: left; padding: 8px 6px; font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+            td { padding: 8px 6px; border-bottom: 1px solid #e2e8f0; }
+            tr:nth-child(even) { background: #f8fafc; }
+            .debit { color: #ef4444; font-weight: 700; text-align: right; }
+            .credit { color: #10b981; font-weight: 700; text-align: right; }
+            .balance { font-weight: 800; text-align: right; }
+            .total-box { margin-top: 18px; padding: 12px; background: #f1f5f9; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+            .total-val { font-size: 18px; font-weight: 900; color: ${totalOutstanding > 0 ? '#ef4444' : '#10b981'}; }
+            .footer { margin-top: 24px; text-align: center; font-size: 9.5px; color: #94a3b8; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h1 class="title">Official Tenant Ledger Statement</h1>
+              <div class="subtitle">Property Management Corporate Office · Statement of Account</div>
+            </div>
+            <span class="badge">Verified Record</span>
+          </div>
+
+          <div class="card">
+            <div class="recipient-label">Statement Recipient</div>
+            <div class="recipient-name">${tenant.firstName || ''} ${tenant.lastName || ''}</div>
+            <div class="recipient-loc">${tenant.unit ? `${tenant.unit.property?.name || 'Property'} · Unit ${tenant.unit.unitNumber || 'Unassigned'}` : (tenant.propertyName || 'Property Location')}</div>
+            ${tenant.phone ? `<div class="recipient-loc">Phone: ${tenant.phone}</div>` : ''}
+            ${tenant.email ? `<div class="recipient-loc">Email: ${tenant.email}</div>` : ''}
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th style="text-align: right;">Debit (+)</th>
+                <th style="text-align: right;">Credit (-)</th>
+                <th style="text-align: right;">Running Bal</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(txs || []).map(tx => `
+                <tr>
+                  <td>${tx.date || '—'}</td>
+                  <td>${tx.description || '—'}</td>
+                  <td class="debit">${tx.debit ? formatCurrency(tx.debit) : '—'}</td>
+                  <td class="credit">${tx.credit ? formatCurrency(tx.credit) : '—'}</td>
+                  <td class="balance">${formatCurrency(tx.balance)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="total-box">
+            <div>
+              <div style="font-size: 11px; font-weight: 800; color: #475569;">SYSTEM AUDITED TENANT LEDGER</div>
+              <div style="font-size: 10px; color: #64748b;">Total Records: ${(txs || []).length}</div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase;">Outstanding Balance</div>
+              <div class="total-val">${formatCurrency(totalOutstanding)}</div>
+            </div>
+          </div>
+
+          <div class="footer">
+            Generated on ${new Date().toLocaleDateString()} · WhatsLandlord Property Ledger
+          </div>
+        </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(uri, {
+        UTI: '.pdf',
+        mimeType: 'application/pdf',
+        dialogTitle: 'Download or Share Statement PDF',
+      });
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Failed to generate PDF statement.');
+    }
+  };
+
   const handleRecordPayment = async () => {
     setPayErrors({});
     if (!payTenantId) {
@@ -524,14 +950,27 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
       return;
     }
 
+    const allocRentVal = parseFloat(allocRent || '0') || 0;
+    const allocUtilVal = parseFloat(allocUtilities || '0') || 0;
+    const allocParkVal = parseFloat(allocParking || '0') || 0;
+    const allocPetVal = parseFloat(allocPet || '0') || 0;
+    const allocSum = allocRentVal + allocUtilVal + allocParkVal + allocPetVal;
+    const finalAmount = parseFloat(payAmount || '0') || allocSum;
+
+    if (finalAmount <= 0) {
+      Alert.alert('Validation Error', 'Payment amount must be greater than zero.');
+      return;
+    }
+
+    const todayDate = new Date().toISOString().split('T')[0];
     const validationData = {
-      amount: parseFloat(payAmount || '0'),
-      date: payDate,
-      dueDate: payDueDateRef,
-      allocRent: parseFloat(allocRent || '0'),
-      allocUtilities: parseFloat(allocUtilities || '0'),
-      allocParking: parseFloat(allocParking || '0'),
-      allocPet: parseFloat(allocPet || '0'),
+      amount: finalAmount,
+      date: payDate || todayDate,
+      dueDate: payDueDateRef || todayDate,
+      allocRent: allocRentVal,
+      allocUtilities: allocUtilVal,
+      allocParking: allocParkVal,
+      allocPet: allocPetVal,
     };
 
     const valRes = paymentSchema.safeParse(validationData);
@@ -546,21 +985,53 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
 
     try {
       setSubmitting(true);
-      const payload = {
-        tenantId: payTenantId,
-        amount: valRes.data.amount,
-        paymentMethod: payChannel,
-        paidDate: valRes.data.date ? new Date(valRes.data.date).toISOString() : new Date().toISOString(),
-        referenceNumber: payRefNo || `REF-${Date.now()}`,
-        status: 'Paid',
-        notes: payNotes,
-        billingAllocations: {
-          rent: valRes.data.allocRent || 0,
-          utilities: valRes.data.allocUtilities || 0,
-          parking: valRes.data.allocParking || 0,
-          pet: valRes.data.allocPet || 0,
-        },
+      // Map UI payment channel to backend Zod enum: 'ACH' | 'CreditCard' | 'DebitCard' | 'Cash' | 'Check' | 'Zelle' | 'WireTransfer'
+      const channelMap = {
+        'ACH Direct': 'ACH',
+        'ACH': 'ACH',
+        'Credit Card': 'CreditCard',
+        'CreditCard': 'CreditCard',
+        'Debit Card': 'DebitCard',
+        'DebitCard': 'DebitCard',
+        'Cash': 'Cash',
+        'Check': 'Check',
+        'Zelle': 'Zelle',
+        'Wire Transfer': 'WireTransfer',
+        'WireTransfer': 'WireTransfer',
+        'Bank Transfer': 'BankTransfer',
+        'BankTransfer': 'BankTransfer',
+        'Money Order': 'MoneyOrder',
+        'MoneyOrder': 'MoneyOrder',
+        'Offline': 'Offline',
       };
+      const validPaymentMethod = channelMap[payChannel] || 'ACH';
+
+      const selTenant = (tenants || []).find((t) => t.id === payTenantId);
+      const selUnit = selTenant?.unit || (units || []).find((u) => u.id === selTenant?.unitId);
+
+      const payload = {
+        amount: Number(finalAmount),
+        paymentMethod: validPaymentMethod,
+        referenceNumber: payRefNo?.trim() || `RCP-${Math.floor(100000 + Math.random() * 900000)}-ZTR`,
+      };
+
+      if (isUUID(payTenantId)) {
+        payload.tenantId = payTenantId;
+      }
+      const rawPropId = selTenant?.propertyId || selUnit?.propertyId;
+      if (isUUID(rawPropId)) {
+        payload.propertyId = rawPropId;
+      }
+      const rawUnitId = selTenant?.unitId || selUnit?.id;
+      if (isUUID(rawUnitId)) {
+        payload.unitId = rawUnitId;
+      }
+      if (valRes.data.date) {
+        payload.paidDate = new Date(valRes.data.date).toISOString().split('T')[0];
+      }
+      if (valRes.data.dueDate) {
+        payload.dueDate = new Date(valRes.data.dueDate).toISOString().split('T')[0];
+      }
 
       await apiClient.post('/payments', payload, logout, refreshAccessToken);
       Alert.alert('Success', 'Rent payment receipt recorded successfully.');
@@ -568,9 +1039,19 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
       setPayAmount('');
       setPayRefNo('');
       setPayNotes('');
+      setAllocRent('');
+      setAllocUtilities('');
+      setAllocParking('');
+      setAllocPet('');
       loadAllData(false);
     } catch (e) {
-      Alert.alert('Error', e.message || 'Failed to record payment receipt.');
+      let errMsg = e.message || 'Failed to record payment receipt.';
+      if (e.response?.data?.issues?.length) {
+        errMsg = e.response.data.issues.map((i) => i.message || `${i.field} is invalid`).join('\n');
+      } else if (e.response?.data?.error?.message) {
+        errMsg = e.response.data.error.message;
+      }
+      Alert.alert('Payment Error', errMsg);
     } finally {
       setSubmitting(false);
     }
@@ -596,8 +1077,20 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
     try {
       setSubmitting(true);
       const totalAmount = invLineItems.reduce((sum, item) => sum + parseFloat(item.amount || '0'), 0);
+      const selectedTenant = tenants.find((t) => t.id === valRes.data.tenantId);
+      const tenantName = selectedTenant
+        ? `${selectedTenant.firstName || ''} ${selectedTenant.lastName || ''}`.trim() || selectedTenant.name || 'Resident'
+        : 'Resident';
+      const propertyId = selectedTenant?.propertyId || selectedTenant?.unit?.propertyId || selectedTenant?.unit?.property?.id || '';
+      const propertyName = selectedTenant?.unit?.property?.name || selectedTenant?.propertyName || selectedTenant?.property?.name || 'Property';
+      const unitNumber = selectedTenant?.unit?.unitNumber || selectedTenant?.unitNumber || '';
+
       const payload = {
         tenantId: valRes.data.tenantId,
+        tenantName,
+        propertyId,
+        propertyName,
+        unitNumber,
         dueDate: valRes.data.dueDate ? new Date(valRes.data.dueDate).toISOString() : new Date().toISOString(),
         amount: totalAmount,
         notes: invNotes,
@@ -684,35 +1177,43 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
   // FILTERING LOGIC
   // ==============================================================
   const filteredPayments = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
     return paymentsList.filter((item) => {
-      const text = `${item.receiptNumber || ''} ${item.tenantName || ''} ${item.propertyName || ''} ${item.referenceNumber || ''}`.toLowerCase();
-      const matchesSearch = text.includes(searchQuery.toLowerCase());
+      const text = `${item.receiptNumber || ''} ${item.tenantName || ''} ${item.propertyName || ''} ${item.unitNumber || ''} ${item.referenceNumber || ''} ${item.notes || ''}`.toLowerCase();
+      const matchesSearch = !q || text.includes(q);
       const matchesProperty = selectedPropertyId ? item.propertyId === selectedPropertyId : true;
-      const matchesStatus = selectedStatus ? item.status === selectedStatus : true;
-      const matchesMethod = selectedMethod ? item.paymentMethod === selectedMethod : true;
+      const matchesStatus = selectedStatus ? String(item.status || '').toLowerCase() === selectedStatus.toLowerCase() : true;
+      const matchesMethod = selectedMethod ? String(item.paymentMethod || '').toLowerCase() === selectedMethod.toLowerCase() : true;
       return matchesSearch && matchesProperty && matchesStatus && matchesMethod;
     });
   }, [paymentsList, searchQuery, selectedPropertyId, selectedStatus, selectedMethod]);
 
   const filteredInvoices = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
     return invoicesList.filter((item) => {
+      if (!item) return false;
       const text = `${item.invoiceNumber || ''} ${item.tenantName || ''} ${item.propertyName || ''}`.toLowerCase();
-      const matchesSearch = text.includes(searchQuery.toLowerCase());
-      const matchesStatus = selectedStatus ? item.status === selectedStatus : true;
+      const matchesSearch = !q || text.includes(q);
+      const itemStatus = String(item.status || '').toLowerCase().replace(/[\s_]/g, '');
+      const selStatus = selectedStatus.toLowerCase().replace(/[\s_]/g, '');
+      const matchesStatus = selectedStatus ? itemStatus === selStatus : true;
       return matchesSearch && matchesStatus;
     });
   }, [invoicesList, searchQuery, selectedStatus]);
 
   const filteredLedger = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
     return ledgerList.filter((item) => {
-      const text = `${item.tenantName || ''} ${item.propertyName || ''} ${item.description || ''}`.toLowerCase();
-      const matchesSearch = text.includes(searchQuery.toLowerCase());
+      if (!item) return false;
+      const text = `${item.tenantName || ''} ${item.propertyName || ''} ${item.description || ''} ${item.transactionType || ''}`.toLowerCase();
+      const matchesSearch = !q || text.includes(q);
+      const propObj = properties.find((p) => p.id === selectedPropertyId);
       const matchesProperty = selectedPropertyId
-        ? item.propertyName.toLowerCase().includes(
-            properties.find((p) => p.id === selectedPropertyId)?.name?.toLowerCase() || ''
+        ? String(item.propertyName || '').toLowerCase().includes(
+            (propObj?.name || '').toLowerCase()
           )
         : true;
-      const matchesTxType = selectedTxType ? item.transactionType === selectedTxType : true;
+      const matchesTxType = selectedTxType ? String(item.transactionType || '').toLowerCase() === selectedTxType.toLowerCase() : true;
       return matchesSearch && matchesProperty && matchesTxType;
     });
   }, [ledgerList, searchQuery, selectedPropertyId, selectedTxType, properties]);
@@ -732,17 +1233,29 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
       {/* FIXED HEADER */}
       <View style={[styles.fixedHeader, { paddingTop: 16 }]}>
         <View style={styles.rowBetween}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title} allowFontScaling={false}>
-              {language === 'es' ? 'Alquiler y Pagos' : language === 'hi' ? 'किराया और भुगतान' : 'Rent & Payments'}
-            </Text>
-            <Text style={styles.subtitle} allowFontScaling={false}>
-              {language === 'es'
-                ? 'Registre recibos, facture mensualidades y audite el libro mayor'
-                : language === 'hi'
-                ? 'किराया रसीदें दर्ज करें, चालान बनाएं और खाता बही का मिलान करें'
-                : 'Track rent receipts, monthly invoices, and tenant ledgers'}
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            {!!onNavigate && (
+              <TouchableOpacity
+                onPress={() => onNavigate('dashboard')}
+                style={{ marginRight: 8, padding: 4 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title} allowFontScaling={false}>
+                {language === 'es' ? 'Alquiler y Pagos' : language === 'hi' ? 'किराया और भुगतान' : 'Rent & Payments'}
+              </Text>
+              <Text style={styles.subtitle} allowFontScaling={false}>
+                {language === 'es'
+                  ? 'Registre recibos, facture mensualidades y audite el libro mayor'
+                  : language === 'hi'
+                  ? 'किराया रसीदें दर्ज करें, चालान बनाएं और खाता बही का मिलान करें'
+                  : 'Track rent receipts, monthly invoices, and tenant ledgers'}
+              </Text>
+            </View>
           </View>
           <TouchableOpacity style={styles.refreshIconBtn} onPress={() => loadAllData(true)} activeOpacity={0.7}>
             <Ionicons name="sync-outline" size={18} color="#38bdf8" />
@@ -949,16 +1462,24 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                 {/* 5-Metric Top Grid matching Web */}
                 <View style={styles.metricsGrid}>
                   {/* Collected Today */}
-                  <View style={styles.metricCard}>
+                  <TouchableOpacity
+                    style={styles.metricCard}
+                    onPress={() => setSelectedRentMetric('collectedToday')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.metricCardLabel} allowFontScaling={false}>COLLECTED TODAY</Text>
                     <Text style={[styles.metricCardValue, { color: '#10b981' }]} allowFontScaling={false}>
                       ${dashboardMetrics.collectedToday.toLocaleString(undefined, { minimumFractionDigits: 0 })}
                     </Text>
-                    <Text style={styles.metricCardSub} allowFontScaling={false}>Daily bank clearing</Text>
-                  </View>
+                    <Text style={styles.metricCardSub} allowFontScaling={false}>Daily bank clearing →</Text>
+                  </TouchableOpacity>
 
                   {/* Monthly Collected */}
-                  <View style={styles.metricCard}>
+                  <TouchableOpacity
+                    style={styles.metricCard}
+                    onPress={() => setSelectedRentMetric('monthlyCollected')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.metricCardLabel} allowFontScaling={false}>MONTHLY COLLECTED</Text>
                     <Text style={[styles.metricCardValue, { color: '#10b981' }]} allowFontScaling={false}>
                       ${dashboardMetrics.monthlyCollected.toLocaleString(undefined, { minimumFractionDigits: 0 })}
@@ -966,13 +1487,21 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                     <View style={styles.rowTrend}>
                       <Ionicons name="trending-up" size={12} color="#10b981" />
                       <Text style={[styles.metricCardSub, { color: '#10b981', fontWeight: '800', marginLeft: 3 }]} allowFontScaling={false}>
-                        92% Collection Rate
+                        {(() => {
+                          const totalBilled = (dashboardMetrics.monthlyCollected || 0) + (dashboardMetrics.outstandingBalance || 0);
+                          const rate = totalBilled > 0 ? Math.round(((dashboardMetrics.monthlyCollected || 0) / totalBilled) * 100) : 100;
+                          return `${rate}% Rate →`;
+                        })()}
                       </Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
 
                   {/* Outstanding Balance */}
-                  <View style={styles.metricCard}>
+                  <TouchableOpacity
+                    style={styles.metricCard}
+                    onPress={() => setSelectedRentMetric('outstandingBalance')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.metricCardLabel} allowFontScaling={false}>OUTSTANDING BALANCE</Text>
                     <Text style={[styles.metricCardValue, { color: '#ef4444' }]} allowFontScaling={false}>
                       ${dashboardMetrics.outstandingBalance.toLocaleString(undefined, { minimumFractionDigits: 0 })}
@@ -980,19 +1509,23 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                     <View style={styles.rowTrend}>
                       <Ionicons name="alert-circle" size={12} color="#ef4444" />
                       <Text style={[styles.metricCardSub, { color: '#ef4444', fontWeight: '800', marginLeft: 3 }]} allowFontScaling={false}>
-                        {dashboardMetrics.latePayments} Overdue Bills
+                        {dashboardMetrics.latePayments} Overdue →
                       </Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
 
                   {/* Total Cleared Transactions */}
-                  <View style={styles.metricCard}>
+                  <TouchableOpacity
+                    style={styles.metricCard}
+                    onPress={() => setSelectedRentMetric('totalTransactions')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.metricCardLabel} allowFontScaling={false}>TOTAL TRANSACTIONS</Text>
                     <Text style={[styles.metricCardValue, { color: '#38bdf8' }]} allowFontScaling={false}>
                       {dashboardMetrics.totalPaidCount}
                     </Text>
-                    <Text style={styles.metricCardSub} allowFontScaling={false}>Cleared payments</Text>
-                  </View>
+                    <Text style={styles.metricCardSub} allowFontScaling={false}>Cleared payments →</Text>
+                  </TouchableOpacity>
                 </View>
 
                 {/* Quick Actions Bar */}
@@ -1220,12 +1753,19 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                         <TouchableOpacity
                           style={[styles.cardActionBtn, { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.06)' }]}
                           onPress={() => handleDeletePayment(item)}
+                          disabled={deletingPaymentId === item.id}
                           activeOpacity={0.7}
                         >
-                          <Ionicons name="trash-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
-                          <Text style={[styles.cardActionBtnText, { color: '#ef4444' }]} allowFontScaling={false}>
-                            Delete
-                          </Text>
+                          {deletingPaymentId === item.id ? (
+                            <ActivityIndicator size="small" color="#ef4444" />
+                          ) : (
+                            <>
+                              <Ionicons name="trash-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
+                              <Text style={[styles.cardActionBtnText, { color: '#ef4444' }]} allowFontScaling={false}>
+                                Delete
+                              </Text>
+                            </>
+                          )}
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1369,12 +1909,19 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                           <TouchableOpacity
                             style={[styles.cardActionBtn, { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.06)' }]}
                             onPress={() => handleDeleteInvoice(item)}
+                            disabled={deletingInvoiceId === item.id}
                             activeOpacity={0.7}
                           >
-                            <Ionicons name="trash-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
-                            <Text style={[styles.cardActionBtnText, { color: '#ef4444' }]} allowFontScaling={false}>
-                              Delete
-                            </Text>
+                            {deletingInvoiceId === item.id ? (
+                              <ActivityIndicator size="small" color="#ef4444" />
+                            ) : (
+                              <>
+                                <Ionicons name="trash-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
+                                <Text style={[styles.cardActionBtnText, { color: '#ef4444' }]} allowFontScaling={false}>
+                                  Delete
+                                </Text>
+                              </>
+                            )}
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -1762,8 +2309,12 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
       {/* MODAL 3: RECORD PAYMENT RECEIPT MODAL */}
       {/* ============================================================== */}
       <Modal visible={recordPaymentOpen} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle} allowFontScaling={false}>Record Payment Receipt</Text>
@@ -1828,7 +2379,12 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                   placeholderTextColor="#64748b"
                   keyboardType="decimal-pad"
                   value={payAmount}
-                  onChangeText={setPayAmount}
+                  onChangeText={(val) => {
+                    setPayAmount(val);
+                    if (!allocRent || allocRent === '0') {
+                      setAllocRent(val);
+                    }
+                  }}
                 />
                 {payErrors.amount && <Text style={styles.errorLabel} allowFontScaling={false}>{payErrors.amount}</Text>}
 
@@ -1909,7 +2465,11 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                       placeholderTextColor="#64748b"
                       keyboardType="decimal-pad"
                       value={allocRent}
-                      onChangeText={setAllocRent}
+                      onChangeText={(val) => {
+                        setAllocRent(val);
+                        const sum = (parseFloat(val) || 0) + (parseFloat(allocUtilities) || 0) + (parseFloat(allocParking) || 0) + (parseFloat(allocPet) || 0);
+                        if (sum > 0) setPayAmount(String(sum));
+                      }}
                     />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -1920,7 +2480,11 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                       placeholderTextColor="#64748b"
                       keyboardType="decimal-pad"
                       value={allocUtilities}
-                      onChangeText={setAllocUtilities}
+                      onChangeText={(val) => {
+                        setAllocUtilities(val);
+                        const sum = (parseFloat(allocRent) || 0) + (parseFloat(val) || 0) + (parseFloat(allocParking) || 0) + (parseFloat(allocPet) || 0);
+                        if (sum > 0) setPayAmount(String(sum));
+                      }}
                     />
                   </View>
                 </View>
@@ -1934,7 +2498,11 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                       placeholderTextColor="#64748b"
                       keyboardType="decimal-pad"
                       value={allocParking}
-                      onChangeText={setAllocParking}
+                      onChangeText={(val) => {
+                        setAllocParking(val);
+                        const sum = (parseFloat(allocRent) || 0) + (parseFloat(allocUtilities) || 0) + (parseFloat(val) || 0) + (parseFloat(allocPet) || 0);
+                        if (sum > 0) setPayAmount(String(sum));
+                      }}
                     />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -1945,7 +2513,11 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                       placeholderTextColor="#64748b"
                       keyboardType="decimal-pad"
                       value={allocPet}
-                      onChangeText={setAllocPet}
+                      onChangeText={(val) => {
+                        setAllocPet(val);
+                        const sum = (parseFloat(allocRent) || 0) + (parseFloat(allocUtilities) || 0) + (parseFloat(allocParking) || 0) + (parseFloat(val) || 0);
+                        if (sum > 0) setPayAmount(String(sum));
+                      }}
                     />
                   </View>
                 </View>
@@ -1978,16 +2550,20 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </TouchableWithoutFeedback>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ============================================================== */}
       {/* MODAL 4: CREATE INVOICE MODAL */}
       {/* ============================================================== */}
       <Modal visible={createInvoiceOpen} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle} allowFontScaling={false}>Create Invoice</Text>
@@ -2004,33 +2580,49 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                 >
                   <Text style={styles.formPickerText} allowFontScaling={false}>
                     {invTenantId
-                      ? tenants.find((t) => t.id === invTenantId)?.name ||
-                        `${tenants.find((t) => t.id === invTenantId)?.firstName || ''} ${tenants.find((t) => t.id === invTenantId)?.lastName || ''}`.trim()
+                      ? (() => {
+                          const t = tenants.find((item) => item.id === invTenantId);
+                          const u = units.find((item) => item.id === t?.unitId) || t?.unit;
+                          const uStr = u?.unitNumber ? ` (Unit ${u.unitNumber})` : (t?.unitNumber ? ` (Unit ${t.unitNumber})` : '');
+                          return (t?.name || `${t?.firstName || ''} ${t?.lastName || ''}`.trim()) + uStr;
+                        })()
                       : 'Select Resident...'}
                   </Text>
                   <Ionicons name={activePicker === 'tenant_inv' ? 'chevron-up' : 'chevron-down'} size={16} color="#cbd5e1" />
                 </TouchableOpacity>
                 {activePicker === 'tenant_inv' && (
                   <View style={styles.inlineDropdownCard}>
-                    {tenants.map((opt) => {
-                      const label = `${opt.firstName || ''} ${opt.lastName || ''}`.trim();
-                      const isActive = invTenantId === opt.id;
-                      return (
-                        <TouchableOpacity
-                          key={opt.id}
-                          style={[styles.inlineDropdownRow, isActive && styles.inlineDropdownRowActive]}
-                          onPress={() => {
-                            setInvTenantId(opt.id);
-                            setActivePicker(null);
-                          }}
-                        >
-                          <Text style={[styles.inlineDropdownText, isActive && styles.inlineDropdownTextActive]} allowFontScaling={false}>
-                            {label}
-                          </Text>
-                          {isActive && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                        </TouchableOpacity>
-                      );
-                    })}
+                    {tenants.filter((t) => t.unitId || t.unit).length === 0 ? (
+                      <View style={{ padding: 12 }}>
+                        <Text style={[styles.inlineDropdownText, { color: '#94a3b8' }]} allowFontScaling={false}>
+                          No residents with assigned units found
+                        </Text>
+                      </View>
+                    ) : (
+                      tenants
+                        .filter((t) => t.unitId || t.unit)
+                        .map((opt) => {
+                          const unitObj = units.find((u) => u.id === opt.unitId) || opt.unit;
+                          const unitStr = unitObj?.unitNumber ? ` (Unit ${unitObj.unitNumber})` : (opt.unitNumber ? ` (Unit ${opt.unitNumber})` : '');
+                          const label = `${opt.firstName || ''} ${opt.lastName || ''}`.trim() + unitStr;
+                          const isActive = invTenantId === opt.id;
+                          return (
+                            <TouchableOpacity
+                              key={opt.id}
+                              style={[styles.inlineDropdownRow, isActive && styles.inlineDropdownRowActive]}
+                              onPress={() => {
+                                setInvTenantId(opt.id);
+                                setActivePicker(null);
+                              }}
+                            >
+                              <Text style={[styles.inlineDropdownText, isActive && styles.inlineDropdownTextActive]} allowFontScaling={false}>
+                                {label}
+                              </Text>
+                              {isActive && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
+                            </TouchableOpacity>
+                          );
+                        })
+                    )}
                   </View>
                 )}
 
@@ -2119,8 +2711,8 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </TouchableWithoutFeedback>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ============================================================== */}
@@ -2275,15 +2867,220 @@ export const ManagerRentPaymentsScreen = ({ initialTab = 'payments' }) => {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.submitBtn}
-                      onPress={() => Alert.alert('Print Statement', 'Document generated and queued for printer.')}
+                      onPress={() => handleDownloadLedgerPdf(selectedStatementTenant, txs, totalOutstanding)}
                     >
-                      <Ionicons name="print-outline" size={16} color="#0f172a" style={{ marginRight: 6 }} />
-                      <Text style={styles.submitBtnText} allowFontScaling={false}>Print Statement</Text>
+                      <Ionicons name="download-outline" size={16} color="#0f172a" style={{ marginRight: 6 }} />
+                      <Text style={styles.submitBtnText} allowFontScaling={false}>Download PDF</Text>
                     </TouchableOpacity>
                   </View>
                 </ScrollView>
               );
             })() : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ============================================================== */}
+      {/* MODAL 6: DRILL-DOWN METRIC DETAILS MODAL */}
+      {/* ============================================================== */}
+      <Modal
+        visible={selectedRentMetric !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setSelectedRentMetric(null);
+          setRentMetricSearch('');
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%', paddingTop: 20 }]}>
+            <View style={[styles.modalHeader, { paddingTop: 4, alignItems: 'flex-start' }]}>
+              <View style={{ flex: 1, flexShrink: 1, marginRight: 8 }}>
+                <Text style={[styles.modalTitle, { lineHeight: 22, flexShrink: 1 }]} numberOfLines={2} allowFontScaling={false}>
+                  {getRentModalMeta().name}
+                </Text>
+                <Text style={{ fontSize: 11.5, color: '#38bdf8', fontWeight: '800', marginTop: 3 }} allowFontScaling={false}>
+                  {getRentModalMeta().count}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setSelectedRentMetric(null);
+                  setRentMetricSearch('');
+                }}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="close-circle-outline" size={24} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.searchContainer, { flex: 0, height: 42, minHeight: 42, maxHeight: 42, marginHorizontal: 16, marginBottom: 8 }]}>
+              <Ionicons name="search-outline" size={16} color="#64748b" style={{ marginRight: 6 }} />
+              <TextInput
+                style={[styles.searchInput, { height: 42, padding: 0 }]}
+                placeholder="Search items..."
+                placeholderTextColor="#64748b"
+                value={rentMetricSearch}
+                onChangeText={setRentMetricSearch}
+              />
+              {rentMetricSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setRentMetricSearch('')}>
+                  <Ionicons name="close-circle" size={16} color="#64748b" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Quick Export Actions (PDF & Excel) */}
+            <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 16, marginBottom: 10 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: isDarkMode ? '#ef444415' : '#fef2f2',
+                  borderColor: isDarkMode ? '#ef444440' : '#fecaca',
+                  borderWidth: 1,
+                  borderRadius: 8,
+                  paddingVertical: 7,
+                  paddingHorizontal: 10,
+                  gap: 5,
+                }}
+                onPress={() => handleExportRentMetric('PDF')}
+                disabled={exportingType !== null}
+                activeOpacity={0.7}
+              >
+                {exportingType === 'PDF' ? (
+                  <ActivityIndicator size="small" color="#ef4444" />
+                ) : (
+                  <>
+                    <Ionicons name="document-text-outline" size={14} color="#ef4444" />
+                    <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#ef4444' }} allowFontScaling={false}>
+                      Export PDF
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: isDarkMode ? '#10b98115' : '#f0fdf4',
+                  borderColor: isDarkMode ? '#10b98140' : '#bbf7d0',
+                  borderWidth: 1,
+                  borderRadius: 8,
+                  paddingVertical: 7,
+                  paddingHorizontal: 10,
+                  gap: 5,
+                }}
+                onPress={() => handleExportRentMetric('EXCEL')}
+                disabled={exportingType !== null}
+                activeOpacity={0.7}
+              >
+                {exportingType === 'EXCEL' ? (
+                  <ActivityIndicator size="small" color="#10b981" />
+                ) : (
+                  <>
+                    <Ionicons name="grid-outline" size={14} color="#10b981" />
+                    <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#10b981' }} allowFontScaling={false}>
+                      Export Excel
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ paddingHorizontal: 16, maxHeight: 360 }} showsVerticalScrollIndicator={true}>
+              {getRentModalItems().length === 0 ? (
+                <View style={{ padding: 32, alignItems: 'center' }}>
+                  <Ionicons name="folder-open-outline" size={36} color="#64748b" style={{ marginBottom: 8 }} />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>
+                    No Records Found
+                  </Text>
+                  <Text style={{ fontSize: 11.5, color: colors.textSecondary, textAlign: 'center', marginTop: 4 }} allowFontScaling={false}>
+                    {rentMetricSearch
+                      ? 'No items match your search filter.'
+                      : selectedRentMetric === 'collectedToday'
+                      ? 'No rent payments collected today.'
+                      : 'There are currently no records for this metric.'}
+                  </Text>
+                </View>
+              ) : (
+                getRentModalItems().map((item, idx) => (
+                  <TouchableOpacity
+                    key={`rent-metric-item-${item.id || idx}`}
+                    style={[
+                      styles.inlineDropdownRow,
+                      {
+                        paddingVertical: 12,
+                        paddingHorizontal: 8,
+                        borderBottomColor: colors.cardBorder,
+                      },
+                    ]}
+                    onPress={() => {
+                      const type = item.type;
+                      const raw = item.raw;
+                      setSelectedRentMetric(null);
+                      setRentMetricSearch('');
+                      if (type === 'payment') {
+                        setSelectedReceipt(raw);
+                      } else if (type === 'invoice') {
+                        setSelectedInvoice(raw);
+                      } else if (type === 'ledger') {
+                        setSelectedStatementTenant(raw);
+                        setStatementModalOpen(true);
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary }} numberOfLines={1} allowFontScaling={false}>
+                        {item.title}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} numberOfLines={1} allowFontScaling={false}>
+                        {item.subtitle}
+                      </Text>
+                    </View>
+                    <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: `${item.badgeColor}18` }}>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: item.badgeColor }} allowFontScaling={false}>
+                        {item.badge}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+
+            <View style={[styles.modalActions, { paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: colors.cardBorder, marginTop: 8 }]}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => {
+                  setSelectedRentMetric(null);
+                  setRentMetricSearch('');
+                }}
+              >
+                <Text style={styles.cancelBtnText} allowFontScaling={false}>Close</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.submitBtn}
+                onPress={() => {
+                  const meta = getRentModalMeta();
+                  setSelectedRentMetric(null);
+                  setRentMetricSearch('');
+                  if (meta.destFilter !== undefined) {
+                    setSelectedStatus(meta.destFilter);
+                  }
+                  setActiveTab(meta.destTab);
+                }}
+              >
+                <Text style={styles.submitBtnText} allowFontScaling={false}>
+                  {getRentModalMeta().destLabel} →
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -2622,7 +3419,8 @@ const getStyles = (colors, isDarkMode) =>
       backgroundColor: 'rgba(15, 23, 42, 0.75)',
       justifyContent: 'center',
       alignItems: 'center',
-      padding: 18,
+      padding: 16,
+      paddingTop: Platform.OS === 'android' ? 36 : 24,
     },
     modalContent: {
       backgroundColor: colors.surface,
@@ -2630,21 +3428,24 @@ const getStyles = (colors, isDarkMode) =>
       width: '100%',
       maxWidth: 580,
       alignSelf: 'center',
-      maxHeight: '88%',
-      padding: 18,
+      maxHeight: '90%',
+      paddingHorizontal: 18,
+      paddingTop: 20,
+      paddingBottom: 16,
       borderWidth: 1,
       borderColor: colors.cardBorder,
     },
     modalHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       borderBottomWidth: 1,
       borderBottomColor: colors.cardBorder,
-      paddingBottom: 10,
+      paddingTop: 4,
+      paddingBottom: 12,
       marginBottom: 12,
     },
-    modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+    modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary, flexShrink: 1, lineHeight: 22, marginRight: 8 },
     modalForm: { marginBottom: 12 },
     formSectionTitle: { fontSize: 10, fontWeight: '800', color: '#38bdf8', letterSpacing: 0.8, marginTop: 12, marginBottom: 6 },
     formLabel: { fontSize: 9.5, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.8, marginTop: 8, marginBottom: 4 },

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,43 +7,61 @@ import {
   TouchableOpacity,
   Platform,
 } from 'react-native';
+import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
 export const TenantServicesScreen = ({ onNavigate }) => {
-  const { user } = useAuthStore();
+  const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
   const es = language === 'es';
 
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    apiClient
+      .get('/notifications?role=Tenant', logout, refreshAccessToken)
+      .catch(() => apiClient.get('/portal/tenant/notifications', logout, refreshAccessToken).catch(() => null))
+      .then((res) => {
+        if (!isMounted) return;
+        const raw = res?.data !== undefined ? res.data : res;
+        const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+        const unread = list.filter((n) => !n.read && !n.isRead).length;
+        setUnreadCount(unread);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const menuItems = [
     {
+      id: 'notifications',
+      label: es ? 'Notificaciones' : 'Notifications',
+      icon: 'notifications-outline',
+      color: '#3b82f6',
+      badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : unreadCount) : null,
+    },
+    {
       id: 'maintenance',
-      label: es ? 'Reparaciones y Mantenimiento' : 'Repairs & Maintenance',
-      subtitle: es ? 'Rastrear y presentar tickets de mantenimiento' : 'Track and file maintenance tickets',
+      label: es ? 'Reparaciones' : 'Maintenance',
       icon: 'hammer-outline',
       color: '#f59e0b',
     },
     {
       id: 'documents',
       label: es ? 'Documentos' : 'Documents',
-      subtitle: es ? 'Contratos, recibos y archivos comunitarios' : 'Leases, receipts, and community files',
       icon: 'document-text-outline',
       color: '#38bdf8',
     },
     {
-      id: 'notifications',
-      label: es ? 'Notificaciones' : 'Notifications',
-      subtitle: es ? 'Ver actualizaciones y anuncios recientes' : 'View recent updates and announcements',
-      icon: 'notifications-outline',
-      color: '#10b981',
-    },
-    {
       id: 'profile',
-      label: es ? 'Configuración de Perfil' : 'Profile Settings',
-      subtitle: es ? 'Administrar sus datos de contacto y cuenta' : 'Manage your contact details and account',
+      label: es ? 'Mi Perfil' : 'Profile',
       icon: 'person-outline',
       color: '#ec4899',
     },
@@ -73,24 +91,34 @@ export const TenantServicesScreen = ({ onNavigate }) => {
           {es ? 'MENÚ DE SERVICIOS' : 'SERVICES MENU'}
         </Text>
 
-        {/* Menu Options */}
-        {menuItems.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={styles.menuItem}
-            onPress={() => onNavigate(item.id)}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: `${item.color}15` }]}>
-              <Ionicons name={item.icon} size={20} color={item.color} />
-            </View>
-            <View style={styles.menuTextContainer}>
-              <Text style={styles.menuLabel} allowFontScaling={false}>{item.label}</Text>
-              <Text style={styles.menuSubtitle} allowFontScaling={false}>{item.subtitle}</Text>
-            </View>
-            <Ionicons name="chevron-forward-outline" size={16} color="#475569" />
-          </TouchableOpacity>
-        ))}
+        {/* 3-Column Services App Grid */}
+        <View style={styles.gridContainer}>
+          {menuItems.map((item) => (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.gridItem}
+              onPress={() => onNavigate(item.id)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.iconBox, { backgroundColor: `${item.color}18` }]}>
+                <Ionicons name={item.icon} size={24} color={item.color} />
+                {item.badge ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{item.badge}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text
+                style={styles.gridLabel}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+                allowFontScaling={false}
+              >
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </ScrollView>
 
       {/* Log Out Button docked at the absolute bottom */}
@@ -146,27 +174,65 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
 
   sectionHeader: { fontSize: 10, fontWeight: '800', color: colors.textMuted, marginBottom: 10, letterSpacing: 1 },
 
-  menuItem: {
+  gridContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingBottom: 16,
+  },
+  gridItem: {
+    width: '31%',
     backgroundColor: colors.surface,
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 10,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: colors.cardBorder,
-  },
-  iconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    minHeight: 96,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: isDarkMode ? 0.2 : 0.04,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  menuTextContainer: { flex: 1 },
-  menuLabel: { fontSize: 14, fontWeight: '800', color: colors.textPrimary },
-  menuSubtitle: { fontSize: 11.5, color: colors.textSecondary, marginTop: 2 },
+  iconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    position: 'relative',
+  },
+  gridLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#ef4444',
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '900',
+  },
 
   bottomButtonContainer: {
     padding: 16,

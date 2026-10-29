@@ -220,6 +220,7 @@ export const IntegrationsPage: React.FC = () => {
                       <div className="relative">
                         <Input 
                           type={showAuthToken ? 'text' : 'password'}
+                          disableTogglePassword
                           placeholder="Twilio Auth Token Secret"
                           value={authTokenValue}
                           onChange={(e) => setAuthTokenValue(e.target.value)}
@@ -265,6 +266,7 @@ export const IntegrationsPage: React.FC = () => {
                       <div className="relative">
                         <Input 
                           type={showAuthToken ? 'text' : 'password'}
+                          disableTogglePassword
                           placeholder="EAABw..." 
                           value={authTokenValue}
                           onChange={(e) => setAuthTokenValue(e.target.value)}
@@ -300,6 +302,7 @@ export const IntegrationsPage: React.FC = () => {
                       <div className="relative">
                         <Input 
                           type={showAuthToken ? 'text' : 'password'}
+                          disableTogglePassword
                           placeholder="e.g. sk_live_..." 
                           value={authTokenValue}
                           onChange={(e) => setAuthTokenValue(e.target.value)}
@@ -335,6 +338,7 @@ export const IntegrationsPage: React.FC = () => {
                       <div className="relative">
                         <Input 
                           type={showAuthToken ? 'text' : 'password'}
+                          disableTogglePassword
                           placeholder="Authorize.Net Transaction Key" 
                           value={authTokenValue}
                           onChange={(e) => setAuthTokenValue(e.target.value)}
@@ -370,6 +374,7 @@ export const IntegrationsPage: React.FC = () => {
                       <div className="relative">
                         <Input 
                           type={showAuthToken ? 'text' : 'password'}
+                          disableTogglePassword
                           placeholder="Razorpay Key Secret" 
                           value={authTokenValue}
                           onChange={(e) => setAuthTokenValue(e.target.value)}

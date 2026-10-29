@@ -98,10 +98,30 @@ export const RentLedgerPage: React.FC = () => {
     });
   }, [ledger, selectedTenant, selectedTenantId]);
 
-  const filteredLedger = ledger.filter((item) => {
-    const nameMatch = item.tenantName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesProp = propertyFilter === '' || item.propertyName.includes(propertyFilter);
-    const matchesType = typeFilter === '' || item.transactionType === typeFilter;
+  const filteredLedger = ledger.filter((item: any) => {
+    if (!item) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const tName = String(item.tenantName || '');
+    const pName = String(item.propertyName || '');
+    const uNum = String(item.unitNumber || '');
+    const desc = String(item.description || '');
+    const tType = String(item.transactionType || '');
+    const dateStr = String(item.date || '');
+
+    const nameMatch = !q ||
+      tName.toLowerCase().includes(q) ||
+      pName.toLowerCase().includes(q) ||
+      uNum.toLowerCase().includes(q) ||
+      desc.toLowerCase().includes(q) ||
+      tType.toLowerCase().includes(q) ||
+      dateStr.toLowerCase().includes(q);
+
+    const matchesProp = !propertyFilter ||
+      pName.toLowerCase().includes(propertyFilter.toLowerCase());
+
+    const matchesType = !typeFilter ||
+      tType.toLowerCase().replace(/[\s_-]/g, '') === typeFilter.toLowerCase().replace(/[\s_-]/g, '');
+
     return nameMatch && matchesProp && matchesType;
   });
 

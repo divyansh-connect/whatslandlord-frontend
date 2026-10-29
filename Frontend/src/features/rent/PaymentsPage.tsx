@@ -22,7 +22,13 @@ export const PaymentsPage: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [propertyFilter, setPropertyFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('status') || '';
+    } catch {
+      return '';
+    }
+  });
   const [methodFilter, setMethodFilter] = useState('');
 
   // Dialog triggers
@@ -49,16 +55,44 @@ export const PaymentsPage: React.FC = () => {
     },
   });
 
-  // Filters
-  const filteredPayments = payments.filter((pay) => {
-    const nameMatch = pay.tenantName.toLowerCase().includes(searchQuery.toLowerCase());
-    const refMatch = (pay.referenceNumber || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesProp = propertyFilter === '' || pay.propertyId === propertyFilter;
-    const matchesStatus = statusFilter === '' || pay.status === statusFilter;
-    const matchesMethod = methodFilter === '' || pay.paymentMethod === methodFilter;
+  // Auto-open specific payment if ?id= query param provided
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get('id');
+      if (targetId) {
+        navigate({ to: `/payments/${targetId}` });
+      }
+    } catch (_) {}
+  }, []);
 
-    return (nameMatch || refMatch) && matchesProp && matchesStatus && matchesMethod;
-  });
+  // Filters & Sorting (latest payments first)
+  const filteredPayments = payments
+    .slice()
+    .sort((a, b) => new Date(b.paidDate || (b as any).createdAt || 0).getTime() - new Date(a.paidDate || (a as any).createdAt || 0).getTime())
+    .filter((pay) => {
+      const q = searchQuery.toLowerCase().trim();
+      const nameMatch = (pay.tenantName || '').toLowerCase().includes(q);
+      const refMatch = (pay.referenceNumber || '').toLowerCase().includes(q);
+      const propMatch = (pay.propertyName || '').toLowerCase().includes(q);
+      const unitMatch = (pay.unitNumber || '').toLowerCase().includes(q);
+      const idMatch = (pay.id || '').toLowerCase().includes(q);
+      const amountMatch = String(pay.amount || '').includes(q);
+      const methodMatch = (pay.paymentMethod || '').toLowerCase().includes(q);
+      const matchesSearch = !q || nameMatch || refMatch || propMatch || unitMatch || idMatch || amountMatch || methodMatch;
+
+      const matchesProp = !propertyFilter ||
+        pay.propertyId === propertyFilter ||
+        (pay.propertyName || '').toLowerCase().includes(propertyFilter.toLowerCase());
+
+      const matchesStatus = !statusFilter ||
+        String(pay.status || '').toLowerCase().replace(/[\s_-]/g, '') === statusFilter.toLowerCase().replace(/[\s_-]/g, '');
+
+      const matchesMethod = !methodFilter ||
+        String(pay.paymentMethod || '').toLowerCase() === methodFilter.toLowerCase();
+
+      return matchesSearch && matchesProp && matchesStatus && matchesMethod;
+    });
 
   // Export CSV
   const handleExport = () => {

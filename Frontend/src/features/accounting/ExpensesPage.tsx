@@ -190,11 +190,23 @@ export const ExpensesPage: React.FC = () => {
     },
   });
 
-  const filteredExpenses = expenses.filter((exp) => {
-    const vendor = exp.vendorName || '';
-    const propName = exp.propertyName || '';
-    const searchMatch = vendor.toLowerCase().includes(searchQuery.toLowerCase()) || propName.toLowerCase().includes(searchQuery.toLowerCase());
-    const catMatch = categoryFilter === '' || exp.category === categoryFilter;
+  const filteredExpenses = expenses.filter((exp: any) => {
+    if (!exp) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const vendor = String(exp.vendorName || exp.payeeName || '');
+    const propName = String(exp.propertyName || '');
+    const cat = String(exp.category || '');
+    const desc = String(exp.description || exp.notes || '');
+
+    const searchMatch = !q ||
+      vendor.toLowerCase().includes(q) ||
+      propName.toLowerCase().includes(q) ||
+      cat.toLowerCase().includes(q) ||
+      desc.toLowerCase().includes(q);
+
+    const catMatch = !categoryFilter ||
+      cat.toLowerCase().replace(/[\s_-]/g, '') === categoryFilter.toLowerCase().replace(/[\s_-]/g, '');
+
     return searchMatch && catMatch;
   });
 

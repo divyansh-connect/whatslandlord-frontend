@@ -5,10 +5,10 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   Platform,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
@@ -26,21 +26,27 @@ export const TenantLeaseScreen = () => {
   const es = language === 'es';
   const [loading, setLoading] = useState(true);
   const [leaseData, setLeaseData] = useState(null);
+  const [renewalOffer, setRenewalOffer] = useState(null);
+  const [renewalActionLoading, setRenewalActionLoading] = useState(false);
 
   const fetchLiveLease = async () => {
     try {
       setLoading(true);
-      // Strictly call same endpoint as web frontend: GET /portal/tenant/leases
-      const [leasesRes, singleLeaseRes] = await Promise.all([
+      // Strictly call same endpoint as web frontend: GET /portal/tenant/leases and check renewals
+      const [leasesRes, renewalsRes] = await Promise.all([
         apiClient.get('/portal/tenant/leases', logout, refreshAccessToken).catch(() => null),
-        apiClient.get('/portal/tenant/lease', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/renewals', logout, refreshAccessToken).catch(() => null),
       ]);
 
       const rawLeases = Array.isArray(leasesRes?.data) ? leasesRes.data : (Array.isArray(leasesRes) ? leasesRes : []);
-      const single = singleLeaseRes?.data || singleLeaseRes;
-      const rawLease = rawLeases.length > 0 ? rawLeases[0] : (single && single.id ? single : null);
+      const rawLease = rawLeases.length > 0 ? rawLeases[0] : null;
+
+      const rawRenewals = Array.isArray(renewalsRes?.data) ? renewalsRes.data : (Array.isArray(renewalsRes) ? renewalsRes : []);
 
       if (rawLease) {
+        const foundRenewal = rawRenewals.find(r => (r.leaseId === rawLease.id || r.id === rawLease.id) && r.status === 'OFFER_SENT');
+        setRenewalOffer(foundRenewal || null);
+
         setLeaseData({
           id: rawLease.id,
           tenantName: rawLease.tenant
@@ -72,12 +78,48 @@ export const TenantLeaseScreen = () => {
       } else {
         // No active lease found matching Web UI exactly
         setLeaseData(null);
+        setRenewalOffer(null);
       }
     } catch (e) {
       console.log('Error fetching live tenant lease:', e.message);
       setLeaseData(null);
+      setRenewalOffer(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTenantAcceptRenewal = async () => {
+    if (!renewalOffer || !leaseData) return;
+    try {
+      setRenewalActionLoading(true);
+      await apiClient.post('/renewals/accept', { leaseId: leaseData.id, termMonths: renewalOffer.termMonths || 12 }, logout, refreshAccessToken);
+      Alert.alert(
+        es ? 'Renovación Aceptada' : 'Renewal Accepted',
+        es ? 'Ha aceptado la oferta de renovación. Su contrato ha sido extendido.' : 'You have accepted the renewal offer. Your lease has been extended.'
+      );
+      fetchLiveLease();
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Failed to accept renewal offer.');
+    } finally {
+      setRenewalActionLoading(false);
+    }
+  };
+
+  const handleTenantDeclineRenewal = async () => {
+    if (!renewalOffer || !leaseData) return;
+    try {
+      setRenewalActionLoading(true);
+      await apiClient.post('/renewals/reject', { leaseId: leaseData.id }, logout, refreshAccessToken);
+      Alert.alert(
+        es ? 'Renovación Rechazada' : 'Renewal Declined',
+        es ? 'Ha declinado la oferta de renovación.' : 'You have declined the renewal offer.'
+      );
+      fetchLiveLease();
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Failed to decline renewal offer.');
+    } finally {
+      setRenewalActionLoading(false);
     }
   };
 
@@ -309,6 +351,75 @@ export const TenantLeaseScreen = () => {
           {es ? 'Mi Contrato de Arrendamiento' : 'My Lease Agreement'}
         </Text>
       </View>
+
+      {/* Active Lease Renewal Offer Banner */}
+      {renewalOffer && (
+        <View style={{
+          backgroundColor: 'rgba(16, 185, 129, 0.12)',
+          borderColor: 'rgba(16, 185, 129, 0.35)',
+          borderWidth: 1,
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 16,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <Ionicons name="sparkles" size={18} color="#10b981" style={{ marginRight: 8 }} />
+            <Text style={{ fontSize: 14, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>
+              {es ? '¡Oferta de Renovación Recibida!' : 'Renewal Offer Received!'}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 12, lineHeight: 18 }} allowFontScaling={false}>
+            {es
+              ? `La administración le ha ofrecido renovar su contrato por ${renewalOffer.termMonths || 12} meses con una renta mensual de $${Number(renewalOffer.newRentAmount || renewalOffer.newRent).toLocaleString()}.`
+              : `Property management has offered to extend your lease for ${renewalOffer.termMonths || 12} months at $${Number(renewalOffer.newRentAmount || renewalOffer.newRent).toLocaleString()}/month.`}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                backgroundColor: '#10b981',
+                paddingVertical: 10,
+                borderRadius: 8,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onPress={handleTenantAcceptRenewal}
+              disabled={renewalActionLoading}
+            >
+              {renewalActionLoading ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 12 }} allowFontScaling={false}>
+                  {es ? 'ACEPTAR RENOVACIÓN' : 'ACCEPT RENEWAL'}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                borderColor: 'rgba(239, 68, 68, 0.4)',
+                borderWidth: 1,
+                paddingVertical: 10,
+                borderRadius: 8,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onPress={handleTenantDeclineRenewal}
+              disabled={renewalActionLoading}
+            >
+              {renewalActionLoading ? (
+                <ActivityIndicator size="small" color="#ef4444" />
+              ) : (
+                <Text style={{ color: '#ef4444', fontWeight: '800', fontSize: 12 }} allowFontScaling={false}>
+                  {es ? 'DECLINAR' : 'DECLINE'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* 1. Lease Term Details */}
       <View style={styles.card}>

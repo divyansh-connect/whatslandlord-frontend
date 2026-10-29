@@ -115,9 +115,23 @@ export const IncomePage: React.FC = () => {
     },
   });
 
-  const filteredIncome = income.filter((item) => {
-    const searchMatch = item.tenantName.toLowerCase().includes(searchQuery.toLowerCase()) || item.propertyName.toLowerCase().includes(searchQuery.toLowerCase());
-    const catMatch = categoryFilter === '' || item.category === categoryFilter;
+  const filteredIncome = income.filter((item: any) => {
+    if (!item) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const tName = String(item.tenantName || item.residentName || item.source || '');
+    const pName = String(item.propertyName || '');
+    const cat = String(item.category || '');
+    const desc = String(item.description || item.notes || '');
+
+    const searchMatch = !q ||
+      tName.toLowerCase().includes(q) ||
+      pName.toLowerCase().includes(q) ||
+      cat.toLowerCase().includes(q) ||
+      desc.toLowerCase().includes(q);
+
+    const catMatch = !categoryFilter ||
+      cat.toLowerCase().replace(/[\s_-]/g, '') === categoryFilter.toLowerCase().replace(/[\s_-]/g, '');
+
     return searchMatch && catMatch;
   });
 

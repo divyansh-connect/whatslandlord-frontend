@@ -6,16 +6,16 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  ActivityIndicator,
   Alert,
   useWindowDimensions,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
-export const OwnerDashboard = ({ onNavigate }) => {
+export const OwnerDashboard = ({ onNavigate, onOpenMenu }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -207,13 +207,30 @@ export const OwnerDashboard = ({ onNavigate }) => {
           1. CLEAN TOP HEADER WITH WELCOME & LIVE SYNC (Manager Dashboard Style)
           ========================================================================= */}
       <View style={styles.headerRow}>
-        <View style={{ flex: 1, paddingRight: 8 }}>
-          <Text style={[styles.headerGreeting, { color: colors.textSecondary }]} allowFontScaling={false}>
-            Welcome back, {ownerName} 👋
-          </Text>
-          <Text style={[styles.headerTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
-            Owner Portfolio
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 8 }}>
+          <TouchableOpacity
+            style={[
+              styles.hamburgerBtn,
+              {
+                borderColor: colors.cardBorder,
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              },
+            ]}
+            onPress={() => onOpenMenu && onOpenMenu()}
+            activeOpacity={0.7}
+            accessibilityLabel="Open Navigation Menu"
+          >
+            <Ionicons name="menu-outline" size={24} color={colors.textPrimary} />
+          </TouchableOpacity>
+
+          <View style={{ marginLeft: 10, flex: 1 }}>
+            <Text style={[styles.headerGreeting, { color: colors.textSecondary }]} allowFontScaling={false} numberOfLines={1}>
+              Welcome back, {ownerName} 👋
+            </Text>
+            <Text style={[styles.headerTitle, { color: colors.textPrimary }]} allowFontScaling={false} numberOfLines={1}>
+              Owner Portfolio
+            </Text>
+          </View>
         </View>
 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -621,6 +638,14 @@ const getStyles = (colors, isDarkMode, width = 390) => {
       fontSize: 12,
       fontWeight: '700',
       color: '#2563eb',
+    },
+    hamburgerBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
     },
     bellBtn: {
       width: 36,

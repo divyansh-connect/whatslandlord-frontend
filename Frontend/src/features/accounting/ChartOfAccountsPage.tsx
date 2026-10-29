@@ -62,9 +62,21 @@ export const ChartOfAccountsPage: React.FC = () => {
     },
   });
 
-  const filteredAccounts = accounts.filter((a) => {
-    const searchMatch = a.accountName.toLowerCase().includes(searchQuery.toLowerCase()) || a.accountNumber.includes(searchQuery);
-    const typeMatch = typeFilter === '' || a.accountType === typeFilter;
+  const filteredAccounts = accounts.filter((a: any) => {
+    if (!a) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const aName = String(a.accountName || a.name || '');
+    const aNum = String(a.accountNumber || '');
+    const aType = String(a.accountType || a.type || '');
+
+    const searchMatch = !q ||
+      aName.toLowerCase().includes(q) ||
+      aNum.toLowerCase().includes(q) ||
+      aType.toLowerCase().includes(q);
+
+    const typeMatch = !typeFilter ||
+      aType.toLowerCase().replace(/[\s_s]/g, '') === typeFilter.toLowerCase().replace(/[\s_s]/g, '');
+
     return searchMatch && typeMatch;
   });
 

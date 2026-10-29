@@ -126,19 +126,28 @@ export const ViolationsPage: React.FC = () => {
     }
   };
 
-  const filteredViolations = violations.filter((v) => {
-    const authorityVal = v.issuingAuthority || '';
-    const descVal = v.description || '';
-    const propNameVal = v.propertyName || '';
-    const searchMatch = 
-      authorityVal.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      descVal.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      propNameVal.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.violationCode.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredViolations = violations.filter((v: any) => {
+    if (!v) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const authorityVal = String(v.issuingAuthority || '');
+    const descVal = String(v.description || '');
+    const propNameVal = String(v.propertyName || (v.property ? v.property.name : '') || '');
+    const codeVal = String(v.violationCode || v.id || '');
+    const statusVal = String(v.status || '');
+    const severityVal = String(v.severity || '');
+
+    const searchMatch = !q || 
+      authorityVal.toLowerCase().includes(q) || 
+      descVal.toLowerCase().includes(q) || 
+      propNameVal.toLowerCase().includes(q) ||
+      codeVal.toLowerCase().includes(q) ||
+      statusVal.toLowerCase().includes(q) ||
+      severityVal.toLowerCase().includes(q);
     
-    const severityMatch = severityFilter === '' || v.severity === severityFilter;
-    const statusMatch = statusFilter === '' || v.status === statusFilter;
-    const propertyMatch = propertyFilter === '' || v.propertyId === propertyFilter || propNameVal.toLowerCase().includes(propertyFilter.toLowerCase());
+    const severityMatch = !severityFilter || severityVal.toLowerCase() === severityFilter.toLowerCase();
+    const statusMatch = !statusFilter || statusVal.toLowerCase() === statusFilter.toLowerCase();
+    const propIdVal = String(v.propertyId || (v.property ? v.property.id : '') || '');
+    const propertyMatch = !propertyFilter || propIdVal === propertyFilter || propNameVal.toLowerCase().includes(propertyFilter.toLowerCase());
     
     return searchMatch && severityMatch && statusMatch && propertyMatch;
   });

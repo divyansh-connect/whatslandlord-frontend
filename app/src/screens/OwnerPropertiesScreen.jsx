@@ -4,7 +4,6 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -13,6 +12,7 @@ import {
   Easing,
   Platform,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';

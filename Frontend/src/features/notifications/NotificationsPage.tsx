@@ -118,28 +118,28 @@ export const getNotificationRedirectPath = (
     return targetId ? `/maintenance/work-orders?id=${targetId}` : '/maintenance/work-orders';
   }
   if (text.includes('service request')) {
-    return '/maintenance/requests';
+    return targetId ? `/maintenance/requests?id=${targetId}` : '/maintenance/requests';
   }
   if (text.includes('violation')) {
-    return '/maintenance/violations';
+    return targetId ? `/maintenance/violations?id=${targetId}` : '/maintenance/violations';
   }
   if (text.includes('invoice')) {
     return targetId ? `/invoices?id=${targetId}` : '/invoices';
   }
   if (text.includes('payment') || text.includes('rent')) {
-    return '/payments';
+    return targetId ? `/payments/${targetId}` : '/payments';
   }
-  if (text.includes('lease')) {
-    return targetId ? `/leasing?id=${targetId}` : '/leasing';
+  if (text.includes('lease') || text.includes('leasing')) {
+    return targetId ? `/leases/${targetId}` : '/leasing/leases';
   }
   if (text.includes('tenant')) {
     return targetId ? `/tenants?id=${targetId}` : '/tenants';
   }
   if (text.includes('owner')) {
-    return '/owners';
+    return targetId ? `/owners?id=${targetId}` : '/owners';
   }
   if (text.includes('property') || text.includes('unit')) {
-    return '/properties';
+    return targetId ? `/properties?id=${targetId}` : '/properties';
   }
   return null;
 };
@@ -177,7 +177,7 @@ export const NotificationsPage: React.FC = () => {
     queryFn: () => api.notifications.getAll({ role: displayRole }),
   });
 
-  const localNotifications = notifications.filter((n) => !n.role || n.role === displayRole);
+  const localNotifications = notifications.filter((n) => n.role === displayRole);
   const combinedNotifications = Array.from(
     new Map(
       [...(realNotifications || []), ...localNotifications].map((n) => [n.id, n])
@@ -219,24 +219,24 @@ export const NotificationsPage: React.FC = () => {
   const unreadCount = accessibleNotifications.filter((n) => !n.read).length;
   const readCount = accessibleNotifications.filter((n) => n.read).length;
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = async () => {
     markAllAsRead(displayRole);
-    api.notifications.markAllAsRead(displayRole);
-    queryClient.invalidateQueries({ queryKey: ['notifications-list'] });
+    await api.notifications.markAllAsRead(displayRole);
+    await queryClient.invalidateQueries({ queryKey: ['notifications-list'] });
   };
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     clearAll(displayRole);
-    api.notifications.clearAll(displayRole);
-    queryClient.invalidateQueries({ queryKey: ['notifications-list'] });
+    await api.notifications.clearAll(displayRole);
+    await queryClient.invalidateQueries({ queryKey: ['notifications-list'] });
     setConfirmClearOpen(false);
   };
 
-  const handleDeleteItem = (id: string, e: React.MouseEvent) => {
+  const handleDeleteItem = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     deleteNotification(id);
-    api.notifications.delete(id);
-    queryClient.invalidateQueries({ queryKey: ['notifications-list'] });
+    await api.notifications.delete(id);
+    await queryClient.invalidateQueries({ queryKey: ['notifications-list'] });
   };
 
   const handleItemClick = (n: NotificationItem) => {
@@ -244,7 +244,10 @@ export const NotificationsPage: React.FC = () => {
       markAsRead(n.id);
       api.notifications.markAsRead(n.id);
     }
-    const path = getNotificationRedirectPath(n.title, n.message, displayRole, n.targetId);
+    const directUrl = (n as any).targetUrl;
+    const path = directUrl
+      ? ((n as any).targetId && !directUrl.includes('?') ? `${directUrl}?id=${(n as any).targetId}` : directUrl)
+      : getNotificationRedirectPath(n.title, n.message, displayRole, n.targetId);
     if (path) {
       navigate({ to: path });
     }

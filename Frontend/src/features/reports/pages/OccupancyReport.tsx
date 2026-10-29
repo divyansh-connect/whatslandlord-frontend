@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../services/reportApi';
 import { ReportLayout } from '../components/ReportLayout';
@@ -8,6 +8,7 @@ import { ReportTable } from '../components/ReportTable';
 import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
+import { useReportDataFilter } from '../hooks/useReportDataFilter';
 import { Percent, Building2, CheckCircle2, AlertCircle, Eye } from 'lucide-react';
 
 export const OccupancyReport: React.FC = () => {
@@ -22,23 +23,25 @@ export const OccupancyReport: React.FC = () => {
   });
 
   const reportItems = data?.data || [];
-  const summary = data?.summary || {
-    portfolioTotalUnits: reportItems.reduce((acc, curr) => acc + (curr.totalUnits || 0), 0),
-    portfolioOccupiedUnits: reportItems.reduce((acc, curr) => acc + (curr.occupiedUnits || 0), 0),
-    portfolioVacantUnits: reportItems.reduce((acc, curr) => acc + (curr.vacantUnits || 0), 0),
-    portfolioMaintenanceUnits: 0,
-    overallOccupancyPercentage:
-      reportItems.reduce((acc, curr) => acc + (curr.totalUnits || 0), 0) > 0
-        ? parseFloat(
-            (
-              (reportItems.reduce((acc, curr) => acc + (curr.occupiedUnits || 0), 0) /
-                reportItems.reduce((acc, curr) => acc + (curr.totalUnits || 0), 0)) *
-              100
-            ).toFixed(1)
-          )
-        : 0.0,
-    totalProperties: data?.pagination?.totalRecords || reportItems.length,
-  };
+  const filteredReportItems = useReportDataFilter(reportItems, filters);
+
+  const summary = useMemo(() => {
+    const totalUnits = filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.totalUnits || 0), 0);
+    const occupiedUnits = filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.occupiedUnits || 0), 0);
+    const vacantUnits = filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.vacantUnits || 0), 0);
+    const overallOccupancyPercentage = totalUnits > 0
+      ? parseFloat(((occupiedUnits / totalUnits) * 100).toFixed(1))
+      : 0.0;
+
+    return {
+      portfolioTotalUnits: totalUnits,
+      portfolioOccupiedUnits: occupiedUnits,
+      portfolioVacantUnits: vacantUnits,
+      portfolioMaintenanceUnits: 0,
+      overallOccupancyPercentage,
+      totalProperties: filteredReportItems.length,
+    };
+  }, [filteredReportItems]);
 
   const columns = [
     { key: 'propertyName', header: 'Property Name' },
@@ -91,8 +94,8 @@ export const OccupancyReport: React.FC = () => {
           handleExport({
             reportType: 'OCCUPANCY',
             filters,
-            data: reportItems,
-            totalRecords: data?.pagination.totalRecords || reportItems.length,
+            data: filteredReportItems,
+            totalRecords: filteredReportItems.length,
             fileType,
           })
         }
@@ -154,7 +157,7 @@ export const OccupancyReport: React.FC = () => {
 
       <ReportTable
         columns={columns}
-        data={reportItems}
+        data={filteredReportItems}
         isLoading={isLoading}
         pagination={data?.pagination}
         onPageChange={(page) => setFilterVal('page', page)}

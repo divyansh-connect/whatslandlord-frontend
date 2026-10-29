@@ -5,14 +5,16 @@ import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/StatusBadge';
 import { 
-  Plus, Copy, PlusCircle, Trash, ToggleLeft, ToggleRight,
-  Eye, Edit, Save, ArrowLeft, ListTodo, ClipboardList, CheckSquare
+  Plus, PlusCircle, Trash, Trash2, ToggleLeft, ToggleRight,
+  Eye, Edit, Save, ArrowLeft, ListTodo, ClipboardList, CheckSquare, Copy
 } from 'lucide-react';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 
 export const InspectionTemplatesPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'list' | 'create' | 'edit'>('list');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [templateToDelete, setTemplateToDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Form states for template creation/editing
   const [templateForm, setTemplateForm] = useState({
@@ -43,11 +45,12 @@ export const InspectionTemplatesPage: React.FC = () => {
     queryFn: () => api.inspectionTemplates.getAll(),
   });
 
-  // Duplication Mutation
-  const duplicateTemplateMutation = useMutation({
-    mutationFn: (id: string) => api.inspectionTemplates.duplicate(id),
+  // Delete Mutation
+  const deleteTemplateMutation = useMutation({
+    mutationFn: (id: string) => api.inspectionTemplates.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inspectionTemplates'] });
+      setTemplateToDelete(null);
     },
   });
 
@@ -287,7 +290,9 @@ export const InspectionTemplatesPage: React.FC = () => {
 
                   <div className="bg-muted/40 px-6 py-3 border-t flex justify-end space-x-1.5">
                     <Button variant="ghost" size="sm" onClick={() => loadTemplateForEdit(tpl.id)}><Edit className="w-3.5 h-3.5 mr-1" /> Edit</Button>
-                    <Button variant="ghost" size="sm" onClick={() => duplicateTemplateMutation.mutate(tpl.id)}><Copy className="w-3.5 h-3.5 mr-1" /> Duplicate</Button>
+                    <Button variant="ghost" size="sm" className="text-rose-500 hover:text-rose-600 hover:bg-rose-500/10" onClick={() => setTemplateToDelete({ id: tpl.id, name: tpl.name })}>
+                      <Trash2 className="w-3.5 h-3.5 mr-1 text-rose-500" /> Delete
+                    </Button>
                   </div>
                 </div>
               ))
@@ -435,6 +440,21 @@ export const InspectionTemplatesPage: React.FC = () => {
           </div>
         </form>
       )}
+
+      {/* Confirm Template Delete Modal */}
+      <ConfirmDialog
+        open={!!templateToDelete}
+        onOpenChange={(open) => !open && setTemplateToDelete(null)}
+        title="Delete Inspection Template"
+        description={`Are you sure you want to delete template "${templateToDelete?.name}"? All assigned rooms and checklist items will be removed.`}
+        confirmText="Delete Template"
+        variant="destructive"
+        onConfirm={() => {
+          if (templateToDelete) {
+            deleteTemplateMutation.mutate(templateToDelete.id);
+          }
+        }}
+      />
     </div>
   );
 };

@@ -16,6 +16,7 @@ export const useThemeColors = () => {
     background: isDarkMode ? '#0f172a' : '#f8fafc',
     surface: isDarkMode ? '#1e293b' : '#ffffff',
     card: isDarkMode ? '#1e293b' : '#ffffff',
+    cardBg: isDarkMode ? '#1e293b' : '#ffffff',
     cardBorder: isDarkMode ? '#334155' : '#e2e8f0',
     divider: isDarkMode ? '#334155' : '#cbd5e1',
 

@@ -4,13 +4,14 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   TouchableOpacity,
   TextInput,
   Modal,
   Alert,
   Switch,
+  Platform,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
@@ -166,7 +167,7 @@ export const IntegrationsScreen = ({ onNavigate }) => {
     <View style={styles.mainWrapper}>
       {/* FIXED NAVIGATION HEADER */}
       <View style={styles.fixedHeader}>
-        <TouchableOpacity onPress={() => onNavigate && onNavigate('more')} style={styles.backButton}>
+        <TouchableOpacity onPress={() => onNavigate && onNavigate('dashboard')} style={styles.backButton}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} style={{ marginRight: 6 }} />
           <Text style={styles.title} allowFontScaling={false}>Integrations Marketplace</Text>
         </TouchableOpacity>

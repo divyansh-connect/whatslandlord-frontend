@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api';
 import { useAuthStore, useThemeStore, useNotificationStore } from '../store/useStore';
 import { getNotificationRedirectPath } from '../utils/navigation';
@@ -30,6 +30,7 @@ export const StaffLayout: React.FC<StaffLayoutProps> = ({
   currentPath,
   navigate,
 }) => {
+  const queryClient = useQueryClient();
   const { user, logout } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
   const { notifications, setNotifications, markAsRead, markAllAsRead, clearAll } = useNotificationStore();
@@ -46,7 +47,29 @@ export const StaffLayout: React.FC<StaffLayoutProps> = ({
     refetchInterval: 15000,
   });
 
-  const localNotifications = notifications.filter((n) => !n.role || n.role === 'Maintenance Staff');
+  const handleMarkAllAsRead = () => {
+    markAllAsRead('Maintenance Staff');
+    api.notifications.markAllAsRead('Maintenance Staff');
+    queryClient.setQueryData(['notifications-list', 'Maintenance Staff'], (old: any[] = []) =>
+      old.map((n) => ({ ...n, read: true }))
+    );
+  };
+
+  const handleClearAll = () => {
+    clearAll('Maintenance Staff');
+    api.notifications.clearAll('Maintenance Staff');
+    queryClient.setQueryData(['notifications-list', 'Maintenance Staff'], []);
+  };
+
+  const handleMarkSingleAsRead = (id: string) => {
+    markAsRead(id);
+    api.notifications.markAsRead(id);
+    queryClient.setQueryData(['notifications-list', 'Maintenance Staff'], (old: any[] = []) =>
+      old.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
+
+  const localNotifications = notifications.filter((n) => n.role === 'Maintenance Staff');
   const roleNotifications = Array.from(
     new Map(
       [...(realStaffNotifications || []), ...localNotifications].map((n) => [n.id, n])
@@ -202,11 +225,11 @@ export const StaffLayout: React.FC<StaffLayoutProps> = ({
                   <div className="flex items-center justify-between pb-2 border-b border-border/80">
                     <h4 className="font-bold text-sm">{t('staffLayout.notifications')}</h4>
                     <div className="flex space-x-2 text-xs font-semibold text-primary">
-                      <button onClick={() => markAllAsRead('Maintenance Staff')} className="hover:underline">
+                      <button onClick={handleMarkAllAsRead} className="hover:underline">
                         {t('staffLayout.readAll')}
                       </button>
                       <span>•</span>
-                      <button onClick={() => clearAll('Maintenance Staff')} className="hover:underline text-muted-foreground">
+                      <button onClick={handleClearAll} className="hover:underline text-muted-foreground">
                         {t('staffLayout.clear')}
                       </button>
                     </div>
@@ -222,9 +245,12 @@ export const StaffLayout: React.FC<StaffLayoutProps> = ({
                         <div
                           key={n.id}
                           onClick={() => {
-                            markAsRead(n.id);
+                            handleMarkSingleAsRead(n.id);
                             setShowNotifications(false);
-                            const path = getNotificationRedirectPath(n.title, n.message, user?.role || 'Maintenance Staff', n.targetId);
+                            const directUrl = (n as any).targetUrl;
+                            const path = directUrl
+                              ? ((n as any).targetId && !directUrl.includes('?') ? `${directUrl}?id=${(n as any).targetId}` : directUrl)
+                              : getNotificationRedirectPath(n.title, n.message, user?.role || 'Maintenance Staff', n.targetId);
                             if (path) {
                               navigate(path);
                             }
@@ -296,7 +322,7 @@ export const StaffLayout: React.FC<StaffLayoutProps> = ({
         </header>
 
         {/* PAGE CONTENT */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-secondary/20">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 lg:p-8 bg-secondary/20">
           {children}
         </main>
       </div>

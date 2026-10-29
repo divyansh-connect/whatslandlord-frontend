@@ -37,14 +37,12 @@ export const MaintenanceDashboardPage: React.FC = () => {
     enabled: !isStaff,
   });
 
-  const { data: recentRequests = [], isLoading: loadingRecent } = useQuery({
-    queryKey: ['recent-maintenance-requests'],
-    queryFn: async () => {
-      const all = await api.serviceRequests.getAll();
-      return all.slice(0, 5);
-    },
+  const { data: allRequests = [], isLoading: loadingRequests } = useQuery({
+    queryKey: ['service-requests-list'],
+    queryFn: () => api.serviceRequests.getAll(),
     enabled: !isStaff,
   });
+  const recentRequests = allRequests.slice(0, 5);
 
   // --- QUERY FOR MAINTENANCE STAFF VIEW (real DB) ---
   const { data: allWorkOrders = [], isLoading: loadingWorkOrders } = useQuery({
@@ -267,16 +265,29 @@ export const MaintenanceDashboardPage: React.FC = () => {
   }
 
   // --- RENDER PROPERTY MANAGER DASHBOARD ---
-  if (loadingMetrics || loadingRecent || !metrics) {
+  if (loadingMetrics || loadingRequests || !metrics) {
     return <LoadingSkeleton type="card" />;
   }
 
-  const priorityData = [
-    { name: 'Urgent', value: metrics.emergencyRequests },
-    { name: 'High', value: 8 },
-    { name: 'Medium', value: 15 },
-    { name: 'Low', value: 20 },
-  ];
+  const urgentCount = allRequests.filter((r: any) => ['urgent', 'emergency'].includes((r.priority || '').toLowerCase())).length || metrics.emergencyRequests || 0;
+  const highCount = allRequests.filter((r: any) => (r.priority || '').toLowerCase() === 'high').length;
+  const mediumCount = allRequests.filter((r: any) => (r.priority || '').toLowerCase() === 'medium').length;
+  const lowCount = allRequests.filter((r: any) => ['low', 'normal'].includes((r.priority || '').toLowerCase())).length;
+
+  const totalPriorityCount = urgentCount + highCount + mediumCount + lowCount;
+  const priorityData = totalPriorityCount > 0
+    ? [
+        { name: 'Urgent', value: urgentCount },
+        { name: 'High', value: highCount },
+        { name: 'Medium', value: mediumCount },
+        { name: 'Low', value: lowCount },
+      ]
+    : [
+        { name: 'Urgent', value: metrics.emergencyRequests || 0 },
+        { name: 'High', value: 0 },
+        { name: 'Medium', value: 0 },
+        { name: 'Low', value: 0 },
+      ];
 
   return (
     <div className="space-y-6 text-foreground">
@@ -289,25 +300,14 @@ export const MaintenanceDashboardPage: React.FC = () => {
         ]}
       />
 
-      {/* QUICK ACTIONS */}
-      <div className="flex flex-wrap gap-2.5 p-3.5 bg-card border rounded-2xl">
-        <Button size="sm" onClick={() => navigate({ to: '/maintenance/requests/new' })} className="flex items-center gap-1">
-          <Plus className="w-4 h-4" /> {t('maintenance.createRequest')}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => navigate({ to: '/maintenance/work-orders' })} className="flex items-center gap-1">
-          <Plus className="w-4 h-4" /> {t('maintenance.createWorkOrder')}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => navigate({ to: '/inspections/new' })} className="flex items-center gap-1">
-          <Plus className="w-4 h-4" /> {t('maintenance.scheduleInspection')}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => navigate({ to: '/vendors' })} className="flex items-center gap-1">
-          <Plus className="w-4 h-4" /> {t('maintenance.addVendor')}
-        </Button>
-      </div>
+      {/* STATS METRIC GRID */}
 
       {/* STATS METRIC GRID */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-5 border bg-card flex flex-col justify-between">
+        <Card 
+          onClick={() => { window.location.href = '/maintenance/requests?status=Open'; }}
+          className="p-5 border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
+        >
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('maintenance.openRequests')}</p>
             <p className="text-2xl font-black mt-1 text-primary">{metrics.openRequests}</p>
@@ -317,7 +317,10 @@ export const MaintenanceDashboardPage: React.FC = () => {
           </span>
         </Card>
 
-        <Card className="p-5 border bg-card flex flex-col justify-between">
+        <Card 
+          onClick={() => { window.location.href = '/maintenance/work-orders?status=InProgress'; }}
+          className="p-5 border bg-card flex flex-col justify-between cursor-pointer hover:border-amber-500/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
+        >
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('maintenance.workOrdersInProgress')}</p>
             <p className="text-2xl font-black mt-1 text-amber-500">{metrics.workOrdersInProgress}</p>
@@ -325,7 +328,10 @@ export const MaintenanceDashboardPage: React.FC = () => {
           <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('maintenance.assignedToActive')}</span>
         </Card>
 
-        <Card className="p-5 border bg-card flex flex-col justify-between">
+        <Card 
+          onClick={() => { window.location.href = '/maintenance/work-orders?status=Completed'; }}
+          className="p-5 border bg-card flex flex-col justify-between cursor-pointer hover:border-emerald-500/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
+        >
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('maintenance.completedThisMonth')}</p>
             <p className="text-2xl font-black mt-1 text-emerald-500">{metrics.completedThisMonth}</p>
@@ -335,7 +341,10 @@ export const MaintenanceDashboardPage: React.FC = () => {
           </span>
         </Card>
 
-        <Card className="p-5 border bg-card flex flex-col justify-between">
+        <Card 
+          onClick={() => navigate({ to: '/maintenance/work-orders' })}
+          className="p-5 border bg-card flex flex-col justify-between cursor-pointer hover:border-rose-500/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
+        >
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('maintenance.totalCost')}</p>
             <p className="text-2xl font-black mt-1 text-rose-500">${metrics.totalMaintenanceCost.toLocaleString()}</p>

@@ -27,6 +27,20 @@ export function isNoticeForTenant(notice: any, ctx: TenantContext): boolean {
   const noticeId = notice.tenantId || '';
   const noticeName = (notice.tenantName || '').toLowerCase().trim();
 
+  // 0. Role check: If notice has an assigned role that is NOT Tenant, reject immediately
+  if (notice.role && notice.role !== 'Tenant') {
+    return false;
+  }
+
+  // Reject Property Manager payment collection notifications ("Payment Received from X")
+  const title = String(notice.title || '');
+  const isManagerPaymentAlert =
+    (/Payment Received/i.test(title) || /Rent Collected/i.test(title)) &&
+    !/Receipt Confirmed|Payment Successful|Your Payment/i.test(title);
+  if (isManagerPaymentAlert) {
+    return false;
+  }
+
   // 1. Strict negative check: If notice has explicit target fields, they MUST NOT mismatch
   if (noticeEmail && currentEmail && noticeEmail !== currentEmail) {
     return false;

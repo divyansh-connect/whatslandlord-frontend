@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../services/reportApi';
 import { ReportLayout } from '../components/ReportLayout';
@@ -8,6 +8,7 @@ import { ReportTable } from '../components/ReportTable';
 import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
+import { useReportDataFilter } from '../hooks/useReportDataFilter';
 import { DollarSign, Building2, CheckCircle2, ShieldCheck, Eye } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 
@@ -23,13 +24,15 @@ export const RentRollReport: React.FC = () => {
   });
 
   const reportItems = data?.data || [];
-  const summary = data?.summary || {
-    totalMonthlyRent: reportItems.reduce((acc, curr) => acc + (curr.monthlyRent || 0), 0),
-    totalSecurityDeposits: reportItems.reduce((acc, curr) => acc + (curr.securityDeposit || 0), 0),
-    occupiedCount: reportItems.filter((i) => i.unitStatus === 'Occupied' || i.leaseStatus === 'Active').length,
-    vacantCount: Math.max(0, reportItems.length - reportItems.filter((i) => i.unitStatus === 'Occupied' || i.leaseStatus === 'Active').length),
-    totalUnits: data?.pagination?.totalRecords || reportItems.length,
-  };
+  const filteredReportItems = useReportDataFilter(reportItems, filters);
+
+  const summary = useMemo(() => ({
+    totalMonthlyRent: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.monthlyRent || 0), 0),
+    totalSecurityDeposits: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.securityDeposit || 0), 0),
+    occupiedCount: filteredReportItems.filter((i: any) => i.unitStatus === 'Occupied' || i.leaseStatus === 'Active').length,
+    vacantCount: Math.max(0, filteredReportItems.length - filteredReportItems.filter((i: any) => i.unitStatus === 'Occupied' || i.leaseStatus === 'Active').length),
+    totalUnits: filteredReportItems.length,
+  }), [filteredReportItems]);
 
   const columns = [
     { key: 'propertyName', header: 'Property Name' },
@@ -110,8 +113,8 @@ export const RentRollReport: React.FC = () => {
           handleExport({
             reportType: 'RENT_ROLL',
             filters,
-            data: reportItems,
-            totalRecords: data?.pagination.totalRecords || reportItems.length,
+            data: filteredReportItems,
+            totalRecords: filteredReportItems.length,
             fileType,
           })
         }
@@ -179,7 +182,7 @@ export const RentRollReport: React.FC = () => {
 
       <ReportTable
         columns={columns}
-        data={reportItems}
+        data={filteredReportItems}
         isLoading={isLoading}
         pagination={data?.pagination}
         onPageChange={(page) => setFilterVal('page', page)}

@@ -97,21 +97,18 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
       // 1. COLLECTED TODAY
       case 'collectedToday': {
         const todayStr = new Date().toISOString().split('T')[0];
-        const paidPayments = payments.filter((p: any) => p.status === 'Paid');
+        const paidPayments = payments.filter((p: any) => {
+          const st = String(p.status || '').toLowerCase();
+          return st === 'paid' || st === 'completed';
+        });
         
-        // Filter payments for today, or latest settlement batch
-        let todayList = paidPayments.filter((p: any) => 
+        // Filter payments strictly for today
+        const todayList = paidPayments.filter((p: any) => 
           (p.paidDate && p.paidDate.startsWith(todayStr)) ||
           (p.createdAt && p.createdAt.startsWith(todayStr))
         );
 
-        if (todayList.length === 0 && paidPayments.length > 0) {
-          // If no payment was submitted strictly today, show the latest cleared batch
-          const latestDate = paidPayments[0]?.paidDate || '';
-          todayList = paidPayments.filter((p: any) => p.paidDate === latestDate || !latestDate).slice(0, 5);
-        }
-
-        const formattedList = (todayList.length > 0 ? todayList : paidPayments.slice(0, 5)).map((p: any, idx: number) => {
+        const formattedList = todayList.map((p: any, idx: number) => {
           const prop = properties.find((pr: any) => pr.id === p.propertyId || pr.name === p.propertyName);
           const tenant = tenants.find((t: any) => t.id === p.tenantId || `${t.firstName} ${t.lastName}` === p.tenantName);
           const unit = units.find((u: any) => u.id === p.unitId || `Unit ${u.unitNumber}` === p.unitNumber);
@@ -449,31 +446,31 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="sm:max-w-5xl h-[85vh] max-h-[85vh] p-6 overflow-hidden">
+      <DialogContent className="w-[calc(100vw-1rem)] sm:w-full sm:max-w-5xl h-[92vh] max-h-[92vh] p-3 sm:p-6 overflow-hidden">
         <div className="flex flex-col h-full overflow-hidden gap-3">
           {/* Header Section */}
-          <DialogHeader className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-secondary/80 rounded-2xl shrink-0">
+          <DialogHeader className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 shrink-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="p-2 sm:p-3 bg-secondary/80 rounded-2xl shrink-0">
                 {modalConfig.icon}
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <DialogTitle className="text-xl font-extrabold text-foreground">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <DialogTitle className="text-base sm:text-xl font-extrabold text-foreground truncate">
                     {modalConfig.title}
                   </DialogTitle>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold border ${modalConfig.badgeBg}`}>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-extrabold border ${modalConfig.badgeBg}`}>
                     {modalConfig.count} {modalConfig.countLabel}
                   </span>
                 </div>
-                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                <DialogDescription className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 truncate">
                   {modalConfig.description}
                 </DialogDescription>
               </div>
             </div>
 
             {/* Action Export Buttons */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <Button
                 variant="outline"
                 size="sm"
@@ -498,8 +495,8 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
           </DialogHeader>
 
           {/* Search & Filter Bar */}
-          <div className="shrink-0 flex items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-sm">
+          <div className="shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+            <div className="relative flex-1 w-full sm:max-w-sm">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="text"
@@ -722,11 +719,37 @@ export const RentMetricModal: React.FC<RentMetricModalProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="pt-2 border-t border-border flex items-center justify-between shrink-0 text-xs text-muted-foreground">
-            <span>Real-time rent collection and ledger matrix breakdown</span>
-            <Button variant="outline" size="sm" onClick={onClose} className="px-6">
-              Close
-            </Button>
+          <div className="pt-2 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0 text-xs text-muted-foreground">
+            <span className="truncate">Real-time rent collection and ledger matrix breakdown</span>
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              {(metricType === 'outstandingBalance' || metricType === 'lateFeeInvoices') && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    onClose();
+                    window.location.href = '/invoices?status=Overdue';
+                  }}
+                  className="text-xs font-bold bg-primary text-primary-foreground"
+                >
+                  View Invoices (Overdue) →
+                </Button>
+              )}
+              {(metricType === 'collectedToday' || metricType === 'monthlyCollected') && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    onClose();
+                    window.location.href = '/payments?status=Paid';
+                  }}
+                  className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  View Payments (Paid) →
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={onClose} className="px-6">
+                Close
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

@@ -5,13 +5,13 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   Modal,
   TextInput,
   Alert,
   RefreshControl,
   Animated,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
@@ -54,7 +54,7 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const AdminDashboard = ({ onNavigate }) => {
+export const AdminDashboard = ({ onNavigate, onOpenMenu }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -90,27 +90,34 @@ export const AdminDashboard = ({ onNavigate }) => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [statsRes, companiesRes] = await Promise.all([
-        apiClient.get('/superadmin/stats', logout, refreshAccessToken),
-        apiClient.get('/superadmin/companies', logout, refreshAccessToken),
+      const [statsRes, companiesRes, propsRes] = await Promise.all([
+        apiClient.get('/superadmin/stats', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/superadmin/companies', logout, refreshAccessToken).catch(() => apiClient.get('/companies', logout, refreshAccessToken).catch(() => null)),
+        apiClient.get('/properties', logout, refreshAccessToken).catch(() => null),
       ]);
+
+      const companiesList = companiesRes?.data || (Array.isArray(companiesRes) ? companiesRes : []);
+      const propsList = propsRes?.data || (Array.isArray(propsRes) ? propsRes : []);
 
       if (statsRes && statsRes.data) {
         setStats({
-          activeCompanies: statsRes.data.activeCompanies !== undefined ? statsRes.data.activeCompanies : (statsRes.data.totalCompanies !== undefined ? statsRes.data.totalCompanies : 0),
+          activeCompanies: statsRes.data.activeCompanies !== undefined ? statsRes.data.activeCompanies : (statsRes.data.totalCompanies !== undefined ? statsRes.data.totalCompanies : companiesList.length),
           activeUsers: statsRes.data.totalUsers !== undefined ? statsRes.data.totalUsers : (statsRes.data.activeUsers !== undefined ? statsRes.data.activeUsers : 0),
           mrrRevenue: statsRes.data.totalArr !== undefined ? statsRes.data.totalArr : (statsRes.data.mrrRevenue !== undefined ? statsRes.data.mrrRevenue : 0),
-          activeSubscriptions: statsRes.data.activeSubscriptions !== undefined ? statsRes.data.activeSubscriptions : (statsRes.data.activeCompanies !== undefined ? statsRes.data.activeCompanies : 0),
+          activeSubscriptions: statsRes.data.activeSubscriptions !== undefined ? statsRes.data.activeSubscriptions : (statsRes.data.activeCompanies !== undefined ? statsRes.data.activeCompanies : companiesList.length),
           storageUsed: statsRes.data.storageUsed || '0.0 GB',
+        });
+      } else {
+        setStats({
+          activeCompanies: companiesList.length,
+          activeUsers: 0,
+          mrrRevenue: 0,
+          activeSubscriptions: companiesList.length,
+          storageUsed: '0.0 GB',
         });
       }
 
-      if (companiesRes && (Array.isArray(companiesRes) || companiesRes.data)) {
-        const list = Array.isArray(companiesRes) ? companiesRes : companiesRes.data;
-        setCompanies(list);
-      } else {
-        setCompanies([]);
-      }
+      setCompanies(companiesList);
     } catch (e) {
       console.log('Error fetching superadmin dashboard data:', e.message);
     } finally {
@@ -234,7 +241,31 @@ export const AdminDashboard = ({ onNavigate }) => {
       {/* Super Admin Header */}
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.title} allowFontScaling={false}>{es ? 'Panel de Control de la Plataforma' : 'SaaS Platform Control Panel'}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+            {onOpenMenu && (
+              <TouchableOpacity
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 10,
+                }}
+                onPress={onOpenMenu}
+                activeOpacity={0.7}
+                accessibilityLabel="Open Navigation Menu"
+              >
+                <Ionicons name="menu-outline" size={24} color={colors.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <Text style={[styles.title, { flex: 1 }]} numberOfLines={1} allowFontScaling={false}>
+              {es ? 'Panel de Control' : 'SaaS Control Panel'}
+            </Text>
+          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <TouchableOpacity style={styles.syncBtn} onPress={loadData}>
               <Ionicons name="refresh-outline" size={14} color={colors.textSecondary} />
@@ -617,7 +648,7 @@ export const AdminDashboard = ({ onNavigate }) => {
 
 const getStyles = (colors, isDarkMode) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  scrollContent: { padding: 16, paddingBottom: 60 },
+  scrollContent: { padding: 16, paddingBottom: 60, width: '100%', maxWidth: 1024, alignSelf: 'center' },
   center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: colors.textSecondary, marginTop: 8 },
 
@@ -735,7 +766,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
 
   // Modals
   modalBg: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalCard: { backgroundColor: colors.surface, borderRadius: 16, padding: 20, width: '100%', maxHeight: '85%', borderWidth: 1, borderColor: colors.cardBorder },
+  modalCard: { backgroundColor: colors.surface, borderRadius: 16, padding: 20, width: '100%', maxWidth: 580, alignSelf: 'center', maxHeight: '85%', borderWidth: 1, borderColor: colors.cardBorder },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontSize: 16.5, fontWeight: '800', color: colors.textPrimary },
   modalSubtitle: { fontSize: 12, color: colors.textSecondary, marginBottom: 14 },
@@ -751,7 +782,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   submitBtnText: { color: '#0f172a', fontWeight: '850', fontSize: 12.5 },
 
   // Picker Dropdown Modal Options
-  pickerModalContent: { backgroundColor: colors.surface, borderRadius: 16, width: '80%', padding: 16, borderWidth: 1, borderColor: colors.cardBorder },
+  pickerModalContent: { backgroundColor: colors.surface, borderRadius: 16, width: '90%', maxWidth: 440, alignSelf: 'center', padding: 16, borderWidth: 1, borderColor: colors.cardBorder },
   pickerModalTitle: { fontSize: 14.5, fontWeight: '800', color: colors.textPrimary, marginBottom: 12, textAlign: 'center' },
   pickerOptionRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.divider },
   pickerOptionText: { color: colors.textSecondary, fontSize: 13.5, fontWeight: '700' },

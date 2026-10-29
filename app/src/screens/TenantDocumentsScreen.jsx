@@ -8,7 +8,6 @@ import {
   TextInput,
   Modal,
   Alert,
-  ActivityIndicator,
   RefreshControl,
   Animated,
   Easing,
@@ -18,6 +17,7 @@ import {
   Keyboard,
   Linking,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
@@ -26,6 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as DocumentPicker from 'expo-document-picker';
 
 // Animated Touchable Component
 const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
@@ -64,7 +65,7 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const TenantDocumentsScreen = () => {
+export const TenantDocumentsScreen = ({ onNavigate }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -172,6 +173,47 @@ export const TenantDocumentsScreen = () => {
       setTPropId('');
     }
   }, [tTenantId, tenantsList]);
+
+  const [selectedOwnerFile, setSelectedOwnerFile] = useState(null);
+  const [selectedTenantFile, setSelectedTenantFile] = useState(null);
+
+  const handlePickOwnerDocument = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const file = res.assets[0];
+        setSelectedOwnerFile(file);
+        if (!oDocName.trim()) {
+          const rawName = file.name || 'Owner_Document';
+          setODocName(rawName.replace(/\.[^/.]+$/, ''));
+        }
+      }
+    } catch (err) {
+      console.log('Pick Owner Document Error:', err);
+    }
+  };
+
+  const handlePickTenantDocument = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const file = res.assets[0];
+        setSelectedTenantFile(file);
+        if (!tDocName.trim()) {
+          const rawName = file.name || 'Tenant_Document';
+          setTDocName(rawName.replace(/\.[^/.]+$/, ''));
+        }
+      }
+    } catch (err) {
+      console.log('Pick Tenant Document Error:', err);
+    }
+  };
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -485,6 +527,10 @@ export const TenantDocumentsScreen = () => {
 
   // --- Submit Upload Owner Document ---
   const handleUploadOwnerSubmit = async () => {
+    if (!selectedOwnerFile) {
+      Alert.alert('Validation Error', 'Please select a document file to upload.');
+      return;
+    }
     if (!oDocName.trim()) {
       Alert.alert('Validation Error', 'Document display name is required.');
       return;
@@ -492,31 +538,31 @@ export const TenantDocumentsScreen = () => {
 
     try {
       setSubmitting(true);
-      const finalDocName = oDocName.endsWith('.pdf') ? oDocName.trim() : `${oDocName.trim()}.pdf`;
+      const ext = selectedOwnerFile.name ? selectedOwnerFile.name.substring(selectedOwnerFile.name.lastIndexOf('.')) : '.pdf';
+      const finalDocName = oDocName.trim().endsWith(ext) ? oDocName.trim() : `${oDocName.trim()}${ext}`;
 
-      // Construct Multipart Form Data
-      const formData = new FormData();
-      formData.append('name', finalDocName);
-      formData.append('category', oCategory);
-      if (oOwnerId) formData.append('ownerId', oOwnerId);
-      if (oPropId) formData.append('propertyId', oPropId);
-      
-      // Simulate/Attach file binary
-      formData.append('file', {
-        uri: 'data:application/pdf;base64,JVBERi0xLjQKJ...',
-        name: finalDocName,
-        type: 'application/pdf',
-      });
-
-      await apiClient.post('/documents/owner/upload', formData, logout, refreshAccessToken, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      await apiClient.uploadFile(
+        '/documents/owner/upload',
+        selectedOwnerFile.uri,
+        {
+          fieldName: 'file',
+          parameters: {
+            name: finalDocName,
+            category: oCategory,
+            ...(oOwnerId ? { ownerId: oOwnerId } : {}),
+            ...(oPropId ? { propertyId: oPropId } : {}),
+          },
+        },
+        logout,
+        refreshAccessToken
+      );
 
       Alert.alert('Success', 'Owner document uploaded successfully.');
       setIsOwnerUploadOpen(false);
       setODocName('');
       setOOwnerId('');
       setOPropId('');
+      setSelectedOwnerFile(null);
       fetchDocumentsData();
     } catch (err) {
       Alert.alert('Error', err.message || 'Failed to upload owner document');
@@ -527,6 +573,10 @@ export const TenantDocumentsScreen = () => {
 
   // --- Submit Upload Tenant Document ---
   const handleUploadTenantSubmit = async () => {
+    if (!selectedTenantFile) {
+      Alert.alert('Validation Error', 'Please select a document file to upload.');
+      return;
+    }
     if (!tDocName.trim()) {
       Alert.alert('Validation Error', 'Document display name is required.');
       return;
@@ -534,31 +584,32 @@ export const TenantDocumentsScreen = () => {
 
     try {
       setSubmitting(true);
-      const finalDocName = tDocName.endsWith('.pdf') ? tDocName.trim() : `${tDocName.trim()}.pdf`;
-
-      // Construct Multipart Form Data
-      const formData = new FormData();
-      formData.append('name', finalDocName);
-      formData.append('category', tCategory);
-      if (tTenantId) formData.append('tenantId', tTenantId);
-      if (tPropId) formData.append('propertyId', tPropId);
-      
-      formData.append('file', {
-        uri: 'data:application/pdf;base64,JVBERi0xLjQKJ...',
-        name: finalDocName,
-        type: 'application/pdf',
-      });
+      const ext = selectedTenantFile.name ? selectedTenantFile.name.substring(selectedTenantFile.name.lastIndexOf('.')) : '.pdf';
+      const finalDocName = tDocName.trim().endsWith(ext) ? tDocName.trim() : `${tDocName.trim()}${ext}`;
 
       const uploadEndpoint = isTenantPortal ? '/portal/tenant/documents' : '/documents/tenant/upload';
-      await apiClient.post(uploadEndpoint, formData, logout, refreshAccessToken, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      await apiClient.uploadFile(
+        uploadEndpoint,
+        selectedTenantFile.uri,
+        {
+          fieldName: 'file',
+          parameters: {
+            name: finalDocName,
+            category: tCategory,
+            ...(tTenantId ? { tenantId: tTenantId } : {}),
+            ...(tPropId ? { propertyId: tPropId } : {}),
+          },
+        },
+        logout,
+        refreshAccessToken
+      );
 
       Alert.alert('Success', 'Tenant document uploaded successfully.');
       setIsTenantUploadOpen(false);
       setTDocName('');
       setTTenantId('');
       setTPropId('');
+      setSelectedTenantFile(null);
       fetchDocumentsData();
     } catch (err) {
       Alert.alert('Error', err.message || 'Failed to upload tenant document');
@@ -607,13 +658,25 @@ export const TenantDocumentsScreen = () => {
       <View style={{ paddingHorizontal: 16, paddingTop: 16, zIndex: 10 }}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title} allowFontScaling={false}>
-            {isManager 
-              ? (es ? 'Biblioteca de Todos los Documentos' : 'All Documents Library')
-              : isOwnerPortal 
-                ? (es ? 'Documentos del Propietario' : 'Owner Documents')
-                : (es ? 'Mis Documentos' : 'My Documents')}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+            {!!onNavigate && (
+              <TouchableOpacity
+                onPress={() => onNavigate('dashboard')}
+                style={{ marginRight: 8, padding: 4 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <Text style={[styles.title, { flex: 1, marginBottom: 0 }]} allowFontScaling={false}>
+              {isManager 
+                ? (es ? 'Biblioteca de Todos los Documentos' : 'All Documents Library')
+                : isOwnerPortal 
+                  ? (es ? 'Documentos del Propietario' : 'Owner Documents')
+                  : (es ? 'Mis Documentos' : 'My Documents')}
+            </Text>
+          </View>
           <Text style={styles.subtitle} allowFontScaling={false}>
             {isManager 
               ? (es ? 'Examine, busque, filtre y gestione todos los archivos cargados de propiedades, inquilinos y contratos.' : 'Browse, search, filter, and manage all uploaded files across properties, tenants, and leases.')
@@ -924,12 +987,26 @@ export const TenantDocumentsScreen = () => {
                   <TextInput style={styles.formInput} placeholder="E.g., Statement_2026" placeholderTextColor="#64748b" value={oDocName} onChangeText={setODocName} />
                 </View>
 
-                {/* Drag and Drop simulator box */}
-                <View style={styles.dragDropBox}>
-                  <Ionicons name="cloud-upload-outline" size={32} color="#94a3b8" />
-                  <Text style={styles.dragDropTitle} allowFontScaling={false}>Mock_Document_File.pdf</Text>
-                  <Text style={styles.dragDropSub} allowFontScaling={false}>Tap to confirm selector. Max size 1 MB</Text>
-                </View>
+                {/* Real File Picker box */}
+                <TouchableOpacity
+                  style={[styles.dragDropBox, selectedOwnerFile && { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.08)' }]}
+                  activeOpacity={0.7}
+                  onPress={handlePickOwnerDocument}
+                >
+                  <Ionicons
+                    name={selectedOwnerFile ? "checkmark-circle" : "cloud-upload-outline"}
+                    size={32}
+                    color={selectedOwnerFile ? "#10b981" : "#38bdf8"}
+                  />
+                  <Text style={[styles.dragDropTitle, selectedOwnerFile && { color: '#10b981' }]} allowFontScaling={false} numberOfLines={1}>
+                    {selectedOwnerFile ? selectedOwnerFile.name : 'Choose Document File'}
+                  </Text>
+                  <Text style={styles.dragDropSub} allowFontScaling={false}>
+                    {selectedOwnerFile
+                      ? `${(Number(selectedOwnerFile.size || 0) / 1024).toFixed(1)} KB · Tap to change file`
+                      : 'Tap to select document from phone storage'}
+                  </Text>
+                </TouchableOpacity>
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsOwnerUploadOpen(false)} disabled={submitting}>
@@ -1011,12 +1088,26 @@ export const TenantDocumentsScreen = () => {
                   <TextInput style={styles.formInput} placeholder="E.g., Lease_Agreement_2026" placeholderTextColor="#64748b" value={tDocName} onChangeText={setTDocName} />
                 </View>
 
-                {/* Drag and Drop simulator box */}
-                <View style={styles.dragDropBox}>
-                  <Ionicons name="cloud-upload-outline" size={32} color="#94a3b8" />
-                  <Text style={styles.dragDropTitle} allowFontScaling={false}>Mock_Lease_File.pdf</Text>
-                  <Text style={styles.dragDropSub} allowFontScaling={false}>Tap to confirm selector. Max size 1 MB</Text>
-                </View>
+                {/* Real File Picker box */}
+                <TouchableOpacity
+                  style={[styles.dragDropBox, selectedTenantFile && { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.08)' }]}
+                  activeOpacity={0.7}
+                  onPress={handlePickTenantDocument}
+                >
+                  <Ionicons
+                    name={selectedTenantFile ? "checkmark-circle" : "cloud-upload-outline"}
+                    size={32}
+                    color={selectedTenantFile ? "#10b981" : "#38bdf8"}
+                  />
+                  <Text style={[styles.dragDropTitle, selectedTenantFile && { color: '#10b981' }]} allowFontScaling={false} numberOfLines={1}>
+                    {selectedTenantFile ? selectedTenantFile.name : 'Choose Document File'}
+                  </Text>
+                  <Text style={styles.dragDropSub} allowFontScaling={false}>
+                    {selectedTenantFile
+                      ? `${(Number(selectedTenantFile.size || 0) / 1024).toFixed(1)} KB · Tap to change file`
+                      : 'Tap to select document from phone storage'}
+                  </Text>
+                </TouchableOpacity>
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsTenantUploadOpen(false)} disabled={submitting}>
@@ -1175,7 +1266,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   modalBg: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.85)', justifyContent: 'center', padding: 20 },
   modalCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: colors.cardBorder, maxHeight: '85%' },
   modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+  modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary, flex: 1, flexShrink: 1, marginRight: 8 },
   modalSubHeader: { fontSize: 11, color: colors.textSecondary, lineHeight: 16, marginTop: 4, marginBottom: 14 },
   modalScroll: { marginBottom: 16 },
 

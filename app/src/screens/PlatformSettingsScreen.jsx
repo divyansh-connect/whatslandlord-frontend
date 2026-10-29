@@ -7,7 +7,6 @@ import {
   ScrollView,
   Switch,
   ActivityIndicator,
-  SafeAreaView,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -59,7 +58,7 @@ export const PlatformSettingsScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title} allowFontScaling={false}>Platform Settings</Text>
       </View>
@@ -177,7 +176,7 @@ export const PlatformSettingsScreen = () => {
           ))}
         </ScrollView>
       )}
-    </SafeAreaView>
+    </View>
   );
 };
 

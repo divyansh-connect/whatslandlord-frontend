@@ -45,14 +45,32 @@ export const TenantsPage: React.FC<{ filterStatus?: string }> = ({ filterStatus 
   });
 
   // Filter Logic
-  const filteredTenants = tenants.filter((t) => {
-    const nameMatch = `${t.firstName || ''} ${t.lastName || ''}`.toLowerCase().includes(searchQuery.toLowerCase());
-    const emailMatch = (t.email || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesProp = propertyFilter === '' || t.propertyId === propertyFilter;
-    const matchesStatus = statusFilter === '' || t.status === statusFilter;
+  const filteredTenants = tenants.filter((t: any) => {
+    if (!t) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const fullName = `${t.firstName || ''} ${t.lastName || ''} ${t.name || ''}`.toLowerCase();
+    const emailStr = String(t.email || '').toLowerCase();
+    const phoneStr = String(t.phone || '').toLowerCase();
+    const propNameStr = String(t.propertyName || t.property?.name || (t.unit?.property?.name) || '').toLowerCase();
+    const unitNumStr = String(t.unitNumber || t.unit?.unitNumber || '').toLowerCase();
+
+    const matchesSearch = !q ||
+      fullName.includes(q) ||
+      emailStr.includes(q) ||
+      phoneStr.includes(q) ||
+      propNameStr.includes(q) ||
+      unitNumStr.includes(q);
+
+    const propIdVal = String(t.propertyId || t.property?.id || t.unit?.propertyId || t.unit?.property?.id || '');
+    const matchesProp = !propertyFilter ||
+      propIdVal === propertyFilter ||
+      propNameStr.includes(propertyFilter.toLowerCase());
+
+    const matchesStatus = !statusFilter ||
+      String(t.status || 'Active').toLowerCase() === statusFilter.toLowerCase();
     
-    const balanceSum = (t.invoices || []).reduce((sum, inv) => {
-      const isPaid = (inv as any).status === 'Paid' || (inv as any).status === 'PAID';
+    const balanceSum = (t.invoices || []).reduce((sum: number, inv: any) => {
+      const isPaid = String(inv?.status || '').toLowerCase() === 'paid';
       const invBal = isPaid ? 0 : (inv.balance !== undefined ? inv.balance : inv.amount);
       return sum + Number(invBal || 0);
     }, 0) + Number(t.previousBalance || t.openingBalance || 0);
@@ -61,7 +79,7 @@ export const TenantsPage: React.FC<{ filterStatus?: string }> = ({ filterStatus 
       (balanceFilter === 'has-balance' && hasBalance) ||
       (balanceFilter === 'no-balance' && !hasBalance);
 
-    return (nameMatch || emailMatch) && matchesProp && matchesStatus && matchesBalance;
+    return matchesSearch && matchesProp && matchesStatus && matchesBalance;
   });
 
   // Export CSV

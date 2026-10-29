@@ -17,16 +17,48 @@ export const WorkOrdersPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('status') || '';
+    } catch {
+      return '';
+    }
+  });
 
   // Queries
   const { data: workOrders = [], isLoading } = useQuery({ queryKey: ['work-orders-list'], queryFn: () => api.workOrders.getAll() });
 
-  const filteredOrders = workOrders.filter((w) => {
-    const numVal = w.workOrderNumber || '';
-    const vendorVal = w.vendorName || '';
-    const searchMatch = numVal.toLowerCase().includes(searchQuery.toLowerCase()) || vendorVal.toLowerCase().includes(searchQuery.toLowerCase());
-    const statusMatch = statusFilter === '' || w.status === statusFilter;
+  const filteredOrders = workOrders.filter((w: any) => {
+    if (!w) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const numVal = String(w.workOrderNumber || '');
+    const titleVal = String(w.title || w.description || '');
+    const vendorVal = String(w.vendorName || w.assignedVendorName || '');
+    const techVal = String(w.assignedTechnician || '');
+    const propVal = String(w.propertyName || '');
+    const unitVal = String(w.unitNumber || '');
+    const statusVal = String(w.status || '');
+
+    const searchMatch = !q ||
+      numVal.toLowerCase().includes(q) ||
+      titleVal.toLowerCase().includes(q) ||
+      vendorVal.toLowerCase().includes(q) ||
+      techVal.toLowerCase().includes(q) ||
+      propVal.toLowerCase().includes(q) ||
+      unitVal.toLowerCase().includes(q) ||
+      statusVal.toLowerCase().includes(q);
+
+    let statusMatch = true;
+    if (statusFilter) {
+      const sf = statusFilter.toLowerCase().replace(/[\s_-]/g, '');
+      const ws = statusVal.toLowerCase().replace(/[\s_-]/g, '');
+      if (sf === 'inprogress' || sf === 'inprocess') {
+        statusMatch = ws.includes('prog') || ws.includes('proc');
+      } else {
+        statusMatch = ws === sf;
+      }
+    }
+
     return searchMatch && statusMatch;
   });
 

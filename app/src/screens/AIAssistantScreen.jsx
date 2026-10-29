@@ -159,8 +159,8 @@ export const AIAssistantScreen = ({ onNavigate }) => {
   return (
     <KeyboardAvoidingView
       style={styles.mainWrapper}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 44 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 44 : 24}
     >
       {/* FIXED NAVIGATION HEADER */}
       <View style={styles.fixedHeader}>
@@ -212,26 +212,49 @@ export const AIAssistantScreen = ({ onNavigate }) => {
                 </Text>
                 
                 {/* Related Records Links (Manager only) */}
-                {isAI && m.relatedRecords && m.relatedRecords.length > 0 && (
+                {isAI && Array.isArray(m.relatedRecords) && m.relatedRecords.length > 0 && (
                   <View style={styles.recordsWrapper}>
                     <Text style={styles.recordsTitle} allowFontScaling={false}>RELATED RECORDS:</Text>
-                    {m.relatedRecords.map((rec, rIdx) => (
-                      <TouchableOpacity
-                        key={rIdx}
-                        style={styles.recordChip}
-                        onPress={() => {
-                          if (rec.type === 'property') onNavigate('properties');
-                          if (rec.type === 'tenant') onNavigate('tenants');
-                          if (rec.type === 'invoice') onNavigate('rent');
-                          if (rec.type === 'application') onNavigate('leads');
-                        }}
-                      >
-                        <Ionicons name="link-outline" size={12} color="#38bdf8" />
-                        <Text style={styles.recordChipText} allowFontScaling={false}>
-                          {rec.label || `${rec.type} #${rec.id}`}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                    {m.relatedRecords.map((rec, rIdx) => {
+                      const label = typeof rec === 'string'
+                        ? rec
+                        : (rec?.label || rec?.name || rec?.title || (rec?.type ? `${rec.type} #${rec.id || ''}`.trim() : null));
+
+                      if (!label || label === 'undefined #undefined') return null;
+
+                      const handleRecordPress = () => {
+                        const str = String(label).toLowerCase();
+                        if (str.includes('tenant')) {
+                          onNavigate('tenants');
+                        } else if (str.includes('unit')) {
+                          onNavigate('properties');
+                        } else if (str.includes('prop')) {
+                          onNavigate('properties');
+                        } else if (str.includes('invoice') || str.includes('rent') || str.includes('due') || str.includes('pay')) {
+                          onNavigate('rent');
+                        } else if (str.includes('app') || str.includes('lead')) {
+                          onNavigate('leads');
+                        } else if (str.includes('maint') || str.includes('work') || str.includes('ticket')) {
+                          onNavigate('maintenance');
+                        } else {
+                          onNavigate('properties');
+                        }
+                      };
+
+                      return (
+                        <TouchableOpacity
+                          key={rIdx}
+                          style={styles.recordChip}
+                          onPress={handleRecordPress}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="link-outline" size={13} color="#38bdf8" />
+                          <Text style={styles.recordChipText} allowFontScaling={false}>
+                            {label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 )}
               </View>

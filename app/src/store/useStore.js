@@ -5,7 +5,7 @@ import { apiClient } from '../api/client';
 
 // Safe storage wrapper to prevent native module crashes in Expo Go
 let localCache = {};
-const safeStorage = {
+export const safeStorage = {
   getItem: async (key) => {
     try {
       if (AsyncStorage && typeof AsyncStorage.getItem === 'function') {
@@ -41,7 +41,7 @@ const safeStorage = {
 
 // --- Theme & Language Store ---
 export const useThemeStore = create((set) => ({
-  theme: 'dark',
+  theme: 'light', // Default is Light Mode (Dark mode OFF)
   language: 'en', // 'en' | 'es'
   toggleTheme: async () => {
     set((state) => {
@@ -62,7 +62,7 @@ export const useThemeStore = create((set) => ({
     const savedTheme = await safeStorage.getItem('theme');
     const savedLang = await safeStorage.getItem('language');
     set({
-      theme: (savedTheme === 'light' || savedTheme === 'dark') ? savedTheme : 'dark',
+      theme: savedTheme === 'dark' ? 'dark' : 'light', // Defaults to light unless user explicitly saved 'dark'
       language: (savedLang === 'es' || savedLang === 'hi' || savedLang === 'en') ? savedLang : 'en',
     });
   },
@@ -89,7 +89,9 @@ export const useAuthStore = create((set, get) => ({
     const userStr = await safeStorage.getItem('user');
     if (userStr) {
       try {
-        set({ user: JSON.parse(userStr), isAuthenticated: true, isLoaded: true });
+        const parsed = JSON.parse(userStr);
+        if (parsed?.token) apiClient.setAuthToken(parsed.token);
+        set({ user: parsed, isAuthenticated: true, isLoaded: true });
       } catch {
         set({ user: null, isAuthenticated: false, isLoaded: true });
       }
@@ -123,7 +125,12 @@ export const useAuthStore = create((set, get) => ({
           refreshToken: refreshToken,
         };
 
+        if (token) apiClient.setAuthToken(token);
         await safeStorage.setItem('user', JSON.stringify(loggedInUser));
+        const savedTheme = await safeStorage.getItem('theme');
+        if (savedTheme !== 'dark') {
+          useThemeStore.getState().setTheme('light');
+        }
         set({ user: loggedInUser, isAuthenticated: true });
         return true;
       }
@@ -134,7 +141,10 @@ export const useAuthStore = create((set, get) => ({
     }
   },
   logout: async () => {
+    apiClient.setAuthToken(null);
     await safeStorage.removeItem('user');
+    await safeStorage.removeItem('theme'); // Reset theme on logout so next login starts in default light mode
+    useThemeStore.getState().setTheme('light');
     set({ user: null, isAuthenticated: false });
   },
   refreshAccessToken: async () => {
@@ -144,7 +154,7 @@ export const useAuthStore = create((set, get) => ({
       const userData = JSON.parse(userStr);
       if (!userData.refreshToken) return false;
 
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://doorloop-backend-production-5d5d.up.railway.app/api/v1';
+      const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://whatsland-backend-production.up.railway.app/api/v1';
 
       const response = await fetch(`${baseUrl}/auth/refresh`, {
         method: 'POST',
@@ -158,6 +168,7 @@ export const useAuthStore = create((set, get) => ({
       const newToken = resData.data.accessToken;
 
       const updatedUser = { ...userData, token: newToken };
+      apiClient.setAuthToken(newToken);
       await safeStorage.setItem('user', JSON.stringify(updatedUser));
       set({ user: updatedUser });
       return true;
@@ -169,6 +180,10 @@ export const useAuthStore = create((set, get) => ({
 
 // --- Notifications Store ---
 export const useNotificationStore = create((set) => ({
+  unreadCount: 0,
+  setUnreadCount: (count) => set({ unreadCount: typeof count === 'function' ? count : Math.max(0, count) }),
+  decrementUnread: () => set((state) => ({ unreadCount: Math.max(0, state.unreadCount - 1) })),
+  resetUnread: () => set({ unreadCount: 0 }),
   notifications: [
     { id: 'notif-1', title: 'New Maintenance Request', message: 'AC Not Cooling in Unit 301 (Sunset Villas)', time: '10m ago', read: false, type: 'warning', role: 'Property Manager', targetId: 'sr-1' },
     { id: 'notif-2', title: 'Payment Received', message: 'John Doe paid $1,850 rent for Unit 101', time: '1h ago', read: false, type: 'success', role: 'Property Manager', targetId: 'pay-8001' },
@@ -180,6 +195,7 @@ export const useNotificationStore = create((set) => ({
     { id: 'notif-7', title: 'Monthly Distribution Ready', message: 'Owner payout of $4,500 has been sent to your account', time: '3h ago', read: false, type: 'success', role: 'Owner' }
   ],
   addNotification: (n) => set((state) => ({
+    unreadCount: state.unreadCount + 1,
     notifications: [
       {
         ...n,
@@ -193,12 +209,15 @@ export const useNotificationStore = create((set) => ({
     ]
   })),
   markAsRead: (id) => set((state) => ({
+    unreadCount: Math.max(0, state.unreadCount - 1),
     notifications: state.notifications.map((n) => n.id === id ? { ...n, read: true } : n)
   })),
   markAllAsRead: (role) => set((state) => ({
+    unreadCount: 0,
     notifications: state.notifications.map((n) => (role ? n.role === role : true) ? { ...n, read: true } : n)
   })),
   clearAll: (role) => set((state) => ({
+    unreadCount: 0,
     notifications: state.notifications.filter((n) => role ? n.role !== role : false)
   })),
 }));

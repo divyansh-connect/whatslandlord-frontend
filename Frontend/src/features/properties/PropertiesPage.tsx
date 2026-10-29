@@ -85,13 +85,28 @@ export const PropertiesPage: React.FC = () => {
     if (!prop) return false;
     if (prop.status === 'Draft' || prop.status === 'Inactive') return false;
     const q = (searchQuery || '').toLowerCase().trim();
+    const ownerNameStr = typeof prop.owner === 'object'
+      ? `${prop.owner?.name || ''} ${prop.owner?.firstName || ''} ${prop.owner?.lastName || ''}`
+      : String(prop.owner || '');
     const matchesSearch = !q ||
       (prop.name || '').toLowerCase().includes(q) ||
       (prop.city || '').toLowerCase().includes(q) ||
-      (prop.address || '').toLowerCase().includes(q);
-    const matchesType = typeFilter === '' || prop.type === typeFilter;
-    const matchesStatus = statusFilter === '' || prop.status === statusFilter;
-    const matchesOwner = ownerFilter === '' || prop.owner === ownerFilter;
+      (prop.address || '').toLowerCase().includes(q) ||
+      (prop.type || '').toLowerCase().includes(q) ||
+      ownerNameStr.toLowerCase().includes(q);
+
+    const matchesType = !typeFilter ||
+      String(prop.type || '').toLowerCase().replace(/[\s_-]/g, '') === typeFilter.toLowerCase().replace(/[\s_-]/g, '');
+    const matchesStatus = !statusFilter ||
+      String(prop.status || '').toLowerCase() === statusFilter.toLowerCase();
+
+    let matchesOwner = true;
+    if (ownerFilter) {
+      const filterLow = ownerFilter.toLowerCase();
+      const ownerIdVal = String(prop.ownerId || (prop.owner && typeof prop.owner === 'object' ? prop.owner.id : '') || '').toLowerCase();
+      matchesOwner = ownerNameStr.toLowerCase().includes(filterLow) || ownerIdVal === filterLow;
+    }
+
     return matchesSearch && matchesType && matchesStatus && matchesOwner;
   });
 

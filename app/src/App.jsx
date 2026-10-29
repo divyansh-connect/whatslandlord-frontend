@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator, Platform, LogBox } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Platform, LogBox, Dimensions, StatusBar as RNStatusBar, BackHandler, Keyboard } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from './components/AppActivityIndicator';
 import { StatusBar } from 'expo-status-bar';
 import { useAuthStore, useThemeStore } from './store/useStore';
 import { Ionicons } from '@expo/vector-icons';
@@ -61,6 +62,25 @@ import { PlatformSettingsScreen } from './screens/PlatformSettingsScreen';
 import { InspectionTemplatesScreen } from './screens/InspectionTemplatesScreen';
 import { RolesPermissionsScreen } from './screens/RolesPermissionsScreen';
 import { CompanySettingsScreen } from './screens/CompanySettingsScreen';
+import { NavigationDrawer } from './components/NavigationDrawer';
+
+const getAndroidNavBarInset = (screenHeight, windowHeight) => {
+  if (Platform.OS !== 'android') return 0;
+  const sH = screenHeight || Dimensions.get('screen').height;
+  const wH = windowHeight || Dimensions.get('window').height;
+  const diff = Math.round(sH - wH);
+
+  // In non-edge-to-edge Android, diff is the system navigation bar height (usually ~48dp or 48 + statusBar)
+  if (diff >= 28) {
+    const sbH = RNStatusBar.currentHeight || 24;
+    const navH = diff > 60 ? (diff - sbH) : diff;
+    return Math.max(navH, 48);
+  }
+  // On modern edge-to-edge Android devices, sH === wH (diff === 0), but the 3-button
+  // system navigation bar still overlays the bottom 48dp of the screen!
+  // We must return at least 48dp so the tabs sit directly above the system buttons.
+  return 48;
+};
 
 export default function App() {
   const { user, isAuthenticated, isLoaded, initializeAuth } = useAuthStore();
@@ -69,12 +89,99 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [activeSubTab, setActiveSubTab] = useState(null);
   const [currentInspectionId, setCurrentInspectionId] = useState(null);
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [navParams, setNavParams] = useState({});
+  const [navBarInset, setNavBarInset] = useState(() => getAndroidNavBarInset());
+  const [navHistory, setNavHistory] = useState([]);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleDimensionChange = ({ screen, window }) => {
+      setNavBarInset(getAndroidNavBarInset(screen?.height, window?.height));
+    };
+
+    const subscription = Dimensions.addEventListener('change', handleDimensionChange);
+    return () => subscription?.remove();
+  }, []);
+
+  // System Edge Swipe & Hardware Back Button Handler: Prevents unexpected app exit
+  useEffect(() => {
+    const onBackPress = () => {
+      // 1. If navigation drawer is open, close it first
+      if (drawerVisible) {
+        setDrawerVisible(false);
+        return true;
+      }
+
+      // 2. If in inspection view, exit back to previous tab
+      if (currentInspectionId) {
+        setCurrentInspectionId(null);
+        return true;
+      }
+
+      // 3. If history stack exists, go back to previous screen
+      if (navHistory.length > 0) {
+        const last = navHistory[navHistory.length - 1];
+        setNavHistory((prev) => prev.slice(0, -1));
+        setActiveTab(last.tab || 'dashboard');
+        setActiveSubTab(last.subTab || null);
+        setNavParams(last.params || {});
+        if (last.inspectionId) setCurrentInspectionId(last.inspectionId);
+        return true;
+      }
+
+      // 4. If currently on a sub-tab, return to parent tab's main view
+      if (activeSubTab) {
+        setActiveSubTab(null);
+        return true;
+      }
+
+      // 5. If on any tab other than 'dashboard', go to 'dashboard'
+      if (activeTab !== 'dashboard') {
+        setActiveTab('dashboard');
+        setActiveSubTab(null);
+        return true;
+      }
+
+      // 6. If already on dashboard with no history, let default OS exit happen
+      return false;
+    };
+
+    const backSubscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backSubscription.remove();
+  }, [drawerVisible, currentInspectionId, navHistory, activeSubTab, activeTab, navParams]);
+
+  const bottomBarPaddingBottom = Platform.OS === 'ios'
+    ? 24
+    : navBarInset > 0
+      ? navBarInset + 4
+      : 48;
 
   const handleNavigate = (tabId, paramsOrSubTab) => {
     let subTab = typeof paramsOrSubTab === 'string' ? paramsOrSubTab : paramsOrSubTab?.tab || null;
+    const params = typeof paramsOrSubTab === 'object' && paramsOrSubTab !== null ? paramsOrSubTab : {};
+    setNavParams(params);
 
-    if (tabId === 'inspection' && paramsOrSubTab && paramsOrSubTab.inspectionId) {
-      setCurrentInspectionId(paramsOrSubTab.inspectionId);
+    if (activeTab !== tabId || activeSubTab !== subTab) {
+      setNavHistory((prev) => [
+        ...prev.slice(-25),
+        { tab: activeTab, subTab: activeSubTab, params: navParams, inspectionId: currentInspectionId },
+      ]);
+    }
+
+    if (tabId === 'inspection' && params && params.inspectionId) {
+      setCurrentInspectionId(params.inspectionId);
     }
 
     // Direct route & sub-tab normalization
@@ -158,6 +265,11 @@ export default function App() {
         );
         break;
 
+      case 'more':
+        setActiveTab('dashboard');
+        setActiveSubTab(null);
+        break;
+
       default:
         setActiveTab(tabId);
         setActiveSubTab(subTab);
@@ -232,7 +344,7 @@ export default function App() {
       moduleTabs = [
         { id: 'dashboard', label: language === 'es' ? 'Tablero' : 'Dashboard', icon: 'grid-outline', activeIcon: 'grid' },
         { id: 'rent', label: language === 'es' ? 'Pagos' : 'Payments', icon: 'card-outline', activeIcon: 'card' },
-        { id: 'ledger', label: language === 'es' ? 'Libro' : 'Ledger', icon: 'book-outline', activeIcon: 'book' },
+        { id: 'messages', label: language === 'es' ? 'Mensajes' : 'Messages', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles' },
         { id: 'profile', label: language === 'es' ? 'Perfil' : 'Profile', icon: 'person-outline', activeIcon: 'person' },
       ];
       break;
@@ -241,7 +353,7 @@ export default function App() {
       moduleTabs = [
         { id: 'dashboard', label: language === 'es' ? 'Tablero' : 'Dashboard', icon: 'grid-outline', activeIcon: 'grid' },
         { id: 'mytasks', label: language === 'es' ? 'Mis Tareas' : 'My Tasks', icon: 'clipboard-outline', activeIcon: 'clipboard' },
-        { id: 'history', label: language === 'es' ? 'Historial' : 'History', icon: 'time-outline', activeIcon: 'time' },
+        { id: 'messages', label: language === 'es' ? 'Mensajes' : 'Messages', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles' },
         { id: 'profile', label: language === 'es' ? 'Perfil' : 'Profile', icon: 'person-outline', activeIcon: 'person' },
       ];
       break;
@@ -252,7 +364,6 @@ export default function App() {
         { id: 'properties', label: language === 'es' ? 'Propiedades' : 'Properties', icon: 'business-outline', activeIcon: 'business' },
         { id: 'rent', label: language === 'es' ? 'Finanzas' : 'Financials', icon: 'card-outline', activeIcon: 'card' },
         { id: 'messages', label: language === 'es' ? 'Mensajes' : 'Messages', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles' },
-        { id: 'more', label: language === 'es' ? 'Servicios' : 'Services', icon: 'apps-outline', activeIcon: 'apps' },
       ];
       break;
 
@@ -261,8 +372,7 @@ export default function App() {
         { id: 'dashboard', label: language === 'es' ? 'Tablero' : 'Dashboard', icon: 'grid-outline', activeIcon: 'grid' },
         { id: 'lease', label: language === 'es' ? 'Contrato' : 'Lease', icon: 'document-text-outline', activeIcon: 'document-text' },
         { id: 'rent', label: language === 'es' ? 'Pagos' : 'Payments', icon: 'card-outline', activeIcon: 'card' },
-        { id: 'ai', label: language === 'es' ? 'Asistente IA' : 'AI Assistant', icon: 'chatbubble-ellipses-outline', activeIcon: 'chatbubble-ellipses' },
-        { id: 'more', label: language === 'es' ? 'Servicios' : 'Services', icon: 'apps-outline', activeIcon: 'apps' },
+        { id: 'messages', label: language === 'es' ? 'Mensajes' : 'Messages', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles' },
       ];
       break;
 
@@ -273,7 +383,6 @@ export default function App() {
         { id: 'properties', label: language === 'es' ? 'Propiedades' : language === 'hi' ? 'संपत्तियां' : 'Properties', icon: 'business-outline', activeIcon: 'business' },
         { id: 'owners', label: language === 'es' ? 'Propietarios' : language === 'hi' ? 'मालिक' : 'Owners', icon: 'person-add-outline', activeIcon: 'person-add' },
         { id: 'tenants', label: language === 'es' ? 'Inquilinos' : language === 'hi' ? 'किरायेदार' : 'Tenants', icon: 'people-outline', activeIcon: 'people' },
-        { id: 'more', label: language === 'es' ? 'Más' : language === 'hi' ? 'अधिक' : 'More', icon: 'apps-outline', activeIcon: 'apps' },
       ];
       break;
   }
@@ -282,28 +391,29 @@ export default function App() {
   const renderDashboardByRole = () => {
     switch (role) {
       case 'Super Admin':
-        return <AdminDashboard onNavigate={(screenId) => handleNavigate(screenId)} />;
+        return <AdminDashboard onNavigate={(screenId) => handleNavigate(screenId)} onOpenMenu={() => setDrawerVisible(true)} />;
       case 'Property Manager':
-        return <ManagerDashboard onNavigate={handleNavigate} />;
+        return <ManagerDashboard onNavigate={handleNavigate} onOpenMenu={() => setDrawerVisible(true)} />;
       case 'Collection Manager':
-        return <CollectionDashboard onNavigate={handleNavigate} />;
+        return <CollectionDashboard onNavigate={handleNavigate} onOpenMenu={() => setDrawerVisible(true)} />;
       case 'Maintenance Staff':
         return <MaintenanceStaffDashboard activeSubTab="dashboard" onNavigate={handleNavigate} />;
       case 'Owner':
-        return <OwnerDashboard onNavigate={handleNavigate} />;
+        return <OwnerDashboard onNavigate={handleNavigate} onOpenMenu={() => setDrawerVisible(true)} />;
       case 'Tenant':
-        return <TenantDashboard onNavigate={handleNavigate} />;
+        return <TenantDashboard onNavigate={handleNavigate} onOpenMenu={() => setDrawerVisible(true)} />;
       default:
-        return <ManagerDashboard onNavigate={handleNavigate} />;
+        return <ManagerDashboard onNavigate={handleNavigate} onOpenMenu={() => setDrawerVisible(true)} />;
     }
   };
 
   const renderScreen = () => {
     if (role === 'Maintenance Staff') {
-      if (activeTab === 'dashboard') return <MaintenanceStaffDashboard activeSubTab="dashboard" />;
-      if (activeTab === 'mytasks') return <MaintenanceStaffDashboard activeSubTab="mytasks" />;
-      if (activeTab === 'history') return <MaintenanceStaffDashboard activeSubTab="history" />;
-      if (activeTab === 'profile') return <ProfileScreen />;
+      if (activeTab === 'dashboard') return <MaintenanceStaffDashboard activeSubTab="dashboard" onNavigate={handleNavigate} />;
+      if (activeTab === 'mytasks') return <MaintenanceStaffDashboard activeSubTab="mytasks" onNavigate={handleNavigate} />;
+      if (activeTab === 'messages' || activeTab === 'communication') return <TenantMessagesScreen onNavigate={handleNavigate} />;
+      if (activeTab === 'history') return <MaintenanceStaffDashboard activeSubTab="history" onNavigate={handleNavigate} />;
+      if (activeTab === 'profile') return <ProfileScreen onNavigate={handleNavigate} />;
     }
 
     switch (activeTab) {
@@ -327,11 +437,29 @@ export default function App() {
       case 'leasing':
         return role === 'Tenant' ? <TenantLeaseScreen /> : <LeadsScreen initialTab={activeSubTab || 'leases'} onNavigate={handleNavigate} />;
       case 'properties':
-        return role === 'Owner' ? <OwnerPropertiesScreen onNavigate={handleNavigate} /> : <PropertiesScreen initialTab={activeSubTab || 'properties'} />;
+        return role === 'Owner' ? (
+          <OwnerPropertiesScreen onNavigate={handleNavigate} />
+        ) : (
+          <PropertiesScreen
+            initialTab={activeSubTab || 'properties'}
+            initialUnitStatusFilter={navParams.statusFilter}
+            targetUnitId={navParams.unitId}
+            targetPropertyId={navParams.propertyId}
+            onNavigate={handleNavigate}
+          />
+        );
       case 'units':
-        return <PropertiesScreen initialTab="units" />;
+        return (
+          <PropertiesScreen
+            initialTab="units"
+            initialUnitStatusFilter={navParams.statusFilter}
+            targetUnitId={navParams.unitId || navParams.id}
+            targetPropertyId={navParams.propertyId}
+            onNavigate={handleNavigate}
+          />
+        );
       case 'drafts':
-        return <PropertiesScreen initialTab="drafts" />;
+        return <PropertiesScreen initialTab="drafts" onNavigate={handleNavigate} />;
       case 'leads':
       case 'applications':
       case 'screening':
@@ -339,35 +467,64 @@ export default function App() {
       case 'renewals':
       case 'movein':
       case 'moveout':
-        return <LeadsScreen initialTab={activeSubTab || activeTab} onNavigate={handleNavigate} />;
+        return (
+          <LeadsScreen
+            initialTab={activeSubTab || activeTab}
+            targetLeaseId={navParams.leaseId || navParams.id}
+            onNavigate={handleNavigate}
+          />
+        );
       case 'inspection':
         return <InspectionDetailsScreen inspectionId={currentInspectionId} onNavigate={handleNavigate} />;
       case 'tenants':
-        return <TenantsScreen />;
+        return (
+          <TenantsScreen
+            initialStatusFilter={navParams.statusFilter || 'All'}
+            initialAdoptionFilter={navParams.filter || navParams.adoptionFilter || null}
+            targetTenantId={navParams.tenantId || navParams.id}
+            onNavigate={handleNavigate}
+          />
+        );
       case 'owners':
-        return <OwnersScreen />;
+        return <OwnersScreen onNavigate={handleNavigate} />;
       case 'documents':
         return <TenantDocumentsScreen initialTab={activeSubTab || 'tenant'} onNavigate={handleNavigate} />;
       case 'invoices':
         if (role === 'Property Manager' || role === 'Collection Manager') {
-          return <ManagerRentPaymentsScreen initialTab="invoices" />;
+          return (
+            <ManagerRentPaymentsScreen
+              initialTab="invoices"
+              initialStatusFilter={navParams.statusFilter || navParams.filter || ''}
+              targetInvoiceId={navParams.invoiceId || navParams.id}
+              targetPaymentId={navParams.paymentId}
+              onNavigate={handleNavigate}
+            />
+          );
         }
         return <InvoicesScreen />;
       case 'communication':
       case 'messages':
-        return role === 'Property Manager' ? <ManagerCommunicationScreen /> : <TenantMessagesScreen />;
+        return role === 'Property Manager' ? <ManagerCommunicationScreen onNavigate={handleNavigate} /> : <TenantMessagesScreen onNavigate={handleNavigate} />;
       case 'notifications':
-        return <NotificationsScreen onNavigate={handleNavigate} />;
+        return role === 'Tenant' ? <TenantNotificationsScreen onNavigate={handleNavigate} /> : <NotificationsScreen onNavigate={handleNavigate} />;
       case 'statements':
         return <StatementsScreen />;
       case 'reports':
-        return role === 'Owner' ? <OwnerReportsScreen /> : <ReportsScreen />;
+        return role === 'Owner' ? <OwnerReportsScreen onNavigate={handleNavigate} /> : <ReportsScreen onNavigate={handleNavigate} />;
       case 'rent':
       case 'payments':
       case 'rent-dashboard':
         if (role === 'Owner') return <OwnerFinancialsScreen />;
         if (role === 'Property Manager' || role === 'Collection Manager') {
-          return <ManagerRentPaymentsScreen initialTab={activeSubTab || (activeTab === 'payments' ? 'payments' : 'dashboard')} />;
+          return (
+            <ManagerRentPaymentsScreen
+              initialTab={activeSubTab || (activeTab === 'payments' ? 'payments' : 'dashboard')}
+              initialStatusFilter={navParams.statusFilter || navParams.filter || ''}
+              targetPaymentId={navParams.paymentId || navParams.id}
+              targetInvoiceId={navParams.invoiceId || navParams.id}
+              onNavigate={handleNavigate}
+            />
+          );
         }
         return <RentScreen />;
       case 'financials':
@@ -375,7 +532,15 @@ export default function App() {
       case 'rent-ledger':
         if (role === 'Owner') return <OwnerFinancialsScreen />;
         if (role === 'Property Manager' || role === 'Collection Manager') {
-          return <ManagerRentPaymentsScreen initialTab="ledger" />;
+          return (
+            <ManagerRentPaymentsScreen
+              initialTab="ledger"
+              initialStatusFilter={navParams.statusFilter || navParams.filter || ''}
+              targetPaymentId={navParams.paymentId || navParams.id}
+              targetInvoiceId={navParams.invoiceId || navParams.id}
+              onNavigate={handleNavigate}
+            />
+          );
         }
         return <TenantLedgerScreen />;
       case 'accounting':
@@ -401,9 +566,17 @@ export default function App() {
         if (role === 'Tenant') {
           return <TenantMaintenanceScreen onNavigate={handleNavigate} />;
         }
-        return role === 'Owner'
-          ? <OwnerMaintenanceScreen onNavigate={handleNavigate} />
-          : <MaintenanceScreen initialTab={activeSubTab || defaultMaintenanceTab} onNavigate={handleNavigate} />;
+        return role === 'Owner' ? (
+          <OwnerMaintenanceScreen onNavigate={handleNavigate} />
+        ) : (
+          <MaintenanceScreen
+            initialTab={activeSubTab || defaultMaintenanceTab}
+            initialStatusFilter={navParams.statusFilter || ''}
+            targetWorkOrderId={navParams.workOrderId || navParams.id}
+            isInternalFilter={Boolean(navParams.isInternal)}
+            onNavigate={handleNavigate}
+          />
+        );
       }
       case 'companies':
         return <CompaniesScreen />;
@@ -481,79 +654,93 @@ export default function App() {
         {renderScreen()}
       </View>
 
-      {/* Fixed Bottom Navigation Bar */}
-      <View
-        style={[
-          styles.bottomBarContainer,
-          (role === 'Maintenance Staff' || role === 'Tenant') && {
-            paddingBottom: Platform.OS === 'ios' ? 24 : 14,
-            paddingTop: 8,
-          },
-          { backgroundColor: isDarkMode ? '#1e293b' : '#ffffff', borderTopColor: isDarkMode ? '#334155' : '#e2e8f0' },
-        ]}
-      >
-        <View style={styles.fixedBottomBar}>
-          {moduleTabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            const useIonicon =
-              typeof tab.icon === 'string' &&
-              (tab.icon.includes('-outline') ||
-                ['grid', 'clipboard', 'time', 'person', 'menu', 'card', 'hammer', 'document-text', 'business', 'people', 'apps'].includes(tab.icon));
-            return (
-              <TouchableOpacity
-                key={`bottom-${tab.id}`}
-                style={[
-                  styles.bottomTabItem,
-                  isActive && { backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.12)' : 'rgba(56, 189, 248, 0.08)' },
-                ]}
-                onPress={() => handleTabPress(tab.id)}
-                activeOpacity={0.7}
-              >
-                {isActive && (
-                  <View
-                    style={{
-                      height: 2.5,
-                      backgroundColor: '#38bdf8',
-                      position: 'absolute',
-                      top: -8,
-                      left: 10,
-                      right: 10,
-                      borderRadius: 2,
-                    }}
-                  />
-                )}
-                {useIonicon ? (
-                  <Ionicons
-                    name={isActive ? tab.activeIcon : tab.icon}
-                    size={20}
-                    color={isActive ? '#38bdf8' : isDarkMode ? '#94a3b8' : '#64748b'}
-                    style={{ marginBottom: 2 }}
-                  />
-                ) : (
-                  <Text style={[styles.bottomTabIcon, { color: isActive ? '#38bdf8' : isDarkMode ? '#94a3b8' : '#64748b' }]} allowFontScaling={false}>
-                    {tab.icon}
-                  </Text>
-                )}
-                <Text
+      {/* Fixed Bottom Navigation Bar - automatically hidden when keyboard is open */}
+      {!isKeyboardVisible && (
+        <View
+          style={[
+            styles.bottomBarContainer,
+            {
+              paddingBottom: bottomBarPaddingBottom,
+              backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+              borderTopColor: isDarkMode ? '#334155' : '#e2e8f0',
+            },
+          ]}
+        >
+          <View style={styles.fixedBottomBar}>
+            {moduleTabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              const useIonicon =
+                typeof tab.icon === 'string' &&
+                (tab.icon.includes('-outline') ||
+                  ['grid', 'clipboard', 'time', 'person', 'menu', 'card', 'hammer', 'document-text', 'business', 'people', 'apps'].includes(tab.icon));
+              return (
+                <TouchableOpacity
+                  key={`bottom-${tab.id}`}
                   style={[
-                    styles.bottomTabText,
-                    isActive && styles.bottomTabTextActive,
-                    { color: isActive ? '#38bdf8' : isDarkMode ? '#94a3b8' : '#64748b' },
+                    styles.bottomTabItem,
+                    isActive && { backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.12)' : 'rgba(56, 189, 248, 0.08)' },
                   ]}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                  adjustsFontSizeToFit={true}
-                  minimumFontScale={0.75}
-                  allowFontScaling={false}
-                  maxFontSizeMultiplier={1}
+                  onPress={() => handleTabPress(tab.id)}
+                  activeOpacity={0.7}
                 >
-                  {tab.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+                  {isActive && (
+                    <View
+                      style={{
+                        height: 2.5,
+                        backgroundColor: '#38bdf8',
+                        position: 'absolute',
+                        top: -8,
+                        left: 10,
+                        right: 10,
+                        borderRadius: 2,
+                      }}
+                    />
+                  )}
+                  {useIonicon ? (
+                    <Ionicons
+                      name={isActive ? tab.activeIcon : tab.icon}
+                      size={20}
+                      color={isActive ? '#38bdf8' : isDarkMode ? '#94a3b8' : '#64748b'}
+                      style={{ marginBottom: 2 }}
+                    />
+                  ) : (
+                    <Text style={[styles.bottomTabIcon, { color: isActive ? '#38bdf8' : isDarkMode ? '#94a3b8' : '#64748b' }]} allowFontScaling={false}>
+                      {tab.icon}
+                    </Text>
+                  )}
+                  <Text
+                    style={[
+                      styles.bottomTabText,
+                      isActive && styles.bottomTabTextActive,
+                      { color: isActive ? '#38bdf8' : isDarkMode ? '#94a3b8' : '#64748b' },
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    adjustsFontSizeToFit={true}
+                    minimumFontScale={0.75}
+                    allowFontScaling={false}
+                    maxFontSizeMultiplier={1}
+                  >
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
-      </View>
+      )}
+
+      {/* Navigation Drawer (DoorLoop Photo 3 Style) */}
+      <NavigationDrawer
+        visible={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+        activeScreen={activeTab}
+        activeTab={activeSubTab}
+        onSelectScreen={(screenId, subTab) => {
+          setDrawerVisible(false);
+          handleNavigate(screenId, subTab);
+        }}
+      />
     </View>
   );
 }

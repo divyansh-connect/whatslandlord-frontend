@@ -70,10 +70,23 @@ export const ApplicationsPage: React.FC = () => {
     },
   });
 
-  const filteredApps = applications.filter((app) => {
-    const nameMatch = app.tenantName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === '' || app.status === statusFilter;
-    return nameMatch && matchesStatus;
+  const filteredApps = applications.filter((app: any) => {
+    if (!app) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const nameStr = `${app.tenantName || ''} ${app.applicantName || ''}`.trim().toLowerCase();
+    const propStr = String(app.propertyName || '').toLowerCase();
+    const unitStr = String(app.unitNumber || '').toLowerCase();
+    const emailStr = String(app.email || '').toLowerCase();
+    const matchesSearch = !q ||
+      nameStr.includes(q) ||
+      propStr.includes(q) ||
+      unitStr.includes(q) ||
+      emailStr.includes(q);
+
+    const matchesStatus = !statusFilter ||
+      String(app.status || '').toLowerCase().replace(/[\s_-]/g, '') === statusFilter.toLowerCase().replace(/[\s_-]/g, '');
+
+    return matchesSearch && matchesStatus;
   });
 
   const columns: ColumnDef<Application>[] = [

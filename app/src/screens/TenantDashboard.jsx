@@ -1,17 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Modal,
   TextInput,
   Alert,
   Platform,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
+import { WebView } from 'react-native-webview';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
@@ -19,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { isNoticeForTenant } from '../utils/tenantNoticeHelper';
 
-export const TenantDashboard = ({ onNavigate }) => {
+export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -77,6 +78,12 @@ export const TenantDashboard = ({ onNavigate }) => {
   const [ticketModalVisible, setTicketModalVisible] = useState(false);
   const [screeningModalOpen, setScreeningModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Payment Gateway SDK states
+  const [activeGateway, setActiveGateway] = useState(null);
+  const [sdkModalVisible, setSdkModalVisible] = useState(false);
+  const [razorpayOrder, setRazorpayOrder] = useState(null);
+  const [processingGateway, setProcessingGateway] = useState(false);
 
   // Ticket Form
   const [ticketTitle, setTicketTitle] = useState('');
@@ -182,6 +189,20 @@ export const TenantDashboard = ({ onNavigate }) => {
 
       const rentAmount = Number(metrics.currentRent || metrics.currentRentDue || lease?.rentAmount || 0);
       const outBal = Number(metrics.outstandingBalance ?? 0);
+      const propId = lease?.propertyId || lease?.property?.id || profile?.propertyId || profile?.unit?.propertyId || null;
+
+      // Query active payment gateway (property level 1st priority, company level fallback)
+      try {
+        const gwRes = await apiClient.get(
+          propId ? `/payments/active-gateway?propertyId=${propId}` : '/payments/active-gateway',
+          logout,
+          refreshAccessToken
+        ).catch(() => null);
+        const gw = gwRes?.data || gwRes || null;
+        setActiveGateway(gw);
+      } catch (err) {
+        console.log('Failed fetching active gateway:', err.message);
+      }
 
       setTenantData({
         name:
@@ -189,6 +210,7 @@ export const TenantDashboard = ({ onNavigate }) => {
           `${profile.firstName || user?.firstName || ''} ${profile.lastName || user?.lastName || ''}`.trim() ||
           'Resident',
         hasActiveLease,
+        propertyId: propId,
         propertyName: propName,
         unitNumber: unitNum,
         currentRent: rentAmount,
@@ -215,9 +237,49 @@ export const TenantDashboard = ({ onNavigate }) => {
     fetchTenantPortalData();
   };
 
-  const handlePayRent = async () => {
+  // Payment Initiation Flow: Razorpay SDK (if active) or Direct Fallback
+  const handleInitiatePayment = async () => {
     const payAmount = tenantData.outstandingBalance > 0 ? tenantData.outstandingBalance : tenantData.currentRent;
     if (payAmount <= 0) return;
+
+    if (activeGateway?.provider === 'RAZORPAY') {
+      try {
+        setSubmitting(true);
+        setProcessingGateway(true);
+
+        const orderRes = await apiClient.post(
+          '/payments/razorpay-order',
+          {
+            amount: Number(payAmount),
+            currency: 'USD',
+            propertyId: tenantData.propertyId,
+          },
+          logout,
+          refreshAccessToken
+        );
+
+        const orderData = orderRes?.data || orderRes;
+        if (!orderData?.orderId || !orderData?.keyId) {
+          throw new Error('Failed to create Razorpay Order.');
+        }
+
+        setRazorpayOrder(orderData);
+        setPayModalVisible(false);
+        setSdkModalVisible(true);
+      } catch (err) {
+        Alert.alert('Payment Gateway Error', err.message || 'Could not connect to payment gateway.');
+      } finally {
+        setSubmitting(false);
+        setProcessingGateway(false);
+      }
+      return;
+    }
+
+    // Direct / Manual payment fallback
+    handleDirectPay(payAmount);
+  };
+
+  const handleDirectPay = async (payAmount) => {
     try {
       setSubmitting(true);
       await apiClient.post(
@@ -230,14 +292,15 @@ export const TenantDashboard = ({ onNavigate }) => {
           paidDate: new Date().toISOString(),
           referenceNumber: `RCP-${Math.floor(100000 + Math.random() * 900000)}-ZTR`,
           tenantId: user?.id && user.id.length > 10 ? user.id : undefined,
+          propertyId: tenantData.propertyId || undefined,
         },
         logout,
         refreshAccessToken
       );
       setPayModalVisible(false);
       Alert.alert(
-        'Payment Successful',
-        `Thank you! Your rent payment of $${payAmount.toLocaleString()} has been processed successfully.`
+        'Payment Recorded',
+        `Thank you! Your rent payment of $${Number(payAmount).toLocaleString()} has been processed successfully.`
       );
       fetchTenantPortalData();
     } catch (e) {
@@ -246,6 +309,139 @@ export const TenantDashboard = ({ onNavigate }) => {
       setSubmitting(false);
     }
   };
+
+  const handleWebViewMessage = async (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.event === 'CANCELLED') {
+        setSdkModalVisible(false);
+        setRazorpayOrder(null);
+      } else if (data.event === 'FAILED') {
+        setSdkModalVisible(false);
+        setRazorpayOrder(null);
+        Alert.alert('Payment Failed', data.error || 'Payment was declined by Razorpay.');
+      } else if (data.event === 'SUCCESS') {
+        setSdkModalVisible(false);
+        setRazorpayOrder(null);
+        setLoading(true);
+
+        const payAmount = tenantData.outstandingBalance > 0 ? tenantData.outstandingBalance : tenantData.currentRent;
+
+        await apiClient.post(
+          '/payments/verify-razorpay',
+          {
+            razorpayOrderId: data.razorpay_order_id,
+            razorpayPaymentId: data.razorpay_payment_id,
+            razorpaySignature: data.razorpay_signature,
+            amount: Number(payAmount),
+            propertyId: tenantData.propertyId,
+          },
+          logout,
+          refreshAccessToken
+        );
+
+        Alert.alert(
+          'Payment Successful! 🎉',
+          `Thank you! Your rent payment of $${Number(payAmount).toLocaleString()} has been verified and settled via Razorpay.`
+        );
+        fetchTenantPortalData();
+      }
+    } catch (err) {
+      console.log('Error verifying Razorpay payment:', err.message);
+      setSdkModalVisible(false);
+      Alert.alert('Verification Issue', 'Payment was submitted to gateway. Please check your transaction history.');
+    } finally {
+      setLoading(false);
+      setSubmitting(false);
+    }
+  };
+
+  const razorpayHtml = useMemo(() => {
+    if (!razorpayOrder) return '';
+    const propTitle = activeGateway?.propertyName || tenantData.propertyName || 'WhatsLandlord';
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <style>
+          * { box-sizing: border-box; }
+          body {
+            background-color: #090d16;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #f8fafc;
+          }
+          .loader { text-align: center; }
+          .spinner {
+            border: 3px solid rgba(56, 189, 248, 0.2);
+            border-top: 3px solid #38bdf8;
+            border-radius: 50%;
+            width: 38px;
+            height: 38px;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 14px auto;
+          }
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        </style>
+        <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+      </head>
+      <body>
+        <div class="loader">
+          <div class="spinner"></div>
+          <div style="font-size: 14px; font-weight: 700; color: #f8fafc;">Launching Razorpay SDK...</div>
+          <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Secure 256-Bit SSL Gateway</div>
+        </div>
+        <script>
+          var options = {
+            key: "${razorpayOrder.keyId}",
+            amount: "${razorpayOrder.amount}",
+            currency: "${razorpayOrder.currency || 'USD'}",
+            name: "${propTitle.replace(/["'\\]/g, '')}",
+            description: "Rent Payment - ${tenantData.unitNumber}",
+            order_id: "${razorpayOrder.orderId}",
+            prefill: {
+              name: "${tenantData.name.replace(/["'\\]/g, '')}",
+              email: "${user?.email || ''}",
+              contact: "${user?.phone || ''}"
+            },
+            theme: { color: "#38bdf8" },
+            modal: {
+              ondismiss: function() {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'CANCELLED' }));
+              }
+            },
+            handler: function(response) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                event: 'SUCCESS',
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature
+              }));
+            }
+          };
+          var rzp = new Razorpay(options);
+          rzp.on('payment.failed', function(resp) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              event: 'FAILED',
+              error: resp.error ? resp.error.description : 'Payment Failed'
+            }));
+          });
+          window.onload = function() {
+            setTimeout(function() {
+              rzp.open();
+            }, 300);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+  }, [razorpayOrder, activeGateway, tenantData, user]);
 
   const handleCreateTicket = async () => {
     if (!ticketTitle.trim() || !ticketDesc.trim()) {
@@ -360,20 +556,37 @@ export const TenantDashboard = ({ onNavigate }) => {
     >
       {/* Welcome Header */}
       <View style={styles.welcomeSection}>
-        <View style={{ flex: 1, marginRight: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
           <TouchableOpacity
-            onPress={() => onNavigate && onNavigate('profile')}
+            style={[
+              styles.hamburgerBtn,
+              {
+                borderColor: colors.cardBorder,
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              },
+            ]}
+            onPress={() => onOpenMenu && onOpenMenu()}
             activeOpacity={0.7}
+            accessibilityLabel="Open Navigation Menu"
           >
-            <Text style={[styles.welcomeGreeting, { color: colors.textPrimary }]} allowFontScaling={false}>
-              Hello, {tenantData.name} 👋
-            </Text>
+            <Ionicons name="menu-outline" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
-          <View style={styles.unitLocationRow}>
-            <Ionicons name="location-sharp" size={13} color="#38bdf8" style={{ marginRight: 4 }} />
-            <Text style={[styles.welcomeLocation, { color: colors.textSecondary }]} allowFontScaling={false} numberOfLines={1}>
-              {tenantData.propertyName} {tenantData.unitNumber && tenantData.unitNumber !== 'N/A' ? `· Unit ${tenantData.unitNumber}` : ''}
-            </Text>
+
+          <View style={{ marginLeft: 10, flex: 1 }}>
+            <TouchableOpacity
+              onPress={() => onNavigate && onNavigate('profile')}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.welcomeGreeting, { color: colors.textPrimary }]} allowFontScaling={false} numberOfLines={1}>
+                Hello, {tenantData.name} 👋
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.unitLocationRow}>
+              <Ionicons name="location-sharp" size={13} color="#38bdf8" style={{ marginRight: 4 }} />
+              <Text style={[styles.welcomeLocation, { color: colors.textSecondary }]} allowFontScaling={false} numberOfLines={1}>
+                {tenantData.propertyName} {tenantData.unitNumber && tenantData.unitNumber !== 'N/A' ? `· Unit ${tenantData.unitNumber}` : ''}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -942,22 +1155,62 @@ export const TenantDashboard = ({ onNavigate }) => {
       {/* =========================================================================
           PAY RENT MODAL
           ========================================================================= */}
-      <Modal visible={payModalVisible} animationType="fade" transparent>
+      <Modal visible={payModalVisible} animationType="fade" transparent onRequestClose={() => setPayModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <View style={styles.modalIconCenter}>
-              <Ionicons name="card-outline" size={40} color="#0284c7" />
+              <Ionicons
+                name={activeGateway?.provider === 'RAZORPAY' ? 'flash' : 'card-outline'}
+                size={36}
+                color={activeGateway?.provider === 'RAZORPAY' ? '#38bdf8' : '#0284c7'}
+              />
             </View>
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
               Confirm Rent Payment
             </Text>
             <Text style={[styles.modalSub, { color: colors.textSecondary }]} allowFontScaling={false}>
-              Amount to pay: $
-              {(tenantData.outstandingBalance > 0
-                ? tenantData.outstandingBalance
-                : tenantData.currentRent
-              ).toLocaleString()}
+              {tenantData.propertyName} • {tenantData.unitNumber}
             </Text>
+
+            {/* Total Amount Box */}
+            <View style={[styles.payAmountBox, { backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9' }]}>
+              <Text style={styles.payAmountLabel}>TOTAL BALANCE DUE</Text>
+              <Text style={styles.payAmountValue}>
+                $
+                {(tenantData.outstandingBalance > 0
+                  ? tenantData.outstandingBalance
+                  : tenantData.currentRent
+                ).toLocaleString()}
+              </Text>
+            </View>
+
+            {/* Gateway Routing Indicator matching Web */}
+            {activeGateway?.provider === 'RAZORPAY' ? (
+              <View style={styles.gatewayBadgeBox}>
+                <View style={styles.gatewayBadgeHeader}>
+                  <Ionicons name="shield-checkmark" size={15} color="#38bdf8" />
+                  <Text style={styles.gatewayBadgeTitle}>Razorpay Online Gateway</Text>
+                </View>
+                <Text style={styles.gatewayBadgeSub}>
+                  {activeGateway?.source === 'PROPERTY' && activeGateway?.propertyName
+                    ? `Direct Property Gateway: ${activeGateway.propertyName}`
+                    : 'Company Gateway (Option 2 Fallback)'}
+                </Text>
+                <Text style={styles.gatewayBadgeMethods}>
+                  Supports: UPI • Cards • NetBanking • Wallets
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.gatewayBadgeBoxManual}>
+                <View style={styles.gatewayBadgeHeader}>
+                  <Ionicons name="wallet-outline" size={15} color="#94a3b8" />
+                  <Text style={[styles.gatewayBadgeTitle, { color: '#94a3b8' }]}>Direct Payment</Text>
+                </View>
+                <Text style={styles.gatewayBadgeSub}>
+                  Direct In-App ACH / Offline Settlement
+                </Text>
+              </View>
+            )}
 
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
@@ -971,21 +1224,102 @@ export const TenantDashboard = ({ onNavigate }) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalBtn, styles.modalConfirmBtn]}
-                onPress={handlePayRent}
+                style={[
+                  styles.modalBtn,
+                  styles.modalConfirmBtn,
+                  activeGateway?.provider === 'RAZORPAY' && { backgroundColor: '#38bdf8' },
+                ]}
+                onPress={handleInitiatePayment}
                 disabled={submitting}
                 activeOpacity={0.8}
               >
                 {submitting ? (
-                  <ActivityIndicator color="#ffffff" />
+                  <ActivityIndicator color={activeGateway?.provider === 'RAZORPAY' ? '#0f172a' : '#ffffff'} />
                 ) : (
-                  <Text style={styles.modalConfirmBtnText} allowFontScaling={false}>
-                    Pay Now
+                  <Text
+                    style={[
+                      styles.modalConfirmBtnText,
+                      activeGateway?.provider === 'RAZORPAY' && { color: '#0f172a' },
+                    ]}
+                    allowFontScaling={false}
+                  >
+                    {activeGateway?.provider === 'RAZORPAY' ? '⚡ Open Razorpay SDK' : 'Confirm Payment'}
                   </Text>
                 )}
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* =========================================================================
+          RAZORPAY HOSTED SDK MODAL (IDENTICAL TO WEB CHECKOUT)
+          ========================================================================= */}
+      <Modal
+        visible={sdkModalVisible}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setSdkModalVisible(false)}
+      >
+        <View style={styles.sdkContainer}>
+          {/* Header Bar */}
+          <View style={styles.sdkHeader}>
+            <View style={styles.sdkHeaderLeft}>
+              <View style={styles.sdkLockCircle}>
+                <Ionicons name="lock-closed" size={16} color="#38bdf8" />
+              </View>
+              <View>
+                <Text style={styles.sdkHeaderTitle} allowFontScaling={false}>
+                  Razorpay Secure Gateway
+                </Text>
+                <Text style={styles.sdkHeaderSub} allowFontScaling={false}>
+                  {activeGateway?.propertyName || tenantData.propertyName} • 256-Bit SSL
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.sdkCloseBtn}
+              onPress={() => {
+                Alert.alert(
+                  'Cancel Payment?',
+                  'Are you sure you want to cancel this payment transaction?',
+                  [
+                    { text: 'No, Continue', style: 'cancel' },
+                    {
+                      text: 'Yes, Cancel',
+                      style: 'destructive',
+                      onPress: () => {
+                        setSdkModalVisible(false);
+                        setRazorpayOrder(null);
+                      },
+                    },
+                  ]
+                );
+              }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="close" size={22} color="#f8fafc" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Razorpay Web SDK View */}
+          {sdkModalVisible && razorpayHtml ? (
+            <WebView
+              originWhitelist={['*']}
+              source={{ html: razorpayHtml }}
+              onMessage={handleWebViewMessage}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              startInLoadingState={true}
+              renderLoading={() => (
+                <View style={styles.sdkLoadingBox}>
+                  <ActivityIndicator size="large" color="#38bdf8" />
+                  <Text style={styles.sdkLoadingText}>Launching Razorpay SDK...</Text>
+                </View>
+              )}
+              style={styles.sdkWebView}
+            />
+          ) : null}
         </View>
       </Modal>
 
@@ -1228,6 +1562,14 @@ const getStyles = (colors, isDarkMode) =>
     welcomeLocation: {
       fontSize: 13,
       fontWeight: '600',
+    },
+    hamburgerBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
     },
     bellBtn: {
       width: 38,
@@ -1911,6 +2253,133 @@ const getStyles = (colors, isDarkMode) =>
       fontSize: 13.5,
       fontWeight: '800',
       color: '#ffffff',
+    },
+    payAmountBox: {
+      borderRadius: 12,
+      padding: 12,
+      alignItems: 'center',
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#334155' : '#e2e8f0',
+    },
+    payAmountLabel: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#94a3b8',
+      letterSpacing: 0.8,
+      marginBottom: 4,
+    },
+    payAmountValue: {
+      fontSize: 26,
+      fontWeight: '900',
+      color: '#38bdf8',
+    },
+    gatewayBadgeBox: {
+      backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.08)' : 'rgba(56, 189, 248, 0.06)',
+      borderWidth: 1,
+      borderColor: 'rgba(56, 189, 248, 0.3)',
+      borderRadius: 12,
+      padding: 10,
+      marginBottom: 14,
+    },
+    gatewayBadgeBoxManual: {
+      backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#334155' : '#cbd5e1',
+      borderRadius: 12,
+      padding: 10,
+      marginBottom: 14,
+    },
+    gatewayBadgeHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: 3,
+    },
+    gatewayBadgeTitle: {
+      fontSize: 12.5,
+      fontWeight: '800',
+      color: '#38bdf8',
+    },
+    gatewayBadgeSub: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: colors.textPrimary || '#f8fafc',
+      marginTop: 2,
+    },
+    gatewayBadgeMethods: {
+      fontSize: 10,
+      color: colors.textSecondary || '#94a3b8',
+      marginTop: 4,
+      fontWeight: '500',
+    },
+    // SDK Fullscreen Container Styles
+    sdkContainer: {
+      flex: 1,
+      backgroundColor: '#090d16',
+    },
+    sdkHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingTop: Platform.OS === 'ios' ? 54 : 16,
+      paddingBottom: 14,
+      backgroundColor: '#0f172a',
+      borderBottomWidth: 1,
+      borderBottomColor: '#1e293b',
+    },
+    sdkHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flex: 1,
+    },
+    sdkLockCircle: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sdkHeaderTitle: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#f8fafc',
+    },
+    sdkHeaderSub: {
+      fontSize: 11,
+      color: '#94a3b8',
+      marginTop: 2,
+    },
+    sdkCloseBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: 'rgba(255,255,255,0.08)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sdkWebView: {
+      flex: 1,
+      backgroundColor: '#090d16',
+    },
+    sdkLoadingBox: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#090d16',
+    },
+    sdkLoadingText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#94a3b8',
+      marginTop: 12,
     },
   });
 

@@ -2,47 +2,88 @@ import * as z from 'zod';
 
 export const propertySchema = z.object({
   name: z.string().min(1, 'Property Name is required'),
+  ownerId: z.string().optional(),
+  address: z.string().optional(),
+  type: z.string().optional(),
+  status: z.string().optional(),
+  streetAddress: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  country: z.string().optional(),
+  zip: z.string().optional(),
   nycBin: z.string().optional(),
   managementCompany: z.string().optional(),
   ownershipPercentage: z.number({ invalid_type_error: 'Ownership percentage must be a number' })
     .min(0, 'Percentage cannot be negative')
-    .max(100, 'Percentage cannot exceed 100'),
+    .max(100, 'Percentage cannot exceed 100')
+    .optional(),
   yearBuilt: z.number({ invalid_type_error: 'Year built must be a number' })
     .min(1700, 'Year built must be after 1700')
-    .max(new Date().getFullYear(), 'Year built cannot be in the future'),
+    .optional(),
+  totalFloors: z.number().optional(),
+  totalBuildings: z.number().optional(),
+  totalUnits: z.number().optional(),
   squareFootage: z.number({ invalid_type_error: 'Square footage must be a number' })
-    .min(1, 'Square footage must be greater than 0'),
+    .min(0, 'Square footage cannot be negative')
+    .optional(),
   purchasePrice: z.number({ invalid_type_error: 'Purchase price must be a number' })
-    .min(0, 'Purchase price cannot be negative'),
+    .min(0, 'Purchase price cannot be negative')
+    .optional(),
   currentValue: z.number({ invalid_type_error: 'Current value must be a number' })
-    .min(0, 'Current value cannot be negative'),
-});
+    .min(0, 'Current value cannot be negative')
+    .optional(),
+  monthlyExpenses: z.number({ invalid_type_error: 'Monthly expenses must be a number' })
+    .min(0, 'Monthly expenses cannot be negative')
+    .optional(),
+}).passthrough();
 
 export const buildingSchema = z.object({
+  propertyId: z.string().min(1, 'Property is required'),
   name: z.string().min(1, 'Building Name is required'),
   floors: z.number({ invalid_type_error: 'Floors must be a number' })
-    .min(1, 'Must have at least 1 floor'),
+    .min(0, 'Floors cannot be negative')
+    .optional(),
   unitsCount: z.number({ invalid_type_error: 'Units count must be a number' })
     .min(0, 'Units count cannot be negative')
     .optional()
     .default(0),
-});
+  streetAddress: z.string().optional(),
+  status: z.string().optional(),
+}).passthrough();
 
 export const unitSchema = z.object({
+  propertyId: z.string().min(1, 'Property is required'),
+  buildingId: z.string().optional().nullable(),
   unitNumber: z.string().min(1, 'Unit Number is required'),
-  floor: z.number({ invalid_type_error: 'Floor must be a number' }),
+  floor: z.number({ invalid_type_error: 'Floor must be a number' }).optional().default(1),
   squareFootage: z.number({ invalid_type_error: 'Square footage must be a number' })
-    .min(1, 'Square footage must be greater than 0'),
+    .min(0, 'Square footage cannot be negative')
+    .optional()
+    .default(0),
   bedrooms: z.number({ invalid_type_error: 'Bedrooms must be a number' })
-    .min(0, 'Bedrooms cannot be negative'),
+    .min(0, 'Bedrooms cannot be negative')
+    .optional()
+    .default(1),
   bathrooms: z.number({ invalid_type_error: 'Bathrooms must be a number' })
-    .min(0, 'Bathrooms cannot be negative'),
+    .min(0, 'Bathrooms cannot be negative')
+    .optional()
+    .default(1),
   rentAmount: z.number({ invalid_type_error: 'Rent amount must be a number' })
-    .min(1, 'Rent must be positive'),
+    .min(0, 'Rent must not be negative')
+    .optional()
+    .default(0),
   securityDeposit: z.number({ invalid_type_error: 'Security deposit must be a number' })
-    .min(0, 'Security deposit cannot be negative'),
+    .min(0, 'Security deposit cannot be negative')
+    .optional()
+    .default(0),
   availabilityDate: z.string().min(1, 'Availability Date is required'),
-});
+  status: z.string().optional().default('Vacant'),
+  advertiseListing: z.boolean().optional(),
+  isLateFeeEnabled: z.boolean().optional(),
+  lateFeeType: z.string().optional(),
+  lateFeeAmount: z.number().optional().nullable(),
+  lateFeeGraceDays: z.number().optional().nullable(),
+}).passthrough();
 
 export const tenantSchema = z.object({
   firstName: z.string().min(1, 'First Name is required'),
@@ -66,18 +107,18 @@ export const tenantSchema = z.object({
   currentAddress: z.string().optional(),
   previousAddress: z.string().optional(),
   password: z.string().optional(),
-});
+}).passthrough();
 
 export const leadSchema = z.object({
   name: z.string().min(1, 'Lead Name is required'),
   email: z.string().email('Invalid email address'),
   phone: z.string().min(1, 'Phone number is required'),
-});
+}).passthrough();
 
 export const screeningSchema = z.object({
   applicantName: z.string().min(1, 'Applicant Name is required'),
   email: z.string().email('Invalid email address'),
-});
+}).passthrough();
 
 export const leaseSchema = z.object({
   tenantId: z.string().min(1, 'Tenant is required'),
@@ -86,7 +127,7 @@ export const leaseSchema = z.object({
   endDate: z.string().min(1, 'End Date is required'),
   monthlyRent: z.number({ invalid_type_error: 'Rent must be a number' })
     .min(1, 'Rent must be positive'),
-}).refine((data) => {
+}).passthrough().refine((data) => {
   if (data.startDate && data.endDate) {
     return new Date(data.startDate) < new Date(data.endDate);
   }
@@ -99,12 +140,12 @@ export const leaseSchema = z.object({
 export const moveInSchema = z.object({
   tenantId: z.string().min(1, 'Tenant is required'),
   date: z.string().min(1, 'Move In Date is required'),
-});
+}).passthrough();
 
 export const moveOutSchema = z.object({
   tenantId: z.string().min(1, 'Tenant is required'),
   date: z.string().min(1, 'Move Out Date is required'),
-});
+}).passthrough();
 
 export const paymentSchema = z.object({
   amount: z.number({ invalid_type_error: 'Amount must be a number' })
@@ -115,12 +156,12 @@ export const paymentSchema = z.object({
   allocUtilities: z.number().min(0).optional(),
   allocParking: z.number().min(0).optional(),
   allocPet: z.number().min(0).optional(),
-});
+}).passthrough();
 
 export const invoiceSchema = z.object({
   tenantId: z.string().min(1, 'Tenant is required'),
   dueDate: z.string().min(1, 'Due Date is required'),
-});
+}).passthrough();
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(6, 'Password must be at least 6 characters'),

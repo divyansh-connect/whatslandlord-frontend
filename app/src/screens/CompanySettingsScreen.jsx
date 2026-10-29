@@ -7,11 +7,12 @@ import {
   TouchableOpacity,
   TextInput,
   Switch,
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../api/client';
@@ -83,7 +84,24 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPhone, setNewUserPhone] = useState('');
   const [newUserRole, setNewUserRole] = useState('Maintenance Staff');
+  const [newUserStatus, setNewUserStatus] = useState('Active');
+  const [newUserSpecialty, setNewUserSpecialty] = useState('Plumber');
   const [newUserPassword, setNewUserPassword] = useState('');
+  const [showUserPassword, setShowUserPassword] = useState(false);
+  const [assignedProperties, setAssignedProperties] = useState([]);
+  const [modalDropdownOpen, setModalDropdownOpen] = useState(null); // 'role' | 'status' | 'specialty' | null
+
+  const specialtyOptions = [
+    { value: 'Plumber', label: 'Plumber Specialty' },
+    { value: 'Electrician', label: 'Electrician Specialty' },
+    { value: 'HVAC', label: 'HVAC Maintenance' },
+    { value: 'General Contractor', label: 'General Contractor' },
+    { value: 'Cleaning', label: 'Cleaning & Turnovers' },
+    { value: 'Landscaping', label: 'Landscaping & Pools' },
+    { value: 'Pest Control', label: 'Pest Control' },
+    { value: 'Security', label: 'Security & Fire' },
+    { value: 'Roofing', label: 'Roofing & Guttering' },
+  ];
 
   // Tab 5: Roles & Permissions States matching Web RolesPage.tsx
   const [managerName, setManagerName] = useState('');
@@ -647,7 +665,12 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
     setNewUserEmail('');
     setNewUserPhone('');
     setNewUserRole('Maintenance Staff');
+    setNewUserStatus('Active');
+    setNewUserSpecialty('Plumber');
     setNewUserPassword('');
+    setShowUserPassword(false);
+    setAssignedProperties([]);
+    setModalDropdownOpen(null);
     setUserModalOpen(true);
   };
 
@@ -657,7 +680,12 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
     setNewUserEmail(u.email || '');
     setNewUserPhone(u.phone || '');
     setNewUserRole(u.role || 'Maintenance Staff');
+    setNewUserStatus(u.status || 'Active');
+    setNewUserSpecialty(u.serviceType || 'Plumber');
     setNewUserPassword('');
+    setShowUserPassword(false);
+    setAssignedProperties(Array.isArray(u.properties) ? u.properties : []);
+    setModalDropdownOpen(null);
     setUserModalOpen(true);
   };
 
@@ -666,16 +694,23 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
       Alert.alert('Required Fields', 'Please enter user name and email.');
       return;
     }
+    if (!editingUser && !newUserPassword.trim()) {
+      Alert.alert('Required Field', 'Please enter a password for the new user.');
+      return;
+    }
 
     try {
       setSaving(true);
+      const isMaint = newUserRole === 'Maintenance Staff' || newUserRole === 'Maintenance';
       if (editingUser) {
         const payload = {
-          name: newUserName,
-          email: newUserEmail,
-          phone: newUserPhone,
+          name: newUserName.trim(),
+          email: newUserEmail.trim(),
+          phone: newUserPhone.trim(),
           role: newUserRole,
-          status: editingUser.status || 'Active',
+          status: newUserStatus,
+          serviceType: isMaint ? newUserSpecialty : undefined,
+          properties: assignedProperties,
         };
         await apiClient.put(`/superadmin/company-users/${editingUser.id}/status`, payload, logout, refreshAccessToken).catch(async () => {
           await apiClient.put(`/users/${editingUser.id}`, payload, logout, refreshAccessToken);
@@ -689,13 +724,14 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
         setNotification('User profile updated successfully.');
       } else {
         const payload = {
-          name: newUserName,
-          email: newUserEmail,
-          phone: newUserPhone,
+          name: newUserName.trim(),
+          email: newUserEmail.trim(),
+          phone: newUserPhone.trim(),
           role: newUserRole,
-          status: 'Active',
-          serviceType: 'General Maintenance',
-          password: newUserPassword || 'TempPass123!',
+          status: newUserStatus,
+          serviceType: isMaint ? newUserSpecialty : undefined,
+          password: newUserPassword.trim(),
+          properties: assignedProperties,
         };
         const res = await apiClient.post('/superadmin/company-users', payload, logout, refreshAccessToken).catch(async () => {
           return apiClient.post('/users', payload, logout, refreshAccessToken);
@@ -708,13 +744,16 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
       setTimeout(() => setNotification(null), 4000);
     } catch (err) {
       console.log('Error saving user:', err.message);
+      const isMaint = newUserRole === 'Maintenance Staff' || newUserRole === 'Maintenance';
       const payload = {
         id: editingUser ? editingUser.id : `usr-${Date.now()}`,
-        name: newUserName,
-        email: newUserEmail,
-        phone: newUserPhone,
+        name: newUserName.trim(),
+        email: newUserEmail.trim(),
+        phone: newUserPhone.trim(),
         role: newUserRole,
-        status: editingUser ? editingUser.status : 'Active',
+        status: newUserStatus,
+        serviceType: isMaint ? newUserSpecialty : undefined,
+        properties: assignedProperties,
       };
       if (editingUser) {
         setUsersList(prev => prev.map(u => u.id === editingUser.id ? payload : u));
@@ -1106,8 +1145,10 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
     return val;
   };
 
-  // Filtered Users matching Web UsersPage
+  // Filtered Users matching Web UsersPage (Only Maintenance Staff & Collection Manager in Hub)
   const filteredUsers = usersList.filter((u) => {
+    const isAllowedRole = u.role === 'Maintenance Staff' || u.role === 'Collection Manager';
+    if (!isAllowedRole) return false;
     const matchesRole = userRoleFilter === 'All' || u.role === userRoleFilter;
     const matchesSearch =
       (u.name || '').toLowerCase().includes(userSearchQuery.toLowerCase()) ||
@@ -1120,19 +1161,13 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
       return [
         { label: 'All Roles', value: 'All' },
         { label: 'Maintenance Staff', value: 'Maintenance Staff' },
-        { label: 'Property Manager', value: 'Property Manager' },
         { label: 'Collection Manager', value: 'Collection Manager' },
-        { label: 'Tenant', value: 'Tenant' },
-        { label: 'Property Owner', value: 'Property Owner' },
       ];
     }
     if (pickerType === 'newUserRole') {
       return [
         { label: 'Maintenance Staff', value: 'Maintenance Staff' },
-        { label: 'Property Manager', value: 'Property Manager' },
         { label: 'Collection Manager', value: 'Collection Manager' },
-        { label: 'Tenant', value: 'Tenant' },
-        { label: 'Property Owner', value: 'Property Owner' },
       ];
     }
     if (pickerType === 'timezone') {
@@ -1244,7 +1279,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
           <View style={styles.headerTitleRowWithBack}>
             <TouchableOpacity
               style={styles.backButton}
-              onPress={() => onNavigate && onNavigate('more')}
+              onPress={() => onNavigate && onNavigate('dashboard')}
               activeOpacity={0.7}
             >
               <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
@@ -2160,15 +2195,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
                 <Text style={styles.userCountBadge} allowFontScaling={false}>{filteredUsers.length} Users</Text>
               </View>
 
-              {/* Table Column Titles */}
-              <View style={styles.userHubTableColHeaders}>
-                <Text style={[styles.userHubColHeader, { flex: 2.2 }]} allowFontScaling={false}>USER</Text>
-                <Text style={[styles.userHubColHeader, { flex: 2, textAlign: 'center' }]} allowFontScaling={false}>ROLE</Text>
-                <Text style={[styles.userHubColHeader, { flex: 1.4, textAlign: 'center' }]} allowFontScaling={false}>STATUS</Text>
-                <Text style={[styles.userHubColHeader, { flex: 1.8, textAlign: 'right' }]} allowFontScaling={false}>ACTIONS</Text>
-              </View>
-
-              {/* Table Rows */}
+              {/* Mobile Card Rows */}
               {filteredUsers.length === 0 ? (
                 <View style={{ padding: 24, alignItems: 'center' }}>
                   <Text style={{ color: colors.textMuted, fontSize: 12 }} allowFontScaling={false}>No accounts found matching filter.</Text>
@@ -2177,30 +2204,23 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
                 filteredUsers.map((u, i) => {
                   const isSelected = selectedUser?.id === u.id;
                   const isActive = (u.status || 'Active').toLowerCase() === 'active';
+                  const initial = (u.name || u.email || 'U').charAt(0).toUpperCase();
                   return (
                     <TouchableOpacity
                       key={u.id || i}
-                      style={[styles.userHubTableRow, isSelected && styles.userHubTableRowSelected]}
+                      style={[styles.userHubAccountCard, isSelected && styles.userHubTableRowSelected]}
                       onPress={() => setSelectedUser(u)}
                       activeOpacity={0.85}
                     >
-                      {/* USER Name & Email */}
-                      <View style={{ flex: 2.2, paddingRight: 4 }}>
-                        <Text style={styles.userRowName} numberOfLines={1} allowFontScaling={false}>{u.name || 'Unnamed'}</Text>
-                        <Text style={styles.userRowEmail} numberOfLines={1} allowFontScaling={false}>{u.email}</Text>
-                      </View>
-
-                      {/* ROLE Badge */}
-                      <View style={{ flex: 2, alignItems: 'center', justifyContent: 'center' }}>
-                        <View style={styles.userRolePill}>
-                          <Text style={styles.userRolePillText} numberOfLines={1} allowFontScaling={false}>
-                            {(u.role || 'Property Manager').toUpperCase()}
-                          </Text>
+                      {/* Top Row: Avatar + Name / Email + Status Badge */}
+                      <View style={styles.userCardTopRow}>
+                        <View style={styles.userAvatarCircle}>
+                          <Text style={styles.userAvatarInitial} allowFontScaling={false}>{initial}</Text>
                         </View>
-                      </View>
-
-                      {/* STATUS Badge */}
-                      <View style={{ flex: 1.4, alignItems: 'center', justifyContent: 'center' }}>
+                        <View style={{ flex: 1, marginHorizontal: 10 }}>
+                          <Text style={styles.userRowName} numberOfLines={1} allowFontScaling={false}>{u.name || 'Unnamed'}</Text>
+                          <Text style={styles.userRowEmail} numberOfLines={1} allowFontScaling={false}>{u.email}</Text>
+                        </View>
                         <View style={isActive ? styles.userStatusActivePill : styles.userStatusSuspendedPill}>
                           <Text style={isActive ? styles.userStatusActivePillText : styles.userStatusSuspendedPillText} allowFontScaling={false}>
                             {isActive ? 'ACTIVE' : 'SUSPENDED'}
@@ -2208,33 +2228,51 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
                         </View>
                       </View>
 
-                      {/* ACTIONS: Edit, Suspend/Activate, Delete */}
-                      <View style={{ flex: 1.8, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
-                        <TouchableOpacity
-                          style={styles.userActionIconBtn}
-                          onPress={() => handleOpenEditUser(u)}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="pencil" size={13} color="#2563eb" />
-                        </TouchableOpacity>
+                      {/* Bottom Row: Role badge (left) + Actions (right) */}
+                      <View style={styles.userCardBottomRow}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, flex: 1 }}>
+                          <View style={styles.userRolePill}>
+                            <Text style={styles.userRolePillText} allowFontScaling={false}>
+                              {(u.role || 'Property Manager').toUpperCase()}
+                            </Text>
+                          </View>
+                          {u.serviceType ? (
+                            <View style={styles.userServiceTypePill}>
+                              <Text style={styles.userServiceTypePillText} allowFontScaling={false}>{u.serviceType}</Text>
+                            </View>
+                          ) : null}
+                        </View>
 
-                        <TouchableOpacity
-                          style={isActive ? styles.suspendActionBtn : styles.activateActionBtn}
-                          onPress={() => handleToggleUserStatus(u)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={isActive ? styles.suspendActionBtnText : styles.activateActionBtnText} allowFontScaling={false}>
-                            {isActive ? 'Suspend' : 'Activate'}
-                          </Text>
-                        </TouchableOpacity>
+                        {/* Actions: Edit, Suspend/Activate, Delete */}
+                        <View style={styles.userCardActionsWrap}>
+                          <TouchableOpacity
+                            style={styles.userActionIconBtn}
+                            onPress={() => handleOpenEditUser(u)}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Ionicons name="pencil" size={14} color="#2563eb" />
+                          </TouchableOpacity>
 
-                        <TouchableOpacity
-                          style={styles.userActionIconBtn}
-                          onPress={() => handleDeleteUser(u.id)}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="trash-outline" size={14} color="#f43f5e" />
-                        </TouchableOpacity>
+                          <TouchableOpacity
+                            style={isActive ? styles.suspendActionBtn : styles.activateActionBtn}
+                            onPress={() => handleToggleUserStatus(u)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={isActive ? styles.suspendActionBtnText : styles.activateActionBtnText} allowFontScaling={false}>
+                              {isActive ? 'Suspend' : 'Activate'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={styles.userActionIconBtn}
+                            onPress={() => handleDeleteUser(u.id)}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Ionicons name="trash-outline" size={15} color="#f43f5e" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </TouchableOpacity>
                   );
@@ -3272,37 +3310,45 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
         </View>
       </Modal>
 
-      {/* PROVISION / EDIT USER MODAL matching Web UsersPage FormDialog */}
-      <Modal visible={userModalOpen} animationType="fade" transparent>
+      {/* PROVISION / EDIT USER MODAL matching Web UsersPage Photos 4 & 5 */}
+      <Modal visible={userModalOpen} animationType="fade" transparent onRequestClose={() => setUserModalOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.userFormModalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle} allowFontScaling={false}>
-                {editingUser ? 'Edit Member Profile' : 'Provision New Organization User'}
-              </Text>
-              <TouchableOpacity onPress={() => setUserModalOpen(false)}>
-                <Ionicons name="close-circle-outline" size={22} color={colors.textSecondary} />
+            {/* Header */}
+            <View style={styles.userModalHeaderWrap}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.userModalTitle} allowFontScaling={false}>
+                  {editingUser ? 'MODIFY USER PROFILE' : 'PROVISION USER ACCOUNT'}
+                </Text>
+                <Text style={styles.userModalSubtitle} allowFontScaling={false}>
+                  Define metadata profiles and organization scope access
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setUserModalOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
-              <View style={{ gap: 12, paddingVertical: 8 }}>
+            <ScrollView style={{ maxHeight: 440 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <View style={{ gap: 12, paddingVertical: 6 }}>
+                {/* 1. Full Name */}
                 <View>
-                  <Text style={styles.fieldLabel} allowFontScaling={false}>Full Name *</Text>
+                  <Text style={styles.userFieldLabel} allowFontScaling={false}>FULL NAME *</Text>
                   <TextInput
-                    style={styles.fieldInput}
-                    placeholder="E.g. Sarah Jenkins"
+                    style={styles.userFieldInput}
+                    placeholder="E.g., David Miller"
                     placeholderTextColor={colors.textMuted}
                     value={newUserName}
                     onChangeText={setNewUserName}
                   />
                 </View>
 
+                {/* 2. Email Address */}
                 <View>
-                  <Text style={styles.fieldLabel} allowFontScaling={false}>Work Email Address *</Text>
+                  <Text style={styles.userFieldLabel} allowFontScaling={false}>EMAIL ADDRESS *</Text>
                   <TextInput
-                    style={styles.fieldInput}
-                    placeholder="sarah@company.com"
+                    style={styles.userFieldInput}
+                    placeholder="david@company.com"
                     placeholderTextColor={colors.textMuted}
                     value={newUserEmail}
                     onChangeText={setNewUserEmail}
@@ -3311,11 +3357,12 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
                   />
                 </View>
 
+                {/* 3. Phone Number */}
                 <View>
-                  <Text style={styles.fieldLabel} allowFontScaling={false}>Phone Number</Text>
+                  <Text style={styles.userFieldLabel} allowFontScaling={false}>PHONE NUMBER</Text>
                   <TextInput
-                    style={styles.fieldInput}
-                    placeholder="+1 (555) 000-0000"
+                    style={styles.userFieldInput}
+                    placeholder="e.g. (555) 0122"
                     placeholderTextColor={colors.textMuted}
                     value={newUserPhone}
                     onChangeText={setNewUserPhone}
@@ -3323,26 +3370,192 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
                   />
                 </View>
 
+                {/* 4. Status Dropdown */}
                 <View>
-                  <Text style={styles.fieldLabel} allowFontScaling={false}>Assigned System Role</Text>
+                  <Text style={styles.userFieldLabel} allowFontScaling={false}>STATUS</Text>
                   <TouchableOpacity
-                    style={styles.dropdownSelector}
-                    onPress={() => {
-                      setPickerType('newUserRole');
-                      setPickerModalOpen(true);
-                    }}
+                    style={styles.userDropdownBtn}
+                    onPress={() => setModalDropdownOpen(prev => prev === 'status' ? null : 'status')}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.dropdownSelectorText} numberOfLines={1} allowFontScaling={false}>
+                    <Text style={styles.userDropdownBtnText} allowFontScaling={false}>
+                      {newUserStatus}
+                    </Text>
+                    <Ionicons name={modalDropdownOpen === 'status' ? 'chevron-up' : 'chevron-down'} size={15} color={colors.textMuted} />
+                  </TouchableOpacity>
+
+                  {modalDropdownOpen === 'status' && (
+                    <View style={styles.userDropdownMenu}>
+                      {['Active', 'Suspended'].map((st) => (
+                        <TouchableOpacity
+                          key={st}
+                          style={[styles.userDropdownOption, newUserStatus === st && styles.userDropdownOptionSelected]}
+                          onPress={() => {
+                            setNewUserStatus(st);
+                            setModalDropdownOpen(null);
+                          }}
+                        >
+                          <View style={{ width: 20 }}>
+                            {newUserStatus === st && <Ionicons name="checkmark" size={14} color="#2563eb" />}
+                          </View>
+                          <Text style={[styles.userDropdownOptionText, newUserStatus === st && { color: '#2563eb', fontWeight: '800' }]} allowFontScaling={false}>
+                            {st}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* 5. User Password */}
+                <View>
+                  <Text style={styles.userFieldLabel} allowFontScaling={false}>
+                    {editingUser ? 'USER PASSWORD (OPTIONAL)' : 'USER PASSWORD *'}
+                  </Text>
+                  <View style={styles.userPasswordInputWrap}>
+                    <TextInput
+                      style={styles.userPasswordInput}
+                      placeholder={editingUser ? 'Leave blank to keep current' : '••••••••'}
+                      placeholderTextColor={colors.textMuted}
+                      value={newUserPassword}
+                      onChangeText={setNewUserPassword}
+                      secureTextEntry={!showUserPassword}
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowUserPassword(prev => !prev)}
+                      style={{ padding: 6 }}
+                    >
+                      <Ionicons
+                        name={showUserPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={18}
+                        color={colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* 6. Role Dropdown */}
+                <View>
+                  <Text style={styles.userFieldLabel} allowFontScaling={false}>ROLE</Text>
+                  <TouchableOpacity
+                    style={styles.userDropdownBtn}
+                    onPress={() => setModalDropdownOpen(prev => prev === 'role' ? null : 'role')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.userDropdownBtnText} allowFontScaling={false}>
                       {newUserRole}
                     </Text>
-                    <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+                    <Ionicons name={modalDropdownOpen === 'role' ? 'chevron-up' : 'chevron-down'} size={15} color={colors.textMuted} />
                   </TouchableOpacity>
+
+                  {modalDropdownOpen === 'role' && (
+                    <View style={styles.userDropdownMenu}>
+                      {['Maintenance Staff', 'Collection Manager'].map((r) => (
+                        <TouchableOpacity
+                          key={r}
+                          style={[styles.userDropdownOption, newUserRole === r && styles.userDropdownOptionSelected]}
+                          onPress={() => {
+                            setNewUserRole(r);
+                            setModalDropdownOpen(null);
+                          }}
+                        >
+                          <View style={{ width: 20 }}>
+                            {newUserRole === r && <Ionicons name="checkmark" size={14} color="#2563eb" />}
+                          </View>
+                          <Text style={[styles.userDropdownOptionText, newUserRole === r && { color: '#2563eb', fontWeight: '800' }]} allowFontScaling={false}>
+                            {r}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
+
+                {/* 7. Specialty Trade (if Role is Maintenance Staff) */}
+                {(newUserRole === 'Maintenance Staff' || newUserRole === 'Maintenance') && (
+                  <View>
+                    <Text style={styles.userFieldLabel} allowFontScaling={false}>SPECIALTY TRADE</Text>
+                    <TouchableOpacity
+                      style={styles.userDropdownBtn}
+                      onPress={() => setModalDropdownOpen(prev => prev === 'specialty' ? null : 'specialty')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.userDropdownBtnText} allowFontScaling={false}>
+                        {specialtyOptions.find(o => o.value === newUserSpecialty)?.label || newUserSpecialty}
+                      </Text>
+                      <Ionicons name={modalDropdownOpen === 'specialty' ? 'chevron-up' : 'chevron-down'} size={15} color={colors.textMuted} />
+                    </TouchableOpacity>
+
+                    {modalDropdownOpen === 'specialty' && (
+                      <View style={styles.userDropdownMenu}>
+                        {specialtyOptions.map((opt) => (
+                          <TouchableOpacity
+                            key={opt.value}
+                            style={[styles.userDropdownOption, newUserSpecialty === opt.value && styles.userDropdownOptionSelected]}
+                            onPress={() => {
+                              setNewUserSpecialty(opt.value);
+                              setModalDropdownOpen(null);
+                            }}
+                          >
+                            <View style={{ width: 20 }}>
+                              {newUserSpecialty === opt.value && <Ionicons name="checkmark" size={14} color="#2563eb" />}
+                            </View>
+                            <Text style={[styles.userDropdownOptionText, newUserSpecialty === opt.value && { color: '#2563eb', fontWeight: '800' }]} allowFontScaling={false}>
+                              {opt.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* 8. Access Scope Relationships (if Role is Maintenance Staff) */}
+                {(newUserRole === 'Maintenance Staff' || newUserRole === 'Maintenance') && (
+                  <View style={styles.scopeSectionWrap}>
+                    <Text style={styles.scopeSectionTitle} allowFontScaling={false}>ACCESS SCOPE RELATIONSHIPS</Text>
+                    <Text style={styles.scopeSectionSubtitle} allowFontScaling={false}>ASSIGN PROPERTY SCOPE</Text>
+
+                    <View style={styles.propertyCheckboxContainer}>
+                      {propertiesList.length === 0 ? (
+                        <Text style={{ fontSize: 11, color: colors.textMuted, fontStyle: 'italic' }}>
+                          Full Organization Scope (No properties restrictions)
+                        </Text>
+                      ) : (
+                        propertiesList.map((p) => {
+                          const isChecked = assignedProperties.includes(p.id);
+                          return (
+                            <TouchableOpacity
+                              key={p.id}
+                              style={styles.propertyCheckboxRow}
+                              onPress={() => {
+                                if (isChecked) {
+                                  setAssignedProperties(prev => prev.filter(x => x !== p.id));
+                                } else {
+                                  setAssignedProperties(prev => [...prev, p.id]);
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <View style={[styles.customCheckbox, isChecked && styles.customCheckboxChecked]}>
+                                {isChecked && <Ionicons name="checkmark" size={12} color="#ffffff" />}
+                              </View>
+                              <Text style={styles.propertyCheckboxLabel} allowFontScaling={false}>
+                                {p.name || p.title || `Property ${p.id}`}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })
+                      )}
+                    </View>
+                  </View>
+                )}
               </View>
             </ScrollView>
 
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, borderTopWidth: 1, borderTopColor: colors.cardBorder, paddingTop: 12, marginTop: 4 }}>
+            {/* Footer Buttons */}
+            <View style={styles.userModalFooter}>
               <TouchableOpacity
                 style={styles.cancelEditBtn}
                 onPress={() => setUserModalOpen(false)}
@@ -3352,7 +3565,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.saveConfigurationsBtn}
+                style={styles.provisionSubmitBtn}
                 onPress={handleSaveUser}
                 disabled={saving}
                 activeOpacity={0.85}
@@ -3360,8 +3573,8 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
                 {saving ? (
                   <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Text style={styles.saveConfigurationsBtnText} allowFontScaling={false}>
-                    {editingUser ? 'Save Profile' : 'Provision User'}
+                  <Text style={styles.provisionSubmitBtnText} allowFontScaling={false}>
+                    {editingUser ? 'Save Profile' : 'Provision Account'}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -3371,7 +3584,10 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
       </Modal>
       {/* INTEGRATION CONFIGURATION MODAL matching Web IntegrationsPage */}
       <Modal visible={Boolean(selectedIntegration)} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.intModalContent}>
             {/* Header */}
             <View style={styles.modalHeader}>
@@ -3391,15 +3607,34 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 360, marginVertical: 8 }} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={{ maxHeight: 380, marginVertical: 8 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              automaticallyAdjustKeyboardInsets={true}
+            >
               {/* Enable Integration Status Row */}
               <View style={styles.intStatusToggleRow}>
-                <Text style={styles.intStatusToggleLabel} allowFontScaling={false}>ENABLE INTEGRATION</Text>
+                <View>
+                  <Text style={styles.intStatusToggleLabel} allowFontScaling={false}>ENABLE INTEGRATION</Text>
+                  <Text style={{ fontSize: 10.5, color: colors.textMuted, marginTop: 2 }} allowFontScaling={false}>
+                    {intEnableStatus === 'Active' ? 'Service is connected and live' : 'Service is currently paused'}
+                  </Text>
+                </View>
                 <TouchableOpacity
-                  style={styles.intStatusSelectBtn}
+                  style={[
+                    styles.intStatusSelectBtn,
+                    intEnableStatus === 'Active' ? styles.intStatusSelectBtnActive : styles.intStatusSelectBtnInactive
+                  ]}
                   onPress={() => setIntEnableStatus(prev => prev === 'Active' ? 'Inactive' : 'Active')}
                   activeOpacity={0.8}
                 >
+                  <Ionicons
+                    name={intEnableStatus === 'Active' ? 'checkmark-circle' : 'pause-circle-outline'}
+                    size={14}
+                    color={intEnableStatus === 'Active' ? '#10b981' : colors.textSecondary}
+                    style={{ marginRight: 4 }}
+                  />
                   <Text
                     style={[
                       styles.intStatusSelectBtnText,
@@ -3674,35 +3909,37 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
               )}
             </ScrollView>
 
-            {/* Modal Actions */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.cardBorder, paddingTop: 14 }}>
+            {/* Modal Actions with Modern Spacious Layout */}
+            <View style={styles.intModalFooterWrap}>
               <TouchableOpacity
-                style={styles.cancelEditBtn}
+                style={styles.intTestConnectionBtn}
                 onPress={handleTestIntegrationConnection}
                 disabled={isTestingIntegration}
+                activeOpacity={0.8}
               >
                 {isTestingIntegration ? (
                   <ActivityIndicator size="small" color="#2563eb" />
                 ) : (
                   <>
-                    <Ionicons name="sparkles" size={13} color="#2563eb" style={{ marginRight: 4 }} />
-                    <Text style={[styles.cancelEditBtnText, { color: '#2563eb', fontWeight: '800' }]} allowFontScaling={false}>
+                    <Ionicons name="sparkles" size={14} color="#2563eb" style={{ marginRight: 6 }} />
+                    <Text style={styles.intTestConnectionBtnText} allowFontScaling={false}>
                       Test Connection
                     </Text>
                   </>
                 )}
               </TouchableOpacity>
 
-              <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={styles.intFooterBtnRow}>
                 <TouchableOpacity
-                  style={styles.cancelEditBtn}
+                  style={styles.intCancelModalBtn}
                   onPress={() => setSelectedIntegration(null)}
+                  activeOpacity={0.75}
                 >
-                  <Text style={styles.cancelEditBtnText} allowFontScaling={false}>Cancel</Text>
+                  <Text style={styles.intCancelModalBtnText} allowFontScaling={false}>Cancel</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.saveConfigurationsBtn}
+                  style={styles.intSaveModalBtn}
                   onPress={handleSaveIntegrationSettings}
                   disabled={isSavingIntegration}
                   activeOpacity={0.85}
@@ -3710,7 +3947,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
                   {isSavingIntegration ? (
                     <ActivityIndicator size="small" color="#ffffff" />
                   ) : (
-                    <Text style={styles.saveConfigurationsBtnText} allowFontScaling={false}>
+                    <Text style={styles.intSaveModalBtnText} allowFontScaling={false}>
                       Save Credentials
                     </Text>
                   )}
@@ -3718,7 +3955,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
               </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -4343,7 +4580,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     fontWeight: '700',
     color: colors.textPrimary,
     borderWidth: 1,
-    borderColor: '#2563eb',
+    borderColor: isDarkMode ? '#334155' : '#cbd5e1',
   },
   fieldInputDisabled: {
     backgroundColor: isDarkMode ? '#131d31' : '#f8fafc',
@@ -4950,6 +5187,60 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
+  userHubAccountCard: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  userCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  userAvatarCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: isDarkMode ? '#1e293b' : '#e0e7ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: isDarkMode ? '#334155' : '#c7d2fe',
+  },
+  userAvatarInitial: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#2563eb',
+  },
+  userCardBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+  },
+  userCardActionsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  userServiceTypePill: {
+    backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  userServiceTypePillText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
   userHubTableRowSelected: {
     backgroundColor: isDarkMode ? 'rgba(37, 99, 235, 0.12)' : '#eff6ff',
   },
@@ -5127,6 +5418,185 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     borderColor: colors.cardBorder,
+  },
+  userModalHeaderWrap: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardBorder,
+    paddingBottom: 12,
+  },
+  userModalTitle: {
+    fontSize: 13.5,
+    fontWeight: '900',
+    color: colors.textPrimary,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  userModalSubtitle: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  userFieldLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: colors.textMuted,
+    letterSpacing: 0.5,
+    marginBottom: 5,
+    textTransform: 'uppercase',
+  },
+  userFieldInput: {
+    backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 42,
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  userDropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 42,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  userDropdownBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  userDropdownMenu: {
+    marginTop: 4,
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  userDropdownOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  userDropdownOptionSelected: {
+    backgroundColor: isDarkMode ? 'rgba(37, 99, 235, 0.12)' : '#eff6ff',
+  },
+  userDropdownOptionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  userPasswordInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    height: 42,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  userPasswordInput: {
+    flex: 1,
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  scopeSectionWrap: {
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+    paddingTop: 12,
+    marginTop: 4,
+  },
+  scopeSectionTitle: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: '#2563eb',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  scopeSectionSubtitle: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: colors.textMuted,
+    letterSpacing: 0.5,
+    marginTop: 4,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  propertyCheckboxContainer: {
+    maxHeight: 120,
+    backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    padding: 10,
+    gap: 8,
+  },
+  propertyCheckboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  customCheckbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  customCheckboxChecked: {
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
+  },
+  propertyCheckboxLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  userModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+    paddingTop: 12,
+    marginTop: 6,
+  },
+  provisionSubmitBtn: {
+    backgroundColor: '#2563eb',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  provisionSubmitBtnText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#ffffff',
   },
 
   // =========================================================================
@@ -5860,17 +6330,80 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     letterSpacing: 0.5,
   },
   intStatusSelectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.cardBorder,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  intStatusSelectBtnActive: {
+    backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5',
+    borderColor: '#a7f3d0',
+  },
+  intStatusSelectBtnInactive: {
+    backgroundColor: colors.inputBackground,
+    borderColor: colors.cardBorder,
   },
   intStatusSelectBtnText: {
     fontSize: 11,
     fontWeight: '800',
     color: colors.textPrimary,
+  },
+  intModalFooterWrap: {
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+    paddingTop: 14,
+    gap: 10,
+  },
+  intTestConnectionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: isDarkMode ? '#1e293b' : '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 10,
+    paddingVertical: 10,
+  },
+  intTestConnectionBtnText: {
+    color: '#2563eb',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  intFooterBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  intCancelModalBtn: {
+    flex: 1,
+    backgroundColor: colors.inputBackground,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  intCancelModalBtnText: {
+    color: colors.textSecondary,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  intSaveModalBtn: {
+    flex: 1.6,
+    backgroundColor: '#2563eb',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  intSaveModalBtnText: {
+    color: '#ffffff',
+    fontWeight: '800',
+    fontSize: 13,
   },
   testResultBox: {
     flexDirection: 'row',

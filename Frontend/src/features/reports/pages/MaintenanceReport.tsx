@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../services/reportApi';
 import { ReportLayout } from '../components/ReportLayout';
@@ -8,6 +8,7 @@ import { ReportTable } from '../components/ReportTable';
 import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
+import { useReportDataFilter } from '../hooks/useReportDataFilter';
 import { Wrench, DollarSign, CheckCircle2, Clock, Eye } from 'lucide-react';
 
 export const MaintenanceReport: React.FC = () => {
@@ -22,15 +23,20 @@ export const MaintenanceReport: React.FC = () => {
   });
 
   const reportItems = data?.data || [];
-  const summary = data?.summary || {
-    totalWorkOrders: data?.pagination?.totalRecords || reportItems.length,
-    totalEstimatedCost: reportItems.reduce((acc, curr) => acc + (curr.estimatedCost || 0), 0),
-    totalActualCost: reportItems.reduce((acc, curr) => acc + (curr.actualCost || curr.estimatedCost || 0), 0),
-    completedCount: reportItems.filter((i) => i.status === 'Completed' || i.status === 'Closed').length,
-    inProgressCount: reportItems.filter((i) => i.status === 'InProgress' || i.status === 'Assigned').length,
-    openCount: reportItems.filter((i) => i.status === 'Open').length,
-    completionRate: reportItems.length > 0 ? parseFloat(((reportItems.filter((i) => i.status === 'Completed' || i.status === 'Closed').length / reportItems.length) * 100).toFixed(1)) : 0.0,
-  };
+  const filteredReportItems = useReportDataFilter(reportItems, filters);
+
+  const summary = useMemo(() => {
+    const completed = filteredReportItems.filter((i: any) => i.status === 'Completed' || i.status === 'Closed').length;
+    return {
+      totalWorkOrders: filteredReportItems.length,
+      totalEstimatedCost: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.estimatedCost || 0), 0),
+      totalActualCost: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.actualCost || curr.estimatedCost || 0), 0),
+      completedCount: completed,
+      inProgressCount: filteredReportItems.filter((i: any) => i.status === 'InProgress' || i.status === 'Assigned').length,
+      openCount: filteredReportItems.filter((i: any) => i.status === 'Open').length,
+      completionRate: filteredReportItems.length > 0 ? parseFloat(((completed / filteredReportItems.length) * 100).toFixed(1)) : 0.0,
+    };
+  }, [filteredReportItems]);
 
   const columns = [
     { key: 'ticketId', header: 'Ticket ID' },
@@ -115,8 +121,8 @@ export const MaintenanceReport: React.FC = () => {
           handleExport({
             reportType: 'MAINTENANCE',
             filters,
-            data: reportItems,
-            totalRecords: data?.pagination.totalRecords || reportItems.length,
+            data: filteredReportItems,
+            totalRecords: filteredReportItems.length,
             fileType,
           })
         }
@@ -186,7 +192,7 @@ export const MaintenanceReport: React.FC = () => {
 
       <ReportTable
         columns={columns}
-        data={reportItems}
+        data={filteredReportItems}
         isLoading={isLoading}
         pagination={data?.pagination}
         onPageChange={(page) => setFilterVal('page', page)}

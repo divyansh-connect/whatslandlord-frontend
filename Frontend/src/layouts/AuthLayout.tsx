@@ -63,22 +63,22 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
       </div>
 
       {/* Right Side: Login Form with glassmorphic container */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center relative px-6 py-12 bg-slate-50 dark:bg-slate-950">
+      <div className="w-full lg:w-1/2 flex items-center justify-center relative px-3 sm:px-6 py-8 sm:py-12 bg-slate-50 dark:bg-slate-950">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(99,102,241,0.1),transparent_50%)]" />
         
-        <div className="w-full max-w-md relative z-10 space-y-8 animate-fade-in">
+        <div className="w-full max-w-md relative z-10 space-y-6 sm:space-y-8 animate-fade-in">
           {/* Logo and Brand Heading */}
           <div className="text-center flex flex-col items-center">
-            <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
               WhatsLandlord
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-widest font-extrabold">
+            <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-widest font-extrabold">
               Enterprise Property Suite
             </p>
           </div>
 
           {/* Content Card */}
-          <div className="rounded-2xl shadow-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-8 backdrop-blur-xl hover:border-slate-300 dark:hover:border-white/20 transition-all duration-300 text-slate-900 dark:text-white">
+          <div className="rounded-2xl shadow-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/40 p-4 sm:p-8 backdrop-blur-xl hover:border-slate-300 dark:hover:border-white/20 transition-all duration-300 text-slate-900 dark:text-white">
             {children}
           </div>
         </div>

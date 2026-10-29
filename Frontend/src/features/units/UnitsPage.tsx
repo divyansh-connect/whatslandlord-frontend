@@ -123,13 +123,31 @@ export const UnitsPage: React.FC = () => {
 
   // Filter logic
   const filteredUnits = units.filter((unit) => {
-    const matchesSearch =
-      unit.unitNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      unit.propertyName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesProp = propertyFilter === '' || unit.propertyId === propertyFilter;
-    const matchesBld = buildingFilter === '' || unit.buildingId === buildingFilter;
-    const matchesStatus = statusFilter === '' || unit.status === statusFilter;
-    const matchesBeds = bedroomsFilter === '' || unit.bedrooms === Number(bedroomsFilter);
+    if (!unit) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const uNum = String(unit.unitNumber || '');
+    const pName = String(unit.propertyName || (unit as any).property?.name || '');
+    const bldName = String((unit as any).buildingName || (unit as any).building?.name || '');
+    const matchesSearch = !q ||
+      uNum.toLowerCase().includes(q) ||
+      pName.toLowerCase().includes(q) ||
+      bldName.toLowerCase().includes(q);
+
+    const unitPropId = String(unit.propertyId || (unit as any).property?.id || '');
+    const matchesProp = !propertyFilter ||
+      unitPropId === propertyFilter ||
+      pName.toLowerCase().includes(propertyFilter.toLowerCase());
+
+    const unitBldId = String(unit.buildingId || (unit as any).building?.id || '');
+    const matchesBld = !buildingFilter ||
+      unitBldId === buildingFilter ||
+      bldName.toLowerCase().includes(buildingFilter.toLowerCase());
+
+    const matchesStatus = !statusFilter ||
+      String(unit.status || '').toLowerCase() === statusFilter.toLowerCase();
+
+    const matchesBeds = !bedroomsFilter || Number(unit.bedrooms) === Number(bedroomsFilter);
+
     return matchesSearch && matchesProp && matchesBld && matchesStatus && matchesBeds;
   });
 

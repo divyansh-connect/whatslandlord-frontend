@@ -7,21 +7,43 @@ import { PageHeader } from '../../components/PageHeader';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
-import { MessageSquare, Mail, Phone, Bell, Send, Megaphone, ShieldAlert } from 'lucide-react';
+import { MessageSquare, Megaphone, Users, Mail } from 'lucide-react';
 
 export const CommDashboardPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  // Queries
-  const { data: metrics, isLoading } = useQuery({
-    queryKey: ['comm-dashboard-metrics'],
-    queryFn: () => api.communication.getMetrics(),
+  // Real Queries from Database
+  const { data: messages = [], isLoading: loadMsgs } = useQuery({
+    queryKey: ['direct-messages-inbox'],
+    queryFn: () => api.directMessages.getAll(),
   });
 
-  if (isLoading || !metrics) {
+  const { data: contacts = [], isLoading: loadContacts } = useQuery({
+    queryKey: ['direct-contacts'],
+    queryFn: () => api.directMessages.getContacts(),
+  });
+
+  const { data: announcements = [], isLoading: loadAnn } = useQuery({
+    queryKey: ['comm-announcements-list'],
+    queryFn: () => api.announcements.getAll(),
+  });
+
+  if (loadMsgs || loadContacts || loadAnn) {
     return <LoadingSkeleton type="card" />;
   }
+
+  // Calculate real thread count from actual messages
+  const threadSet = new Set<string>();
+  (Array.isArray(messages) ? messages : []).forEach((m: any) => {
+    const contact = m.contactName || (m.isOutbound ? m.recipient : m.sender);
+    if (contact) threadSet.add(contact);
+  });
+
+  const realActiveThreads = threadSet.size;
+  const realTotalMessages = Array.isArray(messages) ? messages.length : 0;
+  const realAnnouncements = Array.isArray(announcements) ? announcements.length : 0;
+  const realContacts = Array.isArray(contacts) ? contacts.length : 0;
 
   return (
     <div className="space-y-6 text-foreground">
@@ -39,67 +61,45 @@ export const CommDashboardPage: React.FC = () => {
         <Button size="sm" onClick={() => navigate({ to: '/communication/inbox' })} className="flex items-center gap-1">
           <MessageSquare className="w-4 h-4" /> {t('commDashboard.openInbox')}
         </Button>
-        <Button size="sm" variant="outline" onClick={() => navigate({ to: '/communication/email' })} className="flex items-center gap-1">
-          <Mail className="w-4 h-4" /> {t('commDashboard.sendEmail')}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => navigate({ to: '/communication/sms' })} className="flex items-center gap-1">
-          <Phone className="w-4 h-4" /> {t('commDashboard.sendSms')}
-        </Button>
         <Button size="sm" variant="outline" onClick={() => navigate({ to: '/communication/announcements' })} className="flex items-center gap-1">
           <Megaphone className="w-4 h-4" /> {t('commDashboard.publishAnnouncement')}
         </Button>
       </div>
 
-      {/* METRIC GRID */}
+      {/* 100% REAL METRIC GRID FROM DATABASE */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="p-5 border bg-card flex flex-col justify-between">
           <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('commDashboard.unifiedConversations')}</p>
-            <p className="text-2xl font-black mt-1 text-primary">{metrics.totalConversations}</p>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase">Active Conversation Threads</p>
+            <p className="text-2xl font-black mt-1 text-primary">{realActiveThreads}</p>
           </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('commDashboard.unreadMessages', { count: metrics.unreadMessages })}</span>
+          <span className="text-[10px] text-muted-foreground font-semibold mt-4">Active 1-to-1 Discussions</span>
         </Card>
 
         <Card className="p-5 border bg-card flex flex-col justify-between">
           <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('commDashboard.sentToday')}</p>
-            <p className="text-2xl font-black mt-1 text-emerald-500">{metrics.emailsSentToday} Emails / {metrics.smsSentToday} SMS</p>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase">Total In-App Messages</p>
+            <p className="text-2xl font-black mt-1 text-emerald-500">{realTotalMessages}</p>
           </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('commDashboard.deliveryCleared')}</span>
+          <span className="text-[10px] text-muted-foreground font-semibold mt-4">Database Logged Messages</span>
         </Card>
 
         <Card className="p-5 border bg-card flex flex-col justify-between">
           <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('commDashboard.activeCampaigns')}</p>
-            <p className="text-2xl font-black mt-1 text-indigo-500">{metrics.activeCampaigns}</p>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase">Published Notice Bulletins</p>
+            <p className="text-2xl font-black mt-1 text-indigo-500">{realAnnouncements}</p>
           </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('commDashboard.scheduledDispatches', { count: metrics.scheduledMessages })}</span>
+          <span className="text-[10px] text-muted-foreground font-semibold mt-4">Active Community Notices</span>
         </Card>
 
         <Card className="p-5 border bg-card flex flex-col justify-between">
           <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('commDashboard.noticeBoardViews')}</p>
-            <p className="text-2xl font-black mt-1 text-primary">{metrics.announcementViews}</p>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase">Registered Contacts</p>
+            <p className="text-2xl font-black mt-1 text-primary">{realContacts}</p>
           </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('commDashboard.averageReadRate')}</span>
+          <span className="text-[10px] text-muted-foreground font-semibold mt-4">Tenants, Owners & Staff</span>
         </Card>
       </div>
-
-      {/* DELIVERY FAILURE BANNER */}
-      {metrics.failedDeliveries > 0 && (
-        <Card className="p-5 border bg-card border-rose-500/30 bg-rose-500/5 flex items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <ShieldAlert className="w-6 h-6 text-rose-500 shrink-0" />
-            <div>
-              <h4 className="font-extrabold text-sm uppercase text-rose-500">{t('commDashboard.deliveryIssues')}</h4>
-              <p className="text-xs text-muted-foreground font-semibold">{t('commDashboard.failedDispatches', { count: metrics.failedDeliveries })}</p>
-            </div>
-          </div>
-          <Button size="sm" variant="outline" className="border-rose-500/30 text-rose-500 hover:bg-rose-500/10" onClick={() => navigate({ to: '/communication/activity' })}>
-            {t('commDashboard.viewActivityLog')}
-          </Button>
-        </Card>
-      )}
     </div>
   );
 };

@@ -15,13 +15,106 @@ export const MoveInOutPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>(''); // empty means all
 
   // Load Move Ins from backend database
-  const { data: moveIns = [], isLoading, isFetching, refetch } = useQuery({
+  const { data: rawMoveIns = [], isLoading: isLoadingMoves, isFetching: isFetchingMoves, refetch: refetchMoves } = useQuery({
     queryKey: ['moveIns', statusFilter],
     queryFn: () => api.moveIns.getAll(statusFilter),
   });
 
+  // Also load Leases to seamlessly surface any Pending Move In lease
+  const { data: allLeases = [], isLoading: isLoadingLeases, isFetching: isFetchingLeases, refetch: refetchLeases } = useQuery({
+    queryKey: ['leases'],
+    queryFn: () => api.leasing.getLeases(),
+  });
+
+  const isLoading = isLoadingMoves && isLoadingLeases;
+  const isFetching = isFetchingMoves || isFetchingLeases;
+  const refetch = () => {
+    refetchMoves();
+    refetchLeases();
+  };
+
+  // Combine DB moveIns with any Lease that is in Pending_Move_In
+  const moveIns = React.useMemo(() => {
+    // Filter out corrupted/orphaned move-ins that have no lease and no unit
+    const validRawMoveIns = (rawMoveIns || []).filter((m: any) => {
+      const hasLease = Boolean(m.lease || m.leaseId || m.lease?.tenantName);
+      const hasUnit = Boolean(m.unit || m.unitId || m.unit?.unitNumber);
+      return hasLease || hasUnit;
+    });
+
+    const list = [...validRawMoveIns];
+    const registeredLeaseIds = new Set(
+      list.map((m: any) => m.leaseId || m.lease?.id).filter(Boolean)
+    );
+
+    allLeases.forEach((lease: any) => {
+      const leaseStatus = String(lease.status || '').trim();
+      const isPendingMoveIn = 
+        leaseStatus === 'Pending_Move_In' || 
+        leaseStatus === 'Pending Move In' || 
+        leaseStatus.toLowerCase().includes('pending');
+
+      if (isPendingMoveIn && !registeredLeaseIds.has(lease.id)) {
+        if (!statusFilter || statusFilter === 'SCHEDULED') {
+          list.push({
+            id: `lease-movein-${lease.id}`,
+            leaseId: lease.id,
+            scheduledDate: lease.startDate || new Date().toISOString(),
+            status: 'SCHEDULED',
+            isVirtual: true,
+            lease: {
+              ...lease,
+              tenant: lease.tenant || (lease.tenantName ? {
+                firstName: lease.tenantName.split(' ')[0],
+                lastName: lease.tenantName.split(' ').slice(1).join(' '),
+              } : undefined),
+            },
+            unit: lease.unit || {
+              id: lease.unitId,
+              unitNumber: lease.unitNumber || 'Unit',
+              property: lease.property || { name: lease.propertyName || 'Property' },
+            },
+          });
+        }
+      }
+    });
+
+    return list;
+  }, [rawMoveIns, allLeases, statusFilter]);
+
   const completeMutation = useMutation({
-    mutationFn: (moveInId: string) => api.moveIns.complete(moveInId),
+    mutationFn: async (moveInItem: any) => {
+      const targetId = typeof moveInItem === 'string' ? moveInItem : moveInItem?.id;
+      if (!targetId) return;
+
+      if (targetId.startsWith('lease-movein-') || (moveInItem && moveInItem.isVirtual)) {
+        const leaseId = targetId.replace('lease-movein-', '');
+        const targetLease = allLeases.find((l: any) => l.id === leaseId);
+        const unitId = targetLease?.unitId || targetLease?.unit?.id || moveInItem?.unit?.id;
+
+        // Try creating moveIn first in DB so inspection history is preserved
+        try {
+          const created = await api.moveIns.create({
+            leaseId,
+            unitId,
+            scheduledDate: targetLease?.startDate || new Date().toISOString(),
+            status: 'SCHEDULED',
+          });
+          if (created?.id) {
+            await api.moveIns.complete(created.id);
+          }
+        } catch (e) {
+          // Direct fallback activation
+          await api.leasing.updateLease(leaseId, { status: 'Active' });
+          if (unitId) {
+            try { await api.unit.update(unitId, { status: 'Occupied' }); } catch {}
+          }
+        }
+        return;
+      }
+
+      await api.moveIns.complete(targetId);
+    },
     onSuccess: () => {
       refetch();
       queryClient.invalidateQueries({ queryKey: ['moveIns'] });
@@ -100,13 +193,15 @@ export const MoveInOutPage: React.FC = () => {
               <tbody className="divide-y font-semibold text-foreground">
                 {moveIns.map((m: any) => {
                   const lease = m.lease || {};
-                  const tenant = lease.tenant || {};
-                  const unit = m.unit || {};
-                  const property = unit.property || {};
+                  const tenant = lease.tenant || m.tenant || {};
+                  const unit = m.unit || lease.unit || {};
+                  const property = unit.property || lease.property || {};
                   
-                  const tenantName = tenant.firstName ? `${tenant.firstName} ${tenant.lastName}` : 'Resident';
-                  const propertyName = property.name || 'Property';
-                  const unitNumber = unit.unitNumber || 'Unit';
+                  const tenantName = (tenant.firstName || tenant.lastName)
+                    ? `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim()
+                    : (tenant.name || lease.tenantName || m.tenantName || 'Resident');
+                  const propertyName = property.name || property.address || lease.propertyName || m.propertyName || 'Property';
+                  const unitNumber = unit.unitNumber || lease.unitNumber || m.unitNumber || 'Unit';
 
                   return (
                     <tr key={m.id} className="hover:bg-accent/40 transition">
@@ -122,7 +217,7 @@ export const MoveInOutPage: React.FC = () => {
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => completeMutation.mutate(m.id)}
+                            onClick={() => completeMutation.mutate(m)}
                             disabled={completeMutation.isPending}
                             className="border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/10 font-bold"
                           >

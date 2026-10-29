@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../services/reportApi';
 import { ReportLayout } from '../components/ReportLayout';
@@ -8,6 +8,7 @@ import { ReportTable } from '../components/ReportTable';
 import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
+import { useReportDataFilter } from '../hooks/useReportDataFilter';
 import { AlertTriangle, Users, FileText, Clock, Eye } from 'lucide-react';
 
 export const DelinquencyReport: React.FC = () => {
@@ -22,13 +23,15 @@ export const DelinquencyReport: React.FC = () => {
   });
 
   const reportItems = data?.data || [];
-  const summary = data?.summary || {
-    totalDelinquentBalance: reportItems.reduce((acc, curr) => acc + (curr.outstandingBalance || 0), 0),
-    totalOriginalAmount: reportItems.reduce((acc, curr) => acc + (curr.rentAmount || 0), 0),
-    totalDelinquentTenants: new Set(reportItems.map((i) => i.tenantName)).size,
-    totalDelinquentInvoices: data?.pagination?.totalRecords || reportItems.length,
-    averageDaysLate: reportItems.length > 0 ? Math.round(reportItems.reduce((acc, curr) => acc + (curr.daysLate || 0), 0) / reportItems.length) : 0,
-  };
+  const filteredReportItems = useReportDataFilter(reportItems, filters);
+
+  const summary = useMemo(() => ({
+    totalDelinquentBalance: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.outstandingBalance || 0), 0),
+    totalOriginalAmount: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.rentAmount || 0), 0),
+    totalDelinquentTenants: new Set(filteredReportItems.map((i: any) => i.tenantName)).size,
+    totalDelinquentInvoices: filteredReportItems.length,
+    averageDaysLate: filteredReportItems.length > 0 ? Math.round(filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.daysLate || 0), 0) / filteredReportItems.length) : 0,
+  }), [filteredReportItems]);
 
   const columns = [
     { key: 'tenantName', header: 'Tenant Name' },
@@ -99,8 +102,8 @@ export const DelinquencyReport: React.FC = () => {
           handleExport({
             reportType: 'DELINQUENCY',
             filters,
-            data: reportItems,
-            totalRecords: data?.pagination.totalRecords || reportItems.length,
+            data: filteredReportItems,
+            totalRecords: filteredReportItems.length,
             fileType,
           })
         }
@@ -168,7 +171,7 @@ export const DelinquencyReport: React.FC = () => {
 
       <ReportTable
         columns={columns}
-        data={reportItems}
+        data={filteredReportItems}
         isLoading={isLoading}
         pagination={data?.pagination}
         onPageChange={(page) => setFilterVal('page', page)}

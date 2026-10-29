@@ -4,7 +4,6 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -17,6 +16,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
@@ -92,7 +92,7 @@ const sanitizeExportData = (data) => {
   });
 };
 
-export const ReportsScreen = () => {
+export const ReportsScreen = ({ onNavigate }) => {
   const logout = useAuthStore((state) => state.logout);
   const refreshAccessToken = useAuthStore((state) => state.refreshAccessToken);
   const { colors, isDarkMode } = useThemeColors();
@@ -132,6 +132,30 @@ export const ReportsScreen = () => {
   // Filter Modal state
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [expandedFilterSection, setExpandedFilterSection] = useState(null);
+
+  // Metric Drill-Down Modal state
+  const [drillDownModalOpen, setDrillDownModalOpen] = useState(false);
+  const [drillDownConfig, setDrillDownConfig] = useState({
+    title: '',
+    subtitle: '',
+    metricValue: '',
+    icon: 'list-outline',
+    color: '#38bdf8',
+    filterType: '',
+    items: [],
+    bottomBtnText: '',
+    targetRoute: '',
+    targetParams: {},
+  });
+  const [drillDownSearch, setDrillDownSearch] = useState('');
+  const [drillDownStatusFilter, setDrillDownStatusFilter] = useState('ALL');
+
+  // Helper to ensure "Unit" is never duplicated (e.g. avoid "Unit Unit 1F")
+  const formatUnitLabel = (val) => {
+    if (!val) return 'Unit N/A';
+    const str = String(val).trim();
+    return str.toLowerCase().startsWith('unit') ? str : `Unit ${str}`;
+  };
 
   // Animations
   const rotateAnim = useRef(new Animated.Value(0)).current;
@@ -421,6 +445,631 @@ export const ReportsScreen = () => {
     setExpandedFilterSection(null);
   };
 
+  // Helper to open Drill-Down Details Modal for any tapped KPI metric figure
+  const handleOpenMetricDrillDown = (metricKey) => {
+    setDrillDownSearch('');
+    setDrillDownStatusFilter('ALL');
+
+    if (!summaryData) return;
+
+    if (selectedReportId === 'occupancy') {
+      if (metricKey === 'OCCUPANCY_RATE') {
+        const items = (reportData || []).map((p, idx) => ({
+          id: p.id || p.propertyId || idx,
+          title: p.propertyName || p.name || `Property #${idx + 1}`,
+          subtitle: `${p.occupiedUnits || 0} Occupied / ${p.totalUnits || 0} Total Units (${p.vacantUnits || 0} Vacant)`,
+          badgeText: `${p.occupancyPercentage || 0}%`,
+          badgeColor: (p.occupancyPercentage || 0) >= 80 ? '#10b981' : (p.occupancyPercentage || 0) >= 50 ? '#f59e0b' : '#ef4444',
+          badgeBg: (p.occupancyPercentage || 0) >= 80 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+          meta: `Occupancy Ratio: ${p.occupancyPercentage || 0}%`,
+          propertyId: p.propertyId || p.id,
+          type: 'property',
+        }));
+        setDrillDownConfig({
+          title: 'Overall Occupancy Breakdown',
+          subtitle: `${summaryData.overallOccupancyPercentage}% occupied across all portfolio properties`,
+          metricValue: `${summaryData.overallOccupancyPercentage}%`,
+          icon: 'pie-chart-outline',
+          color: '#10b981',
+          filterType: 'OCCUPANCY_RATE',
+          items,
+          bottomBtnText: 'View All Portfolio Units (All)',
+          targetRoute: 'properties',
+          targetParams: { tab: 'units', statusFilter: 'All' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'TOTAL_UNITS') {
+        const items = (units.length > 0 ? units : reportData).map((u, idx) => {
+          const propName = u.propertyName || u.property?.name || properties.find((p) => p.id === u.propertyId)?.name || 'Property';
+          const isOcc = String(u.status || '').toLowerCase() === 'occupied';
+          return {
+            id: u.id || idx,
+            title: formatUnitLabel(u.unitNumber || u.number || idx + 1),
+            subtitle: propName,
+            badgeText: isOcc ? 'Occupied' : 'Vacant',
+            badgeColor: isOcc ? '#10b981' : '#f59e0b',
+            badgeBg: isOcc ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+            amount: u.monthlyRent || u.rentAmount ? `$${Number(u.monthlyRent || u.rentAmount).toLocaleString()}/mo` : null,
+            meta: u.tenantName || (u.tenants?.length ? `${u.tenants[0].firstName || ''} ${u.tenants[0].lastName || ''}`.trim() : null),
+            unitId: u.id,
+            propertyId: u.propertyId || u.property?.id,
+            type: 'unit',
+            status: isOcc ? 'Occupied' : 'Vacant',
+          };
+        });
+        setDrillDownConfig({
+          title: 'All Portfolio Units',
+          subtitle: `Total ${summaryData.portfolioTotalUnits} units across all properties`,
+          metricValue: `${summaryData.portfolioTotalUnits} Units`,
+          icon: 'business-outline',
+          color: '#38bdf8',
+          filterType: 'TOTAL_UNITS',
+          items,
+          bottomBtnText: `Manage All Units (${summaryData.portfolioTotalUnits})`,
+          targetRoute: 'properties',
+          targetParams: { tab: 'units', statusFilter: 'All' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'OCCUPIED_UNITS') {
+        // STRICT FILTER: ONLY Occupied units!
+        const occUnits = units.filter((u) => String(u.status || '').toLowerCase() === 'occupied');
+        const items = (occUnits.length > 0 ? occUnits : units.slice(0, summaryData.portfolioOccupiedUnits || 0)).map((u, idx) => {
+          const propName = u.propertyName || u.property?.name || properties.find((p) => p.id === u.propertyId)?.name || 'Property';
+          const tName = u.tenantName || (u.tenants?.length ? `${u.tenants[0].firstName || ''} ${u.tenants[0].lastName || ''}`.trim() : 'Occupied Resident');
+          return {
+            id: u.id || idx,
+            title: formatUnitLabel(u.unitNumber || u.number || idx + 1),
+            subtitle: propName,
+            badgeText: 'Occupied',
+            badgeColor: '#10b981',
+            badgeBg: 'rgba(16, 185, 129, 0.15)',
+            amount: u.monthlyRent || u.rentAmount ? `$${Number(u.monthlyRent || u.rentAmount).toLocaleString()}/mo` : null,
+            meta: `Resident: ${tName}`,
+            unitId: u.id,
+            propertyId: u.propertyId || u.property?.id,
+            type: 'unit',
+            status: 'Occupied',
+          };
+        });
+        setDrillDownConfig({
+          title: 'Occupied Units',
+          subtitle: `${summaryData.portfolioOccupiedUnits} actively occupied units`,
+          metricValue: `${summaryData.portfolioOccupiedUnits} Occupied`,
+          icon: 'person-outline',
+          color: '#818cf8',
+          filterType: 'OCCUPIED_UNITS',
+          items,
+          bottomBtnText: `View All Occupied Units (${summaryData.portfolioOccupiedUnits})`,
+          targetRoute: 'properties',
+          targetParams: { tab: 'units', statusFilter: 'Occupied' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'VACANT_UNITS') {
+        // STRICT FILTER: ONLY Vacant units!
+        const vacUnits = units.filter((u) => String(u.status || '').toLowerCase() === 'vacant');
+        const items = (vacUnits.length > 0 ? vacUnits : units.slice(0, summaryData.portfolioVacantUnits || 0)).map((u, idx) => {
+          const propName = u.propertyName || u.property?.name || properties.find((p) => p.id === u.propertyId)?.name || 'Property';
+          return {
+            id: u.id || idx,
+            title: formatUnitLabel(u.unitNumber || u.number || idx + 1),
+            subtitle: propName,
+            badgeText: 'Vacant',
+            badgeColor: '#fbbf24',
+            badgeBg: 'rgba(251, 191, 36, 0.15)',
+            amount: u.monthlyRent || u.rentAmount ? `$${Number(u.monthlyRent || u.rentAmount).toLocaleString()}/mo` : null,
+            meta: `${u.bedrooms || 0} Beds • ${u.bathrooms || 0} Baths • Ready to Lease`,
+            unitId: u.id,
+            propertyId: u.propertyId || u.property?.id,
+            type: 'unit',
+            status: 'Vacant',
+          };
+        });
+        setDrillDownConfig({
+          title: 'Vacant Units',
+          subtitle: `${summaryData.portfolioVacantUnits} vacant units available for lease`,
+          metricValue: `${summaryData.portfolioVacantUnits} Vacant`,
+          icon: 'key-outline',
+          color: '#fbbf24',
+          filterType: 'VACANT_UNITS',
+          items,
+          bottomBtnText: `View All Vacant Units (${summaryData.portfolioVacantUnits})`,
+          targetRoute: 'properties',
+          targetParams: { tab: 'units', statusFilter: 'Vacant' },
+        });
+        setDrillDownModalOpen(true);
+      }
+    } else if (selectedReportId === 'rent-roll') {
+      if (metricKey === 'TOTAL_MONTHLY_RENT') {
+        const items = reportData
+          .filter((i) => (Number(i.monthlyRent) || 0) > 0 || i.unitStatus === 'Occupied' || i.leaseStatus === 'Active')
+          .map((r, idx) => ({
+            id: r.id || r.unitId || idx,
+            title: `${r.propertyName || 'Property'} • ${formatUnitLabel(r.unitNumber)}`,
+            subtitle: r.tenantName ? `Tenant: ${r.tenantName}` : 'Leased Unit',
+            badgeText: r.leaseStatus || 'Active',
+            badgeColor: '#10b981',
+            badgeBg: 'rgba(16, 185, 129, 0.15)',
+            amount: `$${Number(r.monthlyRent || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}/mo`,
+            meta: r.startDate && r.endDate ? `${new Date(r.startDate).toLocaleDateString()} → ${new Date(r.endDate).toLocaleDateString()}` : null,
+            unitId: r.unitId,
+            propertyId: r.propertyId,
+            tenantId: r.tenantId,
+            type: 'unit',
+            status: 'Occupied',
+          }));
+        setDrillDownConfig({
+          title: 'Active Monthly Rent Roll',
+          subtitle: `Total $${Number(summaryData.totalMonthlyRent || 0).toLocaleString()} across active leases`,
+          metricValue: `$${Number(summaryData.totalMonthlyRent || 0).toLocaleString()}`,
+          icon: 'cash-outline',
+          color: '#10b981',
+          filterType: 'TOTAL_MONTHLY_RENT',
+          items,
+          bottomBtnText: 'Go to Rent Invoices & Leases',
+          targetRoute: 'rent',
+          targetParams: { tab: 'invoices' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'SECURITY_DEPOSITS') {
+        const items = reportData
+          .filter((i) => (Number(i.securityDeposit) || 0) > 0)
+          .map((r, idx) => ({
+            id: r.id || r.unitId || idx,
+            title: `${r.propertyName || 'Property'} • ${formatUnitLabel(r.unitNumber)}`,
+            subtitle: `Tenant: ${r.tenantName || 'Active Lease'}`,
+            badgeText: 'Deposit Held',
+            badgeColor: '#6366f1',
+            badgeBg: 'rgba(99, 102, 241, 0.15)',
+            amount: `$${Number(r.securityDeposit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+            meta: `Security Deposit for ${formatUnitLabel(r.unitNumber)}`,
+            unitId: r.unitId,
+            propertyId: r.propertyId,
+            tenantId: r.tenantId,
+            type: 'unit',
+            status: 'Occupied',
+          }));
+        setDrillDownConfig({
+          title: 'Security Deposits Held',
+          subtitle: `Total $${Number(summaryData.totalSecurityDeposits || 0).toLocaleString()} held in escrow`,
+          metricValue: `$${Number(summaryData.totalSecurityDeposits || 0).toLocaleString()}`,
+          icon: 'shield-checkmark-outline',
+          color: '#6366f1',
+          filterType: 'SECURITY_DEPOSITS',
+          items,
+          bottomBtnText: 'Go to Active Leases',
+          targetRoute: 'leads',
+          targetParams: { tab: 'leases' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'PORTFOLIO_UNITS') {
+        const items = reportData.map((r, idx) => ({
+          id: r.id || r.unitId || idx,
+          title: `${r.propertyName || 'Property'} • ${formatUnitLabel(r.unitNumber)}`,
+          subtitle: r.tenantName ? `Tenant: ${r.tenantName}` : 'Vacant',
+          badgeText: r.unitStatus || 'Unit',
+          badgeColor: r.unitStatus === 'Occupied' ? '#10b981' : '#f59e0b',
+          badgeBg: r.unitStatus === 'Occupied' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+          amount: r.monthlyRent ? `$${Number(r.monthlyRent).toLocaleString()}/mo` : null,
+          meta: `Rent: $${Number(r.monthlyRent || 0).toLocaleString()} | Deposit: $${Number(r.securityDeposit || 0).toLocaleString()}`,
+          unitId: r.unitId,
+          propertyId: r.propertyId,
+          type: 'unit',
+          status: r.unitStatus || 'All',
+        }));
+        setDrillDownConfig({
+          title: 'Rent Roll Portfolio Units',
+          subtitle: `${summaryData.totalUnits} Units in Rent Roll`,
+          metricValue: `${summaryData.totalUnits} Units`,
+          icon: 'business-outline',
+          color: '#94a3b8',
+          filterType: 'PORTFOLIO_UNITS',
+          items,
+          bottomBtnText: 'View All Units in Units Tab',
+          targetRoute: 'properties',
+          targetParams: { tab: 'units', statusFilter: 'All' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'OCCUPIED_VACANT') {
+        const items = reportData.map((r, idx) => {
+          const isOcc = r.unitStatus === 'Occupied' || r.leaseStatus === 'Active';
+          return {
+            id: r.id || r.unitId || idx,
+            title: `${r.propertyName || 'Property'} • ${formatUnitLabel(r.unitNumber)}`,
+            subtitle: r.tenantName ? `Tenant: ${r.tenantName}` : 'Vacant Unit',
+            badgeText: isOcc ? 'Occupied' : 'Vacant',
+            badgeColor: isOcc ? '#10b981' : '#f59e0b',
+            badgeBg: isOcc ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+            amount: r.monthlyRent ? `$${Number(r.monthlyRent).toLocaleString()}/mo` : null,
+            meta: isOcc ? `Active Lease • Rent: $${Number(r.monthlyRent || 0).toLocaleString()}` : 'Available for rent',
+            unitId: r.unitId,
+            propertyId: r.propertyId,
+            type: 'unit',
+            status: isOcc ? 'Occupied' : 'Vacant',
+          };
+        });
+        setDrillDownConfig({
+          title: 'Occupied vs Vacant Units',
+          subtitle: `${summaryData.occupiedCount} Occupied / ${summaryData.vacantCount} Vacant`,
+          metricValue: `${summaryData.occupiedCount} Occ / ${summaryData.vacantCount} Vac`,
+          icon: 'checkmark-circle-outline',
+          color: '#38bdf8',
+          filterType: 'OCCUPIED_VACANT',
+          items,
+          bottomBtnText: 'Manage Units Portfolio',
+          targetRoute: 'properties',
+          targetParams: { tab: 'units' },
+        });
+        setDrillDownModalOpen(true);
+      }
+    } else if (selectedReportId === 'delinquency') {
+      if (metricKey === 'DELINQUENT_BALANCE' || metricKey === 'OVERDUE_INVOICES') {
+        const items = reportData.map((d, idx) => ({
+          id: d.id || d.invoiceId || idx,
+          title: `${d.tenantName || 'Tenant'} • ${formatUnitLabel(d.unitNumber)}`,
+          subtitle: `${d.propertyName || 'Property'} • ${d.daysLate || 0} Days Late`,
+          badgeText: `${d.daysLate || 0}d Overdue`,
+          badgeColor: '#ef4444',
+          badgeBg: 'rgba(239, 68, 68, 0.15)',
+          amount: `$${Number(d.outstandingBalance || 0).toLocaleString()}`,
+          meta: `Rent: $${Number(d.rentAmount || 0).toLocaleString()} | Days Late: ${d.daysLate || 0}`,
+          invoiceId: d.invoiceId || d.id,
+          tenantId: d.tenantId,
+          type: 'invoice',
+        }));
+        setDrillDownConfig({
+          title: metricKey === 'DELINQUENT_BALANCE' ? 'Delinquent Balances' : 'Overdue Invoices',
+          subtitle: `${summaryData.totalDelinquentInvoices} overdue invoices ($${Number(summaryData.totalDelinquentBalance || 0).toLocaleString()} total)`,
+          metricValue: metricKey === 'DELINQUENT_BALANCE' ? `$${Number(summaryData.totalDelinquentBalance || 0).toLocaleString()}` : `${summaryData.totalDelinquentInvoices} Invoices`,
+          icon: metricKey === 'DELINQUENT_BALANCE' ? 'alert-circle-outline' : 'receipt-outline',
+          color: metricKey === 'DELINQUENT_BALANCE' ? '#ef4444' : '#38bdf8',
+          filterType: metricKey,
+          items,
+          bottomBtnText: 'View Overdue Invoices (Filtered)',
+          targetRoute: 'rent',
+          targetParams: { tab: 'invoices', statusFilter: 'Overdue' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'DELINQUENT_TENANTS') {
+        // Deduplicate tenants
+        const tenantMap = new Map();
+        reportData.forEach((d) => {
+          const key = d.tenantId || d.tenantName;
+          if (key && !tenantMap.has(key)) {
+            tenantMap.set(key, d);
+          }
+        });
+        const items = Array.from(tenantMap.values()).map((d, idx) => ({
+          id: d.tenantId || d.id || idx,
+          title: d.tenantName || 'Delinquent Tenant',
+          subtitle: `${d.propertyName || 'Property'} • ${formatUnitLabel(d.unitNumber)}`,
+          badgeText: 'Delinquent',
+          badgeColor: '#fbbf24',
+          badgeBg: 'rgba(251, 191, 36, 0.15)',
+          amount: `$${Number(d.outstandingBalance || 0).toLocaleString()}`,
+          meta: `Overdue: ${d.daysLate || 0} days late`,
+          tenantId: d.tenantId || d.id,
+          type: 'tenant',
+          status: 'Delinquent',
+        }));
+        setDrillDownConfig({
+          title: 'Delinquent Tenants',
+          subtitle: `${summaryData.totalDelinquentTenants} residents with overdue balances`,
+          metricValue: `${summaryData.totalDelinquentTenants} Tenants`,
+          icon: 'people-outline',
+          color: '#fbbf24',
+          filterType: 'DELINQUENT_TENANTS',
+          items,
+          bottomBtnText: 'View Delinquent Tenants in Tenants Tab',
+          targetRoute: 'tenants',
+          targetParams: { statusFilter: 'Delinquent' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'AVERAGE_DAYS_LATE') {
+        const sorted = [...reportData].sort((a, b) => (Number(b.daysLate) || 0) - (Number(a.daysLate) || 0));
+        const items = sorted.map((d, idx) => ({
+          id: d.id || d.invoiceId || idx,
+          title: `${d.tenantName || 'Tenant'} (${formatUnitLabel(d.unitNumber)})`,
+          subtitle: `${d.propertyName || ''} • Balance: $${Number(d.outstandingBalance || 0).toLocaleString()}`,
+          badgeText: `${d.daysLate || 0} Days Late`,
+          badgeColor: (Number(d.daysLate) || 0) > 30 ? '#ef4444' : '#f59e0b',
+          badgeBg: (Number(d.daysLate) || 0) > 30 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+          amount: `$${Number(d.outstandingBalance || 0).toLocaleString()}`,
+          meta: `Days Past Due: ${d.daysLate || 0} days`,
+          invoiceId: d.invoiceId || d.id,
+          tenantId: d.tenantId,
+          type: 'invoice',
+        }));
+        setDrillDownConfig({
+          title: 'Aging Overdue Balances',
+          subtitle: `Average ${summaryData.averageDaysLate} Days Late across overdue invoices`,
+          metricValue: `${summaryData.averageDaysLate} Days Late`,
+          icon: 'time-outline',
+          color: '#a855f7',
+          filterType: 'AVERAGE_DAYS_LATE',
+          items,
+          bottomBtnText: 'Go to Rent Ledger',
+          targetRoute: 'rent',
+          targetParams: { tab: 'ledger' },
+        });
+        setDrillDownModalOpen(true);
+      }
+    } else if (selectedReportId === 'profit-loss') {
+      if (metricKey === 'GROSS_INCOME') {
+        const items = reportData
+          .filter((i) => i.type === 'Income')
+          .map((i, idx) => ({
+            id: i.id || idx,
+            title: i.category || i.description || 'Rental Income',
+            subtitle: `${i.propertyName || 'Portfolio'}${i.date ? ` • ${new Date(i.date).toLocaleDateString()}` : ''}`,
+            badgeText: 'Income',
+            badgeColor: '#10b981',
+            badgeBg: 'rgba(16, 185, 129, 0.15)',
+            amount: `+$${Number(i.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+            type: 'accounting',
+            tab: 'income',
+          }));
+        setDrillDownConfig({
+          title: 'Gross Income Ledger',
+          subtitle: `Total Revenue: $${Number(summaryData.totalIncome || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+          metricValue: `$${Number(summaryData.totalIncome || 0).toLocaleString()}`,
+          icon: 'trending-up-outline',
+          color: '#10b981',
+          filterType: 'GROSS_INCOME',
+          items,
+          bottomBtnText: 'View Income Ledger (Filtered)',
+          targetRoute: 'accounting',
+          targetParams: { tab: 'income' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'TOTAL_EXPENSES') {
+        const items = reportData
+          .filter((i) => i.type === 'Expense')
+          .map((i, idx) => ({
+            id: i.id || idx,
+            title: i.category || i.description || 'Expense Item',
+            subtitle: `${i.propertyName || 'Portfolio'}${i.date ? ` • ${new Date(i.date).toLocaleDateString()}` : ''}`,
+            badgeText: 'Expense',
+            badgeColor: '#ef4444',
+            badgeBg: 'rgba(239, 68, 68, 0.15)',
+            amount: `-$${Number(i.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+            type: 'accounting',
+            tab: 'expenses',
+          }));
+        setDrillDownConfig({
+          title: 'Operating Expenses',
+          subtitle: `Total Expenses: -$${Number(summaryData.totalExpenses || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+          metricValue: `-$${Number(summaryData.totalExpenses || 0).toLocaleString()}`,
+          icon: 'trending-down-outline',
+          color: '#ef4444',
+          filterType: 'TOTAL_EXPENSES',
+          items,
+          bottomBtnText: 'View Expense Ledger (Filtered)',
+          targetRoute: 'accounting',
+          targetParams: { tab: 'expenses' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'NET_PROFIT') {
+        const items = reportData.map((i, idx) => ({
+          id: i.id || idx,
+          title: i.category || i.description || i.type,
+          subtitle: `${i.propertyName || 'Portfolio'}${i.date ? ` • ${new Date(i.date).toLocaleDateString()}` : ''}`,
+          badgeText: i.type,
+          badgeColor: i.type === 'Income' ? '#10b981' : '#ef4444',
+          badgeBg: i.type === 'Income' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+          amount: `${i.type === 'Income' ? '+' : '-'}$${Number(i.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+          type: 'accounting',
+          tab: i.type === 'Income' ? 'income' : 'expenses',
+        }));
+        setDrillDownConfig({
+          title: 'Net Profit Statement',
+          subtitle: `Net Operating Income: $${Number(summaryData.netProfit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+          metricValue: `$${Number(summaryData.netProfit || 0).toLocaleString()}`,
+          icon: 'analytics-outline',
+          color: '#38bdf8',
+          filterType: 'NET_PROFIT',
+          items,
+          bottomBtnText: 'Go to Chart of Accounts',
+          targetRoute: 'accounting',
+          targetParams: { tab: 'coa' },
+        });
+        setDrillDownModalOpen(true);
+      }
+    } else if (selectedReportId === 'maintenance') {
+      if (metricKey === 'TOTAL_WORK_ORDERS') {
+        const items = reportData.map((m, idx) => ({
+          id: m.id || m.workOrderId || idx,
+          title: m.issue || m.title || `Work Order #${idx + 1}`,
+          subtitle: `${m.propertyName || 'Property'} ${formatUnitLabel(m.unitNumber)} • Priority: ${m.priority || 'Normal'}`.trim(),
+          badgeText: m.status || 'Open',
+          badgeColor: m.status === 'Completed' ? '#10b981' : m.priority === 'High' ? '#ef4444' : '#38bdf8',
+          badgeBg: 'rgba(56, 189, 248, 0.15)',
+          amount: m.actualCost || m.estimatedCost ? `$${Number(m.actualCost || m.estimatedCost).toLocaleString()}` : null,
+          meta: `Assigned: ${m.vendorName || m.technician || 'Staff'}`,
+          workOrderId: m.id || m.workOrderId,
+          type: 'work_order',
+        }));
+        setDrillDownConfig({
+          title: 'All Maintenance Work Orders',
+          subtitle: `${summaryData.totalWorkOrders} total maintenance work orders logged`,
+          metricValue: `${summaryData.totalWorkOrders} Orders`,
+          icon: 'construct-outline',
+          color: '#38bdf8',
+          filterType: 'TOTAL_WORK_ORDERS',
+          items,
+          bottomBtnText: 'View All Work Orders',
+          targetRoute: 'maintenance',
+          targetParams: { tab: 'work_orders' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'ESTIMATED_COST' || metricKey === 'ACTUAL_COST') {
+        const isEst = metricKey === 'ESTIMATED_COST';
+        const items = reportData
+          .filter((m) => (Number(isEst ? m.estimatedCost : (m.actualCost || m.estimatedCost)) || 0) > 0)
+          .map((m, idx) => ({
+            id: m.id || m.workOrderId || idx,
+            title: m.issue || m.title || 'Work Order',
+            subtitle: `${m.propertyName || ''} ${formatUnitLabel(m.unitNumber)} • Status: ${m.status || 'Active'}`.trim(),
+            badgeText: isEst ? 'Estimated' : 'Actual Cost',
+            badgeColor: isEst ? '#fbbf24' : '#10b981',
+            badgeBg: isEst ? 'rgba(251, 191, 36, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+            amount: `$${Number(isEst ? m.estimatedCost : (m.actualCost || m.estimatedCost) || 0).toLocaleString()}`,
+            meta: `Cost for: ${m.issue || 'Service'}`,
+            workOrderId: m.id || m.workOrderId,
+            type: 'work_order',
+          }));
+        setDrillDownConfig({
+          title: isEst ? 'Estimated Maintenance Costs' : 'Actual Maintenance Costs',
+          subtitle: `Total: $${Number(isEst ? summaryData.totalEstimatedCost : summaryData.totalActualCost || 0).toLocaleString()}`,
+          metricValue: `$${Number(isEst ? summaryData.totalEstimatedCost : summaryData.totalActualCost || 0).toLocaleString()}`,
+          icon: isEst ? 'cash-outline' : 'wallet-outline',
+          color: isEst ? '#fbbf24' : '#10b981',
+          filterType: metricKey,
+          items,
+          bottomBtnText: 'View Maintenance Work Orders',
+          targetRoute: 'maintenance',
+          targetParams: { tab: 'work_orders' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'COMPLETION_RATE') {
+        const completed = reportData.filter((m) => m.status === 'Completed' || m.status === 'Closed');
+        const items = completed.map((m, idx) => ({
+          id: m.id || m.workOrderId || idx,
+          title: m.issue || m.title || 'Work Order',
+          subtitle: `${m.propertyName || ''} ${formatUnitLabel(m.unitNumber)} • Priority: ${m.priority || 'Normal'}`.trim(),
+          badgeText: 'Completed',
+          badgeColor: '#10b981',
+          badgeBg: 'rgba(16, 185, 129, 0.15)',
+          amount: m.actualCost ? `$${Number(m.actualCost).toLocaleString()}` : null,
+          meta: `Resolved: ${m.completionDate || 'Closed'}`,
+          workOrderId: m.id || m.workOrderId,
+          type: 'work_order',
+        }));
+        setDrillDownConfig({
+          title: 'Completed Maintenance Orders',
+          subtitle: `${summaryData.completedCount || 0} completed orders (${summaryData.completionRate}% completion rate)`,
+          metricValue: `${summaryData.completionRate}% Done`,
+          icon: 'checkmark-done-circle-outline',
+          color: '#a855f7',
+          filterType: 'COMPLETION_RATE',
+          items,
+          bottomBtnText: 'View Completed Work Orders (Filtered)',
+          targetRoute: 'maintenance',
+          targetParams: { tab: 'work_orders', statusFilter: 'Completed' },
+        });
+        setDrillDownModalOpen(true);
+      }
+    } else if (selectedReportId === 'payment-history') {
+      if (metricKey === 'TOTAL_COLLECTED' || metricKey === 'TRANSACTIONS' || metricKey === 'AVERAGE_PAYMENT') {
+        const items = reportData.map((p, idx) => ({
+          id: p.id || p.paymentId || idx,
+          title: p.tenantName ? `Payment from ${p.tenantName}` : `Payment #${p.referenceNumber || idx + 1}`,
+          subtitle: `${p.propertyName || 'Property'} • ${p.paymentMethod || 'ACH'}${p.paymentDate ? ` • ${p.paymentDate}` : ''}`,
+          badgeText: p.status || 'Completed',
+          badgeColor: '#10b981',
+          badgeBg: 'rgba(16, 185, 129, 0.15)',
+          amount: `+$${Number(p.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+          meta: p.referenceNumber ? `Ref: ${p.referenceNumber}` : null,
+          paymentId: p.id || p.paymentId,
+          type: 'payment',
+        }));
+        setDrillDownConfig({
+          title: metricKey === 'TOTAL_COLLECTED' ? 'Total Payments Collected' : metricKey === 'TRANSACTIONS' ? 'Recorded Transactions' : 'Payment History Ledger',
+          subtitle: `${summaryData.totalTransactions} payments totaling $${Number(summaryData.totalCollectedAmount || 0).toLocaleString()}`,
+          metricValue: metricKey === 'TOTAL_COLLECTED' ? `$${Number(summaryData.totalCollectedAmount || 0).toLocaleString()}` : `${summaryData.totalTransactions} Txns`,
+          icon: metricKey === 'TOTAL_COLLECTED' ? 'cash-outline' : 'card-outline',
+          color: '#10b981',
+          filterType: metricKey,
+          items,
+          bottomBtnText: 'View All Payments in Payments Tab',
+          targetRoute: 'rent',
+          targetParams: { tab: 'payments' },
+        });
+        setDrillDownModalOpen(true);
+      } else if (metricKey === 'TOP_METHOD') {
+        const topMethod = summaryData.topMethod || 'ACH';
+        const filtered = reportData.filter((p) => String(p.paymentMethod || '').toLowerCase() === topMethod.toLowerCase());
+        const items = (filtered.length > 0 ? filtered : reportData).map((p, idx) => ({
+          id: p.id || p.paymentId || idx,
+          title: p.tenantName ? `Payment from ${p.tenantName}` : `Payment #${p.referenceNumber || idx + 1}`,
+          subtitle: `${p.propertyName || ''} • Method: ${p.paymentMethod || topMethod}`,
+          badgeText: topMethod,
+          badgeColor: '#fbbf24',
+          badgeBg: 'rgba(251, 191, 36, 0.15)',
+          amount: `+$${Number(p.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+          paymentId: p.id || p.paymentId,
+          type: 'payment',
+        }));
+        setDrillDownConfig({
+          title: `Payments via ${topMethod}`,
+          subtitle: `Most frequent payment method across ${items.length} payments`,
+          metricValue: topMethod,
+          icon: 'swap-horizontal-outline',
+          color: '#fbbf24',
+          filterType: 'TOP_METHOD',
+          items,
+          bottomBtnText: 'View All Payments in Payments Tab',
+          targetRoute: 'rent',
+          targetParams: { tab: 'payments' },
+        });
+        setDrillDownModalOpen(true);
+      }
+    }
+  };
+
+  // Deep-link to specific record detail from Drill-down Modal
+  const handleDrillDownItemPress = (item) => {
+    setDrillDownModalOpen(false);
+    if (!item) return;
+
+    if (item.type === 'unit' && item.unitId) {
+      onNavigate?.('properties', {
+        tab: 'units',
+        unitId: item.unitId,
+        propertyId: item.propertyId,
+        statusFilter: item.status || 'All',
+      });
+    } else if (item.type === 'property' && item.propertyId) {
+      onNavigate?.('properties', {
+        tab: 'units',
+        propertyId: item.propertyId,
+        statusFilter: 'All',
+      });
+    } else if (item.type === 'tenant' && item.tenantId) {
+      onNavigate?.('tenants', {
+        tenantId: item.tenantId,
+        statusFilter: item.status || 'Delinquent',
+      });
+    } else if (item.type === 'invoice' && item.invoiceId) {
+      onNavigate?.('rent', {
+        tab: 'invoices',
+        invoiceId: item.invoiceId,
+        statusFilter: 'Overdue',
+      });
+    } else if (item.type === 'work_order' && item.workOrderId) {
+      onNavigate?.('maintenance', {
+        tab: 'work_orders',
+        workOrderId: item.workOrderId,
+      });
+    } else if (item.type === 'payment' && item.paymentId) {
+      onNavigate?.('rent', {
+        tab: 'payments',
+        paymentId: item.paymentId,
+      });
+    } else if (item.type === 'accounting') {
+      onNavigate?.('accounting', {
+        tab: item.tab || 'income',
+      });
+    }
+  };
+
+  // Deep-link to parent module with pre-applied filter from bottom button
+  const handleDrillDownBottomBtnPress = () => {
+    setDrillDownModalOpen(false);
+    if (drillDownConfig.targetRoute) {
+      onNavigate?.(drillDownConfig.targetRoute, drillDownConfig.targetParams);
+    }
+  };
+
   const handleRefresh = () => {
     setRefreshing(true);
     fetchReportData(false);
@@ -582,9 +1231,117 @@ export const ReportsScreen = () => {
     endDate,
   ].filter(Boolean).length;
 
-  // Real-time client-side search filtering across ALL record fields
+  // Cascading filtered units and tenants
+  const filteredUnits = selectedPropertyId
+    ? units.filter((u) => u.propertyId === selectedPropertyId || u.property?.id === selectedPropertyId)
+    : units;
+
+  const filteredTenants = tenants.filter((t) => {
+    if (selectedUnitId) {
+      return t.unitId === selectedUnitId || t.unit?.id === selectedUnitId;
+    }
+    if (selectedPropertyId) {
+      return (
+        t.propertyId === selectedPropertyId ||
+        t.unit?.propertyId === selectedPropertyId ||
+        t.unit?.property?.id === selectedPropertyId ||
+        (Array.isArray(t.leases) && t.leases.some((l) => l.propertyId === selectedPropertyId))
+      );
+    }
+    return true;
+  });
+
+  const handleSelectProperty = (propId) => {
+    setSelectedPropertyId(propId);
+    setSelectedUnitId('');
+    setSelectedTenantId('');
+    setExpandedFilterSection(null);
+  };
+
+  const handleSelectUnit = (unitId) => {
+    setSelectedUnitId(unitId);
+    setSelectedTenantId('');
+    setExpandedFilterSection(null);
+  };
+
+  // Real-time client-side filtering across selected Property, Unit, Tenant, Status, Priority, Payment Method, and Search
   const filteredData = reportData.filter((item) => {
     if (!item) return false;
+
+    // Filter by selected Property
+    if (selectedPropertyId) {
+      const selectedProp = properties.find((p) => p.id === selectedPropertyId);
+      const targetPropName = selectedProp?.name?.toLowerCase().trim();
+      const itemPropId = item.propertyId || item.property?.id;
+      const itemPropName = (item.propertyName || item.property?.name)?.toLowerCase().trim();
+
+      const idMatches = itemPropId && itemPropId === selectedPropertyId;
+      const nameMatches = targetPropName && itemPropName && (
+        itemPropName === targetPropName ||
+        itemPropName.includes(targetPropName) ||
+        targetPropName.includes(itemPropName)
+      );
+
+      if (!idMatches && !nameMatches) return false;
+    }
+
+    // Filter by selected Unit
+    if (selectedUnitId) {
+      const selectedUnit = units.find((u) => u.id === selectedUnitId);
+      const targetUnitNum = selectedUnit?.unitNumber?.toString().toLowerCase().replace(/^unit\s*/i, '').trim();
+      const itemUnitId = item.unitId || item.unit?.id;
+      const itemUnitNum = (item.unitNumber || item.unit?.unitNumber)?.toString().toLowerCase().replace(/^unit\s*/i, '').trim();
+
+      const idMatches = itemUnitId && itemUnitId === selectedUnitId;
+      const numMatches = targetUnitNum && itemUnitNum && (
+        itemUnitNum === targetUnitNum ||
+        itemUnitNum.endsWith(targetUnitNum) ||
+        targetUnitNum.endsWith(itemUnitNum)
+      );
+
+      if (!idMatches && !numMatches) return false;
+    }
+
+    // Filter by selected Tenant
+    if (selectedTenantId) {
+      const selectedTenant = tenants.find((t) => t.id === selectedTenantId);
+      const targetTenantName = selectedTenant
+        ? `${selectedTenant.firstName || ''} ${selectedTenant.lastName || ''}`.toLowerCase().trim()
+        : '';
+      const itemTenantId = item.tenantId || item.tenant?.id;
+      const itemTenantName = (
+        item.tenantName ||
+        (item.tenant ? `${item.tenant.firstName || ''} ${item.tenant.lastName || ''}` : '')
+      )?.toLowerCase().trim();
+
+      const idMatches = itemTenantId && itemTenantId === selectedTenantId;
+      const nameMatches = targetTenantName && itemTenantName && (
+        itemTenantName === targetTenantName ||
+        itemTenantName.includes(targetTenantName) ||
+        targetTenantName.includes(itemTenantName)
+      );
+
+      if (!idMatches && !nameMatches) return false;
+    }
+
+    // Filter by selected Status
+    if (selectedStatus) {
+      const itemStatus = item.status || item.leaseStatus || item.unitStatus || item.paymentStatus;
+      if (itemStatus && String(itemStatus).toLowerCase() !== selectedStatus.toLowerCase()) return false;
+    }
+
+    // Filter by selected Priority (Maintenance)
+    if (selectedPriority) {
+      const itemPriority = item.priority;
+      if (itemPriority && String(itemPriority).toLowerCase() !== selectedPriority.toLowerCase()) return false;
+    }
+
+    // Filter by selected Payment Method
+    if (selectedPaymentMethod) {
+      const itemMethod = item.paymentMethod;
+      if (itemMethod && String(itemMethod).toLowerCase() !== selectedPaymentMethod.toLowerCase()) return false;
+    }
+
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
 
@@ -643,7 +1400,19 @@ export const ReportsScreen = () => {
         <>
           {/* Header */}
           <View style={[styles.fixedHeader, { paddingTop: Platform.OS === 'ios' ? 48 : 16 }]}>
-            <Text style={styles.title} allowFontScaling={false}>Reports</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+              {!!onNavigate && (
+                <TouchableOpacity
+                  onPress={() => onNavigate('dashboard')}
+                  style={{ marginRight: 8, padding: 4 }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+                </TouchableOpacity>
+              )}
+              <Text style={[styles.title, { flex: 1, marginBottom: 0 }]} allowFontScaling={false}>Reports</Text>
+            </View>
             <Text style={styles.subtitle} allowFontScaling={false}>
               Run, audit, and export multi-tenant property reports.
             </Text>
@@ -831,277 +1600,475 @@ export const ReportsScreen = () => {
                 {/* --- 1. RENT ROLL REPORT SUMMARY CARDS (PHOTO 2 EXACT MATCH) --- */}
                 {selectedReportId === 'rent-roll' && summaryData && (
                   <View style={styles.kpiGrid}>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(16, 185, 129, 0.25)' }]}>
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(16, 185, 129, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('TOTAL_MONTHLY_RENT')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#10b981' }]} allowFontScaling={false}>TOTAL MONTHLY RENT</Text>
                         <Text style={[styles.kpiValue, { color: isDarkMode ? '#ecfdf5' : '#064e3b' }]} allowFontScaling={false}>
                           ${Number(summaryData.totalMonthlyRent || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#10b981' }]} allowFontScaling={false}>View list</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#10b981" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
                         <Ionicons name="cash-outline" size={20} color="#10b981" />
                       </View>
-                    </View>
+                    </TouchableOpacity>
 
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(99, 102, 241, 0.25)' }]}>
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(99, 102, 241, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('SECURITY_DEPOSITS')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#6366f1' }]} allowFontScaling={false}>SECURITY DEPOSITS HELD</Text>
                         <Text style={[styles.kpiValue, { color: isDarkMode ? '#eef2ff' : '#1e1b4b' }]} allowFontScaling={false}>
                           ${Number(summaryData.totalSecurityDeposits || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#6366f1' }]} allowFontScaling={false}>View list</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#6366f1" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
                         <Ionicons name="shield-checkmark-outline" size={20} color="#6366f1" />
                       </View>
-                    </View>
+                    </TouchableOpacity>
 
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(148, 163, 184, 0.25)' }]}>
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(148, 163, 184, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('PORTFOLIO_UNITS')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#94a3b8' }]} allowFontScaling={false}>PORTFOLIO UNITS</Text>
                         <Text style={[styles.kpiValue, { color: colors.textPrimary }]} allowFontScaling={false}>
                           {summaryData.totalUnits} Units
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#94a3b8' }]} allowFontScaling={false}>View list</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#94a3b8" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(148, 163, 184, 0.15)' }]}>
                         <Ionicons name="business-outline" size={20} color="#94a3b8" />
                       </View>
-                    </View>
+                    </TouchableOpacity>
 
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.25)' }]}>
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('OCCUPIED_VACANT')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#38bdf8' }]} allowFontScaling={false}>OCCUPIED / VACANT</Text>
                         <Text style={[styles.kpiValue, { color: colors.textPrimary }]} allowFontScaling={false}>
                           {summaryData.occupiedCount} Occ / {summaryData.vacantCount} Vac
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#38bdf8' }]} allowFontScaling={false}>Filter units</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#38bdf8" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
                         <Ionicons name="checkmark-circle-outline" size={20} color="#38bdf8" />
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 )}
 
-                {/* --- 2. OCCUPANCY REPORT SUMMARY CARDS --- */}
+                {/* --- 2. OCCUPANCY REPORT SUMMARY CARDS (PHOTO 1 / PHOTO 3 MATCH) --- */}
                 {selectedReportId === 'occupancy' && summaryData && (
                   <View style={styles.kpiGrid}>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(16, 185, 129, 0.25)' }]}>
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(16, 185, 129, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('OCCUPANCY_RATE')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#10b981' }]} allowFontScaling={false}>OVERALL OCCUPANCY</Text>
                         <Text style={[styles.kpiValue, { color: '#10b981' }]} allowFontScaling={false}>
                           {summaryData.overallOccupancyPercentage}%
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#10b981' }]} allowFontScaling={false}>Breakdown</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#10b981" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
                         <Ionicons name="pie-chart-outline" size={20} color="#10b981" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('TOTAL_UNITS')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#38bdf8' }]} allowFontScaling={false}>TOTAL UNITS</Text>
                         <Text style={[styles.kpiValue, { color: colors.textPrimary }]} allowFontScaling={false}>
                           {summaryData.portfolioTotalUnits}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#38bdf8' }]} allowFontScaling={false}>View all</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#38bdf8" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
                         <Ionicons name="business-outline" size={20} color="#38bdf8" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(129, 140, 248, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(129, 140, 248, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('OCCUPIED_UNITS')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#818cf8' }]} allowFontScaling={false}>OCCUPIED UNITS</Text>
                         <Text style={[styles.kpiValue, { color: '#818cf8' }]} allowFontScaling={false}>
                           {summaryData.portfolioOccupiedUnits}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#818cf8' }]} allowFontScaling={false}>Occupied only</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#818cf8" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(129, 140, 248, 0.15)' }]}>
                         <Ionicons name="person-outline" size={20} color="#818cf8" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(251, 191, 36, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(251, 191, 36, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('VACANT_UNITS')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#fbbf24' }]} allowFontScaling={false}>VACANT UNITS</Text>
                         <Text style={[styles.kpiValue, { color: '#fbbf24' }]} allowFontScaling={false}>
                           {summaryData.portfolioVacantUnits}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#fbbf24' }]} allowFontScaling={false}>Vacant only</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#fbbf24" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(251, 191, 36, 0.15)' }]}>
                         <Ionicons name="key-outline" size={20} color="#fbbf24" />
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 )}
 
                 {/* --- 3. DELINQUENCY REPORT SUMMARY CARDS --- */}
                 {selectedReportId === 'delinquency' && summaryData && (
                   <View style={styles.kpiGrid}>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(239, 68, 68, 0.25)' }]}>
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(239, 68, 68, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('DELINQUENT_BALANCE')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#ef4444' }]} allowFontScaling={false}>DELINQUENT BALANCE</Text>
                         <Text style={[styles.kpiValue, { color: '#ef4444' }]} allowFontScaling={false}>
                           ${Number(summaryData.totalDelinquentBalance || 0).toLocaleString()}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#ef4444' }]} allowFontScaling={false}>View balances</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#ef4444" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
                         <Ionicons name="alert-circle-outline" size={20} color="#ef4444" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(251, 191, 36, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(251, 191, 36, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('DELINQUENT_TENANTS')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#fbbf24' }]} allowFontScaling={false}>DELINQUENT TENANTS</Text>
                         <Text style={[styles.kpiValue, { color: '#fbbf24' }]} allowFontScaling={false}>
                           {summaryData.totalDelinquentTenants}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#fbbf24' }]} allowFontScaling={false}>View tenants</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#fbbf24" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(251, 191, 36, 0.15)' }]}>
                         <Ionicons name="people-outline" size={20} color="#fbbf24" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('OVERDUE_INVOICES')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#38bdf8' }]} allowFontScaling={false}>OVERDUE INVOICES</Text>
                         <Text style={[styles.kpiValue, { color: '#38bdf8' }]} allowFontScaling={false}>
                           {summaryData.totalDelinquentInvoices}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#38bdf8' }]} allowFontScaling={false}>View invoices</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#38bdf8" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
                         <Ionicons name="receipt-outline" size={20} color="#38bdf8" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(168, 85, 247, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(168, 85, 247, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('AVERAGE_DAYS_LATE')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#a855f7' }]} allowFontScaling={false}>AVERAGE DAYS LATE</Text>
                         <Text style={[styles.kpiValue, { color: '#a855f7' }]} allowFontScaling={false}>
                           {summaryData.averageDaysLate} Days
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#a855f7' }]} allowFontScaling={false}>View aging</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#a855f7" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
                         <Ionicons name="time-outline" size={20} color="#a855f7" />
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 )}
 
                 {/* --- 4. PROFIT & LOSS STATEMENT SUMMARY CARDS --- */}
                 {selectedReportId === 'profit-loss' && summaryData && (
                   <View style={styles.pnLSummaryRow}>
-                    <View style={[styles.pnLSummaryBox, { borderColor: 'rgba(16, 185, 129, 0.3)' }]}>
+                    <TouchableOpacity
+                      style={[styles.pnLSummaryBox, { borderColor: 'rgba(16, 185, 129, 0.4)' }]}
+                      onPress={() => handleOpenMetricDrillDown('GROSS_INCOME')}
+                      activeOpacity={0.72}
+                    >
                       <Text style={[styles.pnLSummaryLabel, { color: '#10b981' }]} allowFontScaling={false}>GROSS INCOME</Text>
                       <Text style={[styles.pnLSummaryVal, { color: '#10b981' }]} allowFontScaling={false}>
                         ${Number(summaryData.totalIncome || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </Text>
-                    </View>
-                    <View style={[styles.pnLSummaryBox, { borderColor: 'rgba(239, 68, 68, 0.3)' }]}>
+                      <View style={styles.kpiTapHintRow}>
+                        <Text style={[styles.kpiTapHintText, { color: '#10b981' }]} allowFontScaling={false}>View ledger</Text>
+                        <Ionicons name="chevron-forward" size={10} color="#10b981" />
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.pnLSummaryBox, { borderColor: 'rgba(239, 68, 68, 0.4)' }]}
+                      onPress={() => handleOpenMetricDrillDown('TOTAL_EXPENSES')}
+                      activeOpacity={0.72}
+                    >
                       <Text style={[styles.pnLSummaryLabel, { color: '#ef4444' }]} allowFontScaling={false}>TOTAL EXPENSES</Text>
                       <Text style={[styles.pnLSummaryVal, { color: '#ef4444' }]} allowFontScaling={false}>
                         -${Number(summaryData.totalExpenses || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </Text>
-                    </View>
-                    <View style={[styles.pnLSummaryBox, { borderColor: 'rgba(56, 189, 248, 0.3)' }]}>
+                      <View style={styles.kpiTapHintRow}>
+                        <Text style={[styles.kpiTapHintText, { color: '#ef4444' }]} allowFontScaling={false}>View ledger</Text>
+                        <Ionicons name="chevron-forward" size={10} color="#ef4444" />
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.pnLSummaryBox, { borderColor: 'rgba(56, 189, 248, 0.4)' }]}
+                      onPress={() => handleOpenMetricDrillDown('NET_PROFIT')}
+                      activeOpacity={0.72}
+                    >
                       <Text style={[styles.pnLSummaryLabel, { color: '#38bdf8' }]} allowFontScaling={false}>NET PROFIT</Text>
                       <Text style={[styles.pnLSummaryVal, { color: '#38bdf8' }]} allowFontScaling={false}>
                         ${Number(summaryData.netProfit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </Text>
-                    </View>
+                      <View style={styles.kpiTapHintRow}>
+                        <Text style={[styles.kpiTapHintText, { color: '#38bdf8' }]} allowFontScaling={false}>Breakdown</Text>
+                        <Ionicons name="chevron-forward" size={10} color="#38bdf8" />
+                      </View>
+                    </TouchableOpacity>
                   </View>
                 )}
 
                 {/* --- 5. MAINTENANCE REPORT SUMMARY CARDS --- */}
                 {selectedReportId === 'maintenance' && summaryData && (
                   <View style={styles.kpiGrid}>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.25)' }]}>
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('TOTAL_WORK_ORDERS')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#38bdf8' }]} allowFontScaling={false}>TOTAL WORK ORDERS</Text>
                         <Text style={[styles.kpiValue, { color: '#38bdf8' }]} allowFontScaling={false}>
                           {summaryData.totalWorkOrders}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#38bdf8' }]} allowFontScaling={false}>View orders</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#38bdf8" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
                         <Ionicons name="construct-outline" size={20} color="#38bdf8" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(251, 191, 36, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(251, 191, 36, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('ESTIMATED_COST')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#fbbf24' }]} allowFontScaling={false}>ESTIMATED COST</Text>
                         <Text style={[styles.kpiValue, { color: '#fbbf24' }]} allowFontScaling={false}>
                           ${Number(summaryData.totalEstimatedCost || 0).toLocaleString()}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#fbbf24' }]} allowFontScaling={false}>View costs</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#fbbf24" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(251, 191, 36, 0.15)' }]}>
                         <Ionicons name="cash-outline" size={20} color="#fbbf24" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(16, 185, 129, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(16, 185, 129, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('ACTUAL_COST')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#10b981' }]} allowFontScaling={false}>ACTUAL COST</Text>
                         <Text style={[styles.kpiValue, { color: '#10b981' }]} allowFontScaling={false}>
                           ${Number(summaryData.totalActualCost || 0).toLocaleString()}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#10b981' }]} allowFontScaling={false}>View costs</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#10b981" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
                         <Ionicons name="wallet-outline" size={20} color="#10b981" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(168, 85, 247, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(168, 85, 247, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('COMPLETION_RATE')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#a855f7' }]} allowFontScaling={false}>COMPLETION RATE</Text>
                         <Text style={[styles.kpiValue, { color: '#a855f7' }]} allowFontScaling={false}>
                           {summaryData.completionRate}%
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#a855f7' }]} allowFontScaling={false}>Completed list</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#a855f7" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
                         <Ionicons name="checkmark-done-circle-outline" size={20} color="#a855f7" />
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 )}
 
                 {/* --- 6. PAYMENT HISTORY REPORT SUMMARY CARDS --- */}
                 {selectedReportId === 'payment-history' && summaryData && (
                   <View style={styles.kpiGrid}>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(16, 185, 129, 0.25)' }]}>
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(16, 185, 129, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('TOTAL_COLLECTED')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#10b981' }]} allowFontScaling={false}>TOTAL COLLECTED</Text>
                         <Text style={[styles.kpiValue, { color: '#10b981' }]} allowFontScaling={false}>
                           ${Number(summaryData.totalCollectedAmount || 0).toLocaleString()}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#10b981' }]} allowFontScaling={false}>View payments</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#10b981" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
                         <Ionicons name="cash-outline" size={20} color="#10b981" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(56, 189, 248, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('TRANSACTIONS')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#38bdf8' }]} allowFontScaling={false}>TRANSACTIONS</Text>
                         <Text style={[styles.kpiValue, { color: '#38bdf8' }]} allowFontScaling={false}>
                           {summaryData.totalTransactions}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#38bdf8' }]} allowFontScaling={false}>View list</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#38bdf8" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
                         <Ionicons name="card-outline" size={20} color="#38bdf8" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(168, 85, 247, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(168, 85, 247, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('AVERAGE_PAYMENT')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#a855f7' }]} allowFontScaling={false}>AVERAGE PAYMENT</Text>
                         <Text style={[styles.kpiValue, { color: '#a855f7' }]} allowFontScaling={false}>
                           ${Number(summaryData.averageTransaction || 0).toLocaleString()}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#a855f7' }]} allowFontScaling={false}>View ledger</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#a855f7" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
                         <Ionicons name="analytics-outline" size={20} color="#a855f7" />
                       </View>
-                    </View>
-                    <View style={[styles.kpiCard, { borderColor: 'rgba(251, 191, 36, 0.25)' }]}>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.kpiCard, { borderColor: 'rgba(251, 191, 36, 0.35)' }]}
+                      onPress={() => handleOpenMetricDrillDown('TOP_METHOD')}
+                      activeOpacity={0.72}
+                    >
                       <View style={styles.kpiTextCol}>
                         <Text style={[styles.kpiLabel, { color: '#fbbf24' }]} allowFontScaling={false}>TOP METHOD</Text>
                         <Text style={[styles.kpiValue, { color: '#fbbf24' }]} allowFontScaling={false}>
                           {summaryData.topMethod || 'ACH'}
                         </Text>
+                        <View style={styles.kpiTapHintRow}>
+                          <Text style={[styles.kpiTapHintText, { color: '#fbbf24' }]} allowFontScaling={false}>View method</Text>
+                          <Ionicons name="chevron-forward" size={10} color="#fbbf24" />
+                        </View>
                       </View>
                       <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(251, 191, 36, 0.15)' }]}>
                         <Ionicons name="swap-horizontal-outline" size={20} color="#fbbf24" />
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 )}
 
@@ -1377,6 +2344,172 @@ export const ReportsScreen = () => {
         </>
       )}
 
+      {/* --- METRIC DRILL-DOWN DETAILS MODAL --- */}
+      <Modal visible={drillDownModalOpen} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.drillDownModalCard}>
+            {/* Modal Header */}
+            <View style={styles.drillDownHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                <View style={[styles.kpiIconBox, { backgroundColor: `${drillDownConfig.color}25` }]}>
+                  <Ionicons name={drillDownConfig.icon} size={20} color={drillDownConfig.color} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.drillDownTitle} numberOfLines={1} allowFontScaling={false}>
+                    {drillDownConfig.title}
+                  </Text>
+                  <Text style={styles.drillDownSubtitle} numberOfLines={1} allowFontScaling={false}>
+                    {drillDownConfig.subtitle}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setDrillDownModalOpen(false)}
+                style={styles.drillDownCloseBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Quick Search inside Drill-Down */}
+            {drillDownConfig.items && drillDownConfig.items.length > 2 && (
+              <View style={styles.drillDownSearchBar}>
+                <Ionicons name="search-outline" size={16} color={colors.textMuted} />
+                <TextInput
+                  style={styles.drillDownSearchInput}
+                  placeholder="Search in this drill-down..."
+                  placeholderTextColor={colors.textMuted}
+                  value={drillDownSearch}
+                  onChangeText={setDrillDownSearch}
+                  clearButtonMode="while-editing"
+                  allowFontScaling={false}
+                />
+                {drillDownSearch.length > 0 && (
+                  <TouchableOpacity onPress={() => setDrillDownSearch('')}>
+                    <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
+            {/* Scrollable Filtered List */}
+            <ScrollView
+              style={styles.drillDownList}
+              contentContainerStyle={{ paddingBottom: 16 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {(() => {
+                const list = (drillDownConfig.items || []).filter((item) => {
+                  if (!drillDownSearch) return true;
+                  const q = drillDownSearch.toLowerCase();
+                  return (
+                    (item.title && item.title.toLowerCase().includes(q)) ||
+                    (item.subtitle && item.subtitle.toLowerCase().includes(q)) ||
+                    (item.meta && item.meta.toLowerCase().includes(q)) ||
+                    (item.amount && item.amount.toLowerCase().includes(q)) ||
+                    (item.badgeText && item.badgeText.toLowerCase().includes(q))
+                  );
+                });
+
+                if (list.length === 0) {
+                  return (
+                    <View style={styles.drillDownEmptyBox}>
+                      <Ionicons name="search-outline" size={32} color={colors.textMuted} />
+                      <Text style={styles.drillDownEmptyText} allowFontScaling={false}>No matching items found.</Text>
+                      {drillDownSearch.length > 0 && (
+                        <TouchableOpacity onPress={() => setDrillDownSearch('')}>
+                          <Text style={{ color: '#38bdf8', fontSize: 12, fontWeight: '700', marginTop: 6 }} allowFontScaling={false}>
+                            Clear Search
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  );
+                }
+
+                return list.map((item, idx) => (
+                  <TouchableOpacity
+                    key={item.id || idx}
+                    style={styles.drillDownItemCard}
+                    onPress={() => handleDrillDownItemPress(item)}
+                    activeOpacity={0.72}
+                  >
+                    <View style={{ flex: 1, marginRight: 10, minWidth: 0, overflow: 'hidden' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'nowrap' }}>
+                        <Text style={[styles.drillDownItemTitle, { flexShrink: 1 }]} numberOfLines={1} allowFontScaling={false}>
+                          {item.title}
+                        </Text>
+                        {item.badgeText && (
+                          <View
+                            style={[
+                              styles.drillDownItemBadge,
+                              { flexShrink: 0, backgroundColor: item.badgeBg || 'rgba(56, 189, 248, 0.15)' },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.drillDownItemBadgeText,
+                                { color: item.badgeColor || '#38bdf8' },
+                              ]}
+                              allowFontScaling={false}
+                            >
+                              {item.badgeText}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {item.subtitle && (
+                        <Text style={styles.drillDownItemSubtitle} numberOfLines={1} allowFontScaling={false}>
+                          {item.subtitle}
+                        </Text>
+                      )}
+
+                      {item.meta && (
+                        <Text style={styles.drillDownItemMeta} numberOfLines={1} allowFontScaling={false}>
+                          {item.meta}
+                        </Text>
+                      )}
+                    </View>
+
+                    <View style={{ minWidth: 85, flexShrink: 0, alignItems: 'flex-end', justifyContent: 'center', paddingLeft: 4 }}>
+                      {item.amount && (
+                        <Text style={styles.drillDownItemAmount} allowFontScaling={false}>
+                          {item.amount}
+                        </Text>
+                      )}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 4 }}>
+                        <Text style={styles.drillDownItemTapLabel} allowFontScaling={false}>View</Text>
+                        <Ionicons name="chevron-forward" size={14} color="#38bdf8" />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ));
+              })()}
+            </ScrollView>
+
+            {/* Bottom Action Section with strictly isolated filtered route */}
+            <View style={styles.drillDownFooter}>
+              <TouchableOpacity
+                style={styles.drillDownPrimaryBtn}
+                onPress={handleDrillDownBottomBtnPress}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.drillDownPrimaryBtnText} allowFontScaling={false}>
+                  {drillDownConfig.bottomBtnText || 'View in Module'}
+                </Text>
+                <Ionicons name="arrow-forward-outline" size={16} color="#0f172a" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* DETAIL VIEW MODAL */}
       <Modal visible={viewingItem !== null} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
@@ -1392,7 +2525,7 @@ export const ReportsScreen = () => {
             </View>
 
             {viewingItem && (
-              <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+              <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
                 {Object.entries(viewingItem)
                   .filter(([key, val]) => !key.toLowerCase().endsWith('id') && val !== null && val !== undefined)
                   .map(([key, val]) => {
@@ -1424,6 +2557,38 @@ export const ReportsScreen = () => {
             )}
 
             <View style={styles.detailModalFooter}>
+              {/* Deep link direct actions */}
+              {viewingItem && (viewingItem.unitId || viewingItem.unitNumber || selectedReportId === 'occupancy' || selectedReportId === 'rent-roll') && (
+                <TouchableOpacity
+                  style={styles.detailDeepLinkBtn}
+                  onPress={() => {
+                    const uId = viewingItem.unitId || viewingItem.id;
+                    const pId = viewingItem.propertyId || viewingItem.property?.id;
+                    setViewingItem(null);
+                    onNavigate?.('properties', { tab: 'units', unitId: uId, propertyId: pId, statusFilter: viewingItem.unitStatus || 'All' });
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="business-outline" size={13} color="#38bdf8" />
+                  <Text style={styles.detailDeepLinkBtnText} allowFontScaling={false}>Open Unit</Text>
+                </TouchableOpacity>
+              )}
+
+              {viewingItem && (viewingItem.tenantId || viewingItem.tenantName || selectedReportId === 'delinquency') && (
+                <TouchableOpacity
+                  style={[styles.detailDeepLinkBtn, { borderColor: 'rgba(129, 140, 248, 0.4)', backgroundColor: 'rgba(129, 140, 248, 0.12)' }]}
+                  onPress={() => {
+                    const tId = viewingItem.tenantId || viewingItem.id;
+                    setViewingItem(null);
+                    onNavigate?.('tenants', { tenantId: tId, statusFilter: selectedReportId === 'delinquency' ? 'Delinquent' : 'All' });
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="person-outline" size={13} color="#818cf8" />
+                  <Text style={[styles.detailDeepLinkBtnText, { color: '#818cf8' }]} allowFontScaling={false}>Open Tenant</Text>
+                </TouchableOpacity>
+              )}
+
               <TouchableOpacity style={styles.closeDetailBtn} onPress={() => setViewingItem(null)}>
                 <Text style={styles.closeDetailBtnText} allowFontScaling={false}>Close</Text>
               </TouchableOpacity>
@@ -1476,10 +2641,7 @@ export const ReportsScreen = () => {
                   <View style={styles.accordionList}>
                     <TouchableOpacity
                       style={styles.accordionOption}
-                      onPress={() => {
-                        setSelectedPropertyId('');
-                        setExpandedFilterSection(null);
-                      }}
+                      onPress={() => handleSelectProperty('')}
                     >
                       <Ionicons
                         name={selectedPropertyId === '' ? 'radio-button-on' : 'radio-button-off'}
@@ -1494,10 +2656,7 @@ export const ReportsScreen = () => {
                       <TouchableOpacity
                         key={p.id}
                         style={styles.accordionOption}
-                        onPress={() => {
-                          setSelectedPropertyId(p.id);
-                          setExpandedFilterSection(null);
-                        }}
+                        onPress={() => handleSelectProperty(p.id)}
                       >
                         <Ionicons
                           name={selectedPropertyId === p.id ? 'radio-button-on' : 'radio-button-off'}
@@ -1525,8 +2684,8 @@ export const ReportsScreen = () => {
                   activeOpacity={0.7}
                 >
                   <Text style={styles.accordionHeaderText} allowFontScaling={false}>
-                    {units.find((u) => u.id === selectedUnitId)?.unitNumber
-                      ? `Unit ${units.find((u) => u.id === selectedUnitId)?.unitNumber}`
+                    {filteredUnits.find((u) => u.id === selectedUnitId)?.unitNumber
+                      ? `Unit ${filteredUnits.find((u) => u.id === selectedUnitId)?.unitNumber}`
                       : 'All Units'}
                   </Text>
                   <Ionicons
@@ -1539,10 +2698,7 @@ export const ReportsScreen = () => {
                   <View style={styles.accordionList}>
                     <TouchableOpacity
                       style={styles.accordionOption}
-                      onPress={() => {
-                        setSelectedUnitId('');
-                        setExpandedFilterSection(null);
-                      }}
+                      onPress={() => handleSelectUnit('')}
                     >
                       <Ionicons
                         name={selectedUnitId === '' ? 'radio-button-on' : 'radio-button-off'}
@@ -1553,14 +2709,11 @@ export const ReportsScreen = () => {
                         All Units
                       </Text>
                     </TouchableOpacity>
-                    {units.map((u) => (
+                    {filteredUnits.map((u) => (
                       <TouchableOpacity
                         key={u.id}
                         style={styles.accordionOption}
-                        onPress={() => {
-                          setSelectedUnitId(u.id);
-                          setExpandedFilterSection(null);
-                        }}
+                        onPress={() => handleSelectUnit(u.id)}
                       >
                         <Ionicons
                           name={selectedUnitId === u.id ? 'radio-button-on' : 'radio-button-off'}
@@ -1568,7 +2721,7 @@ export const ReportsScreen = () => {
                           color={selectedUnitId === u.id ? '#38bdf8' : '#64748b'}
                         />
                         <Text style={[styles.accordionOptionText, selectedUnitId === u.id && styles.optionSelectedText]}>
-                          Unit {u.unitNumber} ({u.property?.name || 'Property'})
+                          Unit {u.unitNumber} {u.propertyName || u.property?.name ? `(${u.propertyName || u.property?.name})` : ''}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -1588,7 +2741,11 @@ export const ReportsScreen = () => {
                   activeOpacity={0.7}
                 >
                   <Text style={styles.accordionHeaderText} allowFontScaling={false}>
-                    {tenants.find((t) => t.id === selectedTenantId)?.name || 'All Tenants'}
+                    {filteredTenants.find((t) => t.id === selectedTenantId)?.name ||
+                      (filteredTenants.find((t) => t.id === selectedTenantId)
+                        ? `${filteredTenants.find((t) => t.id === selectedTenantId)?.firstName || ''} ${filteredTenants.find((t) => t.id === selectedTenantId)?.lastName || ''}`.trim()
+                        : null) ||
+                      'All Tenants'}
                   </Text>
                   <Ionicons
                     name={expandedFilterSection === 'tenant' ? 'chevron-up' : 'chevron-down'}
@@ -1614,7 +2771,7 @@ export const ReportsScreen = () => {
                         All Tenants
                       </Text>
                     </TouchableOpacity>
-                    {tenants.map((t) => (
+                    {filteredTenants.map((t) => (
                       <TouchableOpacity
                         key={t.id}
                         style={styles.accordionOption}
@@ -1629,7 +2786,7 @@ export const ReportsScreen = () => {
                           color={selectedTenantId === t.id ? '#38bdf8' : '#64748b'}
                         />
                         <Text style={[styles.accordionOptionText, selectedTenantId === t.id && styles.optionSelectedText]}>
-                          {t.name || `${t.firstName || ''} ${t.lastName || ''}`.trim()}
+                          {t.name || `${t.firstName || ''} ${t.lastName || ''}`.trim()} {t.unit?.unitNumber ? `(Unit ${t.unit.unitNumber})` : ''}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -2091,9 +3248,184 @@ const getStyles = (colors, isDarkMode) =>
     },
     detailItemLabel: { fontSize: 9.5, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.5 },
     detailItemValue: { fontSize: 13, fontWeight: '700', color: colors.textPrimary, marginTop: 2 },
-    detailModalFooter: { borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: 14, alignItems: 'flex-end' },
+    detailModalFooter: {
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+      paddingTop: 14,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      gap: 8,
+    },
+    detailDeepLinkBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: 'rgba(56, 189, 248, 0.12)',
+      borderRadius: 10,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderWidth: 1,
+      borderColor: 'rgba(56, 189, 248, 0.3)',
+    },
+    detailDeepLinkBtnText: { color: '#38bdf8', fontWeight: '800', fontSize: 12 },
     closeDetailBtn: { backgroundColor: '#38bdf8', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 16 },
     closeDetailBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 13 },
+
+    // KPI Tap Hint row
+    kpiTapHintRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+      marginTop: 4,
+    },
+    kpiTapHintText: {
+      fontSize: 9,
+      fontWeight: '700',
+    },
+
+    // Metric Drill-Down Modal
+    drillDownModalCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 22,
+      width: '100%',
+      maxWidth: 480,
+      maxHeight: '88%',
+      padding: 18,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.35,
+      shadowRadius: 18,
+      elevation: 12,
+    },
+    drillDownHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: colors.divider,
+      paddingBottom: 12,
+      marginBottom: 10,
+    },
+    drillDownTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+    drillDownSubtitle: { fontSize: 11, fontWeight: '600', color: colors.textMuted, marginTop: 2 },
+    drillDownCloseBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.inputBackground,
+    },
+    drillDownSearchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.inputBackground,
+      borderRadius: 12,
+      paddingHorizontal: 10,
+      height: 38,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+      marginBottom: 10,
+      gap: 6,
+    },
+    drillDownSearchInput: {
+      flex: 1,
+      fontSize: 12,
+      color: colors.textPrimary,
+      paddingVertical: 0,
+    },
+    drillDownList: {
+      flexGrow: 0,
+      maxHeight: 380,
+    },
+    drillDownItemCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: colors.inputBackground,
+      borderRadius: 14,
+      padding: 12,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    drillDownItemTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: colors.textPrimary,
+    },
+    drillDownItemSubtitle: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    drillDownItemMeta: {
+      fontSize: 10,
+      fontWeight: '600',
+      color: colors.textMuted,
+      marginTop: 2,
+    },
+    drillDownItemBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 6,
+    },
+    drillDownItemBadgeText: {
+      fontSize: 9,
+      fontWeight: '800',
+    },
+    drillDownItemAmount: {
+      fontSize: 13,
+      fontWeight: '900',
+      color: '#10b981',
+    },
+    drillDownItemTapLabel: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#38bdf8',
+    },
+    drillDownEmptyBox: {
+      paddingVertical: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    drillDownEmptyText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.textMuted,
+      marginTop: 8,
+    },
+    drillDownFooter: {
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+      paddingTop: 12,
+      marginTop: 6,
+    },
+    drillDownPrimaryBtn: {
+      backgroundColor: '#38bdf8',
+      borderRadius: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      shadowColor: '#38bdf8',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      elevation: 4,
+    },
+    drillDownPrimaryBtnText: {
+      color: '#0f172a',
+      fontSize: 13,
+      fontWeight: '800',
+    },
 
     // Filters Modal
     modalContent: {

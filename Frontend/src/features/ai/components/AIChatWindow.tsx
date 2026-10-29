@@ -31,7 +31,9 @@ export const AIChatWindow: React.FC<AIChatWindowProps> = ({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [selectedChatId, setSelectedChatId] = useState<string>('');
+  const [selectedChatId, setSelectedChatId] = useState<string>(() => {
+    return (typeof window !== 'undefined' ? sessionStorage.getItem('whatslandlord_ai_chat_id') : '') || '';
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -39,27 +41,59 @@ export const AIChatWindow: React.FC<AIChatWindowProps> = ({
     queryKey: ['conversations-list', moduleName],
     queryFn: async () => {
       const res = await api.aiAssistant.getConversations();
-      const filtered = res.filter((c) => c.module === moduleName || moduleName === 'General');
-      if (filtered.length > 0 && !selectedChatId) {
+      const filtered = res.filter((c: any) => c.module === moduleName || moduleName === 'General');
+      const savedId = typeof window !== 'undefined' ? sessionStorage.getItem('whatslandlord_ai_chat_id') : null;
+      if (savedId && filtered.some((c: any) => c.id === savedId)) {
+        setSelectedChatId(savedId);
+      } else if (filtered.length > 0 && !selectedChatId) {
         setSelectedChatId(filtered[0].id);
+        if (typeof window !== 'undefined') sessionStorage.setItem('whatslandlord_ai_chat_id', filtered[0].id);
       }
       return filtered;
     },
   });
 
+  // Query conversation messages from DB for selectedChatId
+  const { data: conversationData, isLoading: loadingMessages } = useQuery({
+    queryKey: ['conversation-messages', selectedChatId],
+    queryFn: async () => {
+      if (!selectedChatId) return { id: '', name: '', messages: [] };
+      return await api.aiAssistant.getConversation(selectedChatId);
+    },
+    enabled: !!selectedChatId,
+  });
+
+  useEffect(() => {
+    if (conversationData?.messages && conversationData.messages.length > 0) {
+      setMessages(conversationData.messages);
+    } else {
+      setMessages([
+        { id: 'welcome', sender: 'AI', text: t('ai.chat.hello', { moduleName }) }
+      ]);
+    }
+  }, [conversationData, selectedChatId, moduleName, t]);
+
   const sendMessageMutation = useMutation({
-    mutationFn: (msg: string) => api.aiAssistant.sendMessage(selectedChatId, msg),
+    mutationFn: (msg: string) => api.aiAssistant.sendMessage(selectedChatId || 'default-chat', msg),
     onSuccess: (aiResponse) => {
       setMessages((prev) => [...prev, aiResponse]);
+      setLoading(false);
+      queryClient.invalidateQueries({ queryKey: ['conversations-list'] });
+      if (selectedChatId) {
+        queryClient.invalidateQueries({ queryKey: ['conversation-messages', selectedChatId] });
+      }
+    },
+    onError: () => {
       setLoading(false);
     },
   });
 
   const createChatMutation = useMutation({
     mutationFn: () => api.aiAssistant.createConversation(),
-    onSuccess: (newChat) => {
+    onSuccess: (newChat: any) => {
       queryClient.invalidateQueries({ queryKey: ['conversations-list'] });
       setSelectedChatId(newChat.id);
+      if (typeof window !== 'undefined') sessionStorage.setItem('whatslandlord_ai_chat_id', newChat.id);
       setMessages([
         { id: 'welcome', sender: 'AI', text: t('ai.chat.hello', { moduleName }) }
       ]);
@@ -70,18 +104,14 @@ export const AIChatWindow: React.FC<AIChatWindowProps> = ({
     mutationFn: (id: string) => api.aiAssistant.deleteConversation(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['conversations-list'] });
+      queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
       setSelectedChatId('');
-      setMessages([]);
+      if (typeof window !== 'undefined') sessionStorage.removeItem('whatslandlord_ai_chat_id');
+      setMessages([
+        { id: 'welcome', sender: 'AI', text: t('ai.chat.hello', { moduleName }) }
+      ]);
     },
   });
-
-  useEffect(() => {
-    if (selectedChatId) {
-      setMessages([
-        { id: 'welcome', sender: 'AI', text: t('ai.chat.welcomeBack', { moduleName }) }
-      ]);
-    }
-  }, [selectedChatId, moduleName]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -114,8 +144,8 @@ export const AIChatWindow: React.FC<AIChatWindowProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const filteredConversations = conversations.filter((c) =>
-    c.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredConversations = (conversations || []).filter((c: any) =>
+    (c.name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -145,24 +175,34 @@ export const AIChatWindow: React.FC<AIChatWindowProps> = ({
           <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
             {loadingConvs ? (
               <span className="text-xs text-muted-foreground font-medium">{t('ai.chat.loadingHistory')}</span>
+            ) : filteredConversations.length === 0 ? (
+              <div className="p-3 text-center text-xs text-muted-foreground">
+                No discussions found
+              </div>
             ) : (
-              filteredConversations.map((c) => (
+              filteredConversations.map((c: any) => (
                 <div
                   key={c.id}
-                  onClick={() => setSelectedChatId(c.id)}
-                  className={`flex justify-between items-center p-2.5 rounded-lg text-xs font-semibold cursor-pointer transition ${
-                    c.id === selectedChatId ? 'bg-primary/10 text-primary' : 'hover:bg-muted/40 text-muted-foreground'
+                  onClick={() => {
+                    setSelectedChatId(c.id);
+                    if (typeof window !== 'undefined') sessionStorage.setItem('whatslandlord_ai_chat_id', c.id);
+                  }}
+                  className={`group flex justify-between items-center p-2.5 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                    c.id === selectedChatId ? 'bg-primary/10 text-primary font-bold shadow-xs' : 'hover:bg-muted/40 text-muted-foreground'
                   }`}
                 >
                   <span className="truncate flex-1 pr-2">{c.name}</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteChatMutation.mutate(c.id);
+                      if (window.confirm('Delete this chat history?')) {
+                        deleteChatMutation.mutate(c.id);
+                      }
                     }}
-                    className="opacity-0 group-hover:opacity-100 hover:text-rose-500 transition"
+                    title="Delete discussion"
+                    className="opacity-0 group-hover:opacity-100 hover:text-rose-500 transition p-1"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ))

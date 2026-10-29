@@ -192,14 +192,14 @@ export function DataTable<TData, TValue>({
 
       {/* Pagination Controls */}
       {!loading && !error && data.length > 0 && (
-        <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 text-sm">
+        <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 text-xs sm:text-sm">
           <div className="flex items-center space-x-2 text-muted-foreground">
             <span>Show</span>
             <div className="w-16">
               <Select
                 value={table.getState().pagination.pageSize}
                 onChange={(e) => table.setPageSize(Number(e.target.value))}
-                className="h-8 py-0.5"
+                className="h-8 py-0.5 text-xs"
               >
                 {[5, 10, 20, 30, 45].map((size) => (
                   <option key={size} value={size}>
@@ -211,7 +211,7 @@ export function DataTable<TData, TValue>({
             <span>entries</span>
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4 justify-between sm:justify-end">
             <span className="text-muted-foreground">
               Page <strong className="text-foreground">{table.getState().pagination.pageIndex + 1}</strong> of{' '}
               <strong className="text-foreground">{table.getPageCount()}</strong>

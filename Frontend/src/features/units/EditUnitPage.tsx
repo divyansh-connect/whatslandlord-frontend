@@ -880,21 +880,12 @@ export const EditUnitPage: React.FC = () => {
                         <label className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1">
                           <Key className="w-3 h-3 text-primary" /> Tenant Password *
                         </label>
-                        <div className="relative">
-                          <Input
-                            type={showPassword ? 'text' : 'password'}
-                            placeholder="Password for dashboard"
-                            {...register('tenantPassword')}
-                            className="h-8.5 text-xs pr-8"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setValue('showPassword', !showPassword)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
-                          >
-                            {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
-                        </div>
+                        <Input
+                          type="password"
+                          placeholder="Password for dashboard"
+                          {...register('tenantPassword')}
+                          className="h-8.5 text-xs"
+                        />
                       </div>
                     </div>
                   </div>

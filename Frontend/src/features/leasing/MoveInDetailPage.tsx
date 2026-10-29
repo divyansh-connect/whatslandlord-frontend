@@ -59,6 +59,7 @@ export const MoveInDetailPage: React.FC<MoveInDetailPageProps> = ({ id }) => {
       queryClient.invalidateQueries({ queryKey: ['leases'] });
       queryClient.invalidateQueries({ queryKey: ['units'] });
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
   });
 
@@ -377,10 +378,17 @@ export const MoveInDetailPage: React.FC<MoveInDetailPageProps> = ({ id }) => {
 
             {status === 'COMPLETED' && (
               <div className="space-y-4 text-xs font-semibold text-center">
-                <div className="p-8 border border-emerald-500/25 bg-emerald-500/5 text-emerald-500 rounded-2xl space-y-2">
+                <div className="p-8 border border-emerald-500/25 bg-emerald-500/5 text-emerald-500 rounded-2xl space-y-3">
                   <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
                   <h3 className="text-sm font-extrabold uppercase">Move In Completed</h3>
-                  <p className="text-muted-foreground">Lease is active, unit marked occupied, resident active, and keys issued.</p>
+                  <p className="text-muted-foreground">Lease is active, unit occupied, resident assigned, and move-in invoice generated immediately.</p>
+                  <Button 
+                    onClick={() => navigate({ to: '/invoices' as any })} 
+                    variant="outline" 
+                    className="w-full mt-2 font-bold border-emerald-500/30 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  >
+                    View Invoices
+                  </Button>
                 </div>
               </div>
             )}

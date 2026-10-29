@@ -9,19 +9,19 @@ import {
   Modal,
   TextInput,
   Alert,
-  ActivityIndicator,
   RefreshControl,
   Platform,
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { Ionicons } from '@expo/vector-icons';
 import { changePasswordSchema, provisionUserSchema } from '../validations/mobile.validation';
 
-export const ProfileScreen = () => {
+export const ProfileScreen = ({ onNavigate }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { theme, toggleTheme, language, setLanguage } = useThemeStore();
 
@@ -666,69 +666,24 @@ export const ProfileScreen = () => {
     return (
       <View style={[styles.mainWrapper, { backgroundColor: colors.bg }]}>
         <View style={[styles.fixedHeader, { backgroundColor: colors.bg, borderBottomColor: colors.cardBorder }]}>
-          <Text style={[styles.title, { color: colors.textPrimary }]} allowFontScaling={false}>
-            {language === 'es' ? 'Configuración de la Empresa' : 'Company Settings'}
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]} allowFontScaling={false}>
-            {language === 'es'
-              ? 'Configure default branding logo assets, regional date format templates, timezone offsets, and currency types.'
-              : 'Configure default branding logo assets, regional date format templates, timezone offsets, and currency types.'}
-          </Text>
-
-          {/* Sub-tabs row */}
-          <View style={[styles.tabRow, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity
-              style={[
-                styles.tabItem,
-                companyTab === 'profile' && { backgroundColor: isDarkMode ? '#38bdf8' : '#3b82f6' }
-              ]}
-              onPress={() => setCompanyTab('profile')}
+              onPress={() => (onNavigate ? onNavigate('dashboard') : null)}
+              style={{ marginRight: 10, padding: 4 }}
+              accessibilityLabel="Go Back"
+              activeOpacity={0.7}
             >
-              <Text
-                style={[
-                  styles.tabItemText,
-                  companyTab === 'profile' && { color: isDarkMode ? '#0f172a' : '#ffffff', fontWeight: '800' }
-                ]}
-                allowFontScaling={false}
-              >
-                {language === 'es' ? 'Perfil de la Empresa' : 'Company Profile'}
-              </Text>
+              <Ionicons name="arrow-back" size={22} color={colors.textPrimary || '#f8fafc'} />
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.tabItem,
-                companyTab === 'users' && { backgroundColor: isDarkMode ? '#38bdf8' : '#3b82f6' }
-              ]}
-              onPress={() => setCompanyTab('users')}
-            >
-              <Text
-                style={[
-                  styles.tabItemText,
-                  companyTab === 'users' && { color: isDarkMode ? '#0f172a' : '#ffffff', fontWeight: '800' }
-                ]}
-                allowFontScaling={false}
-              >
-                {language === 'es' ? 'Usuarios y Roles' : 'Users & Roles'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.tabItem,
-                companyTab === 'assets' && { backgroundColor: isDarkMode ? '#38bdf8' : '#3b82f6' }
-              ]}
-              onPress={() => setCompanyTab('assets')}
-            >
-              <Text
-                style={[
-                  styles.tabItemText,
-                  companyTab === 'assets' && { color: isDarkMode ? '#0f172a' : '#ffffff', fontWeight: '800' }
-                ]}
-                allowFontScaling={false}
-              >
-                {language === 'es' ? 'Eliminar Activo' : 'Asset Deletion'}
-              </Text>
-            </TouchableOpacity>
+            <Text style={[styles.title, { color: colors.textPrimary }]} allowFontScaling={false}>
+              {language === 'es' ? 'Perfil y Preferencias' : 'Profile & Preferences'}
+            </Text>
           </View>
+          <Text style={[styles.subtitle, { color: colors.textSecondary, marginTop: 4, marginLeft: onNavigate ? 36 : 0 }]} allowFontScaling={false}>
+            {language === 'es'
+              ? 'Configura el perfil de tu empresa, modo oscuro e idioma de la aplicación.'
+              : 'Manage company profile, dark mode, and app language preferences.'}
+          </Text>
         </View>
 
         <ScrollView
@@ -737,9 +692,8 @@ export const ProfileScreen = () => {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#38bdf8" />}
         >
-          {/* A.1. COMPANY PROFILE TAB */}
-          {companyTab === 'profile' && (
-            <View style={styles.tabContentContainer}>
+          {/* A.1. COMPANY PROFILE & PREFERENCES */}
+          <View style={styles.tabContentContainer}>
               <View style={[styles.settingsCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
                 <View style={[styles.cardHeaderRow, { borderBottomColor: colors.cardBorder }]}>
                   <Ionicons name="sparkles" size={16} color="#38bdf8" style={{ marginRight: 6 }} />
@@ -959,462 +913,7 @@ export const ProfileScreen = () => {
                 </TouchableOpacity>
               </View>
             </View>
-          )}
-
-          {/* A.2. ORGANIZATION USERS TAB */}
-          {companyTab === 'users' && (
-            <View style={styles.tabContentContainer}>
-              <View style={styles.usersHeaderRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.hubTitle} allowFontScaling={false}>Organization User Hub</Text>
-                  <Text style={styles.hubSubtitle} allowFontScaling={false}>
-                    Provision agency personnel, configure role relationships, properties scopes, and manage user statuses.
-                  </Text>
-                </View>
-                <TouchableOpacity style={styles.provisionBtn} onPress={() => setProvisionUserOpen(true)}>
-                  <Ionicons name="add" size={14} color="#0f172a" />
-                  <Text style={styles.provisionBtnText} allowFontScaling={false}>Provision User</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Filters */}
-              <View style={styles.filterRowContainer}>
-                <View style={styles.userSearchBox}>
-                  <Ionicons name="search-outline" size={14} color="#64748b" style={{ marginRight: 6 }} />
-                  <TextInput
-                    style={styles.userSearchInput}
-                    placeholder="Search name or email..."
-                    placeholderTextColor="#64748b"
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                  />
-                </View>
-
-                <TouchableOpacity
-                  style={styles.roleFilterBtn}
-                  onPress={() => setActivePicker(activePicker === 'roleFilter' ? null : 'roleFilter')}
-                >
-                  <Text style={styles.roleFilterText} allowFontScaling={false}>
-                    {selectedRoleFilter === 'All' ? 'All Roles' : selectedRoleFilter.replace(/_/g, ' ')}
-                  </Text>
-                  <Ionicons name={activePicker === 'roleFilter' ? "chevron-up" : "funnel-outline"} size={12} color="#cbd5e1" style={{ marginLeft: 4 }} />
-                </TouchableOpacity>
-              </View>
-
-              {activePicker === 'roleFilter' && (
-                <View style={[styles.inlineDropdownCard, { marginBottom: 12 }]}>
-                  {[
-                    { value: 'All', label: 'All Roles' },
-                    { value: 'PROPERTY MANAGER', label: 'Property Manager' },
-                    { value: 'COLLECTION MANAGER', label: 'Collection Manager' },
-                    { value: 'MAINTENANCE', label: 'Maintenance' }
-                  ].map((opt) => (
-                    <TouchableOpacity
-                      key={opt.value}
-                      style={[styles.inlineDropdownRow, selectedRoleFilter === opt.value && styles.inlineDropdownRowActive]}
-                      onPress={() => {
-                        setSelectedRoleFilter(opt.value);
-                        setActivePicker(null);
-                      }}
-                    >
-                      <Text style={[styles.inlineDropdownText, selectedRoleFilter === opt.value && styles.inlineDropdownTextActive]} allowFontScaling={false}>
-                        {opt.label}
-                      </Text>
-                      {selectedRoleFilter === opt.value && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-
-              {/* Active System Accounts card list */}
-              <View style={styles.accountsContainerCard}>
-                <Text style={styles.accountsCardTitle} allowFontScaling={false}>Active System Accounts</Text>
-                <View style={styles.divider} />
-
-                {filteredUsers.length === 0 ? (
-                  <View style={styles.emptyAccountsView}>
-                    <Text style={styles.emptyAccountsText} allowFontScaling={false}>No organization users matches</Text>
-                  </View>
-                ) : (
-                  filteredUsers.map((item, idx) => {
-                    const statusColor = item.status === 'ACTIVE' ? '#10b981' : '#f59e0b';
-                    return (
-                      <View key={item.id || idx} style={styles.userListItemRow}>
-                        <View style={{ flex: 1.2 }}>
-                          <Text style={styles.uNameText} allowFontScaling={false}>{item.name || 'Staff Member'}</Text>
-                          <Text style={styles.uEmailText} allowFontScaling={false}>{item.email}</Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 }}>
-                            <View style={styles.roleMiniBadge}>
-                              <Text style={styles.roleMiniText} allowFontScaling={false}>{item.role?.replace(/_/g, ' ')}</Text>
-                            </View>
-                            <View style={[styles.statusMiniBadge, { borderColor: statusColor }]}>
-                              <Text style={[styles.statusMiniText, { color: statusColor }]} allowFontScaling={false}>{item.status}</Text>
-                            </View>
-                          </View>
-                        </View>
-
-                        <View style={styles.uActionButtonsContainer}>
-                          <TouchableOpacity
-                            style={[styles.uActionBtn, { backgroundColor: item.status === 'ACTIVE' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(16, 185, 129, 0.12)' }]}
-                            onPress={() => handleToggleUserStatus(item.id, item.status)}
-                          >
-                            <Text style={[styles.uActionBtnText, { color: item.status === 'ACTIVE' ? '#f59e0b' : '#10b981' }]} allowFontScaling={false}>
-                              {item.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
-                            </Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.uActionBtn, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}
-                            onPress={() => handleDeleteUser(item.id, item.name)}
-                          >
-                            <Ionicons name="trash-outline" size={13} color="#ef4444" />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    );
-                  })
-                )}
-              </View>
-            </View>
-          )}
-
-          {/* A.3. PASSWORD-PROTECTED ASSET DELETION TAB */}
-          {companyTab === 'assets' && (
-            <View style={styles.tabContentContainer}>
-              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, marginBottom: 16, padding: 16, borderRadius: 16, borderWidth: 1 }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name="shield-checkmark" size={24} color="#ef4444" style={{ marginRight: 10 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 16, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
-                      Password-Protected Asset Deletion
-                    </Text>
-                    <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
-                      Deleting properties, buildings, or units requires account password authorization to protect your management ledger.
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* PROPERTIES */}
-              <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary, marginBottom: 8, textTransform: 'uppercase' }} allowFontScaling={false}>
-                Registered Properties ({assetDeleteProps.length})
-              </Text>
-              {assetDeleteProps.length === 0 ? (
-                <Text style={{ fontSize: 12, color: colors.textMuted, fontStyle: 'italic', marginBottom: 16 }} allowFontScaling={false}>No properties registered.</Text>
-              ) : (
-                assetDeleteProps.map((p) => (
-                  <View key={`del-prop-${p.id}`} style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }]}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>{p.name}</Text>
-                      <Text style={{ fontSize: 11, color: colors.textSecondary }} allowFontScaling={false}>{p.address || p.streetAddress || 'Property'}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: '#ef4444', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }}
-                      onPress={() => handlePromptAssetDelete(p, 'Property', 'properties')}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="lock-closed-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
-                      <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '800' }} allowFontScaling={false}>Delete Property</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-
-              {/* BUILDINGS */}
-              <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary, marginTop: 16, marginBottom: 8, textTransform: 'uppercase' }} allowFontScaling={false}>
-                Registered Buildings ({assetDeleteBuildings.length})
-              </Text>
-              {assetDeleteBuildings.length === 0 ? (
-                <Text style={{ fontSize: 12, color: colors.textMuted, fontStyle: 'italic', marginBottom: 16 }} allowFontScaling={false}>No buildings registered.</Text>
-              ) : (
-                assetDeleteBuildings.map((b) => (
-                  <View key={`del-bld-${b.id}`} style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }]}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>{b.name}</Text>
-                      <Text style={{ fontSize: 11, color: colors.textSecondary }} allowFontScaling={false}>Property: {b.property?.name || 'Property'}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: '#ef4444', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }}
-                      onPress={() => handlePromptAssetDelete(b, 'Building', 'buildings')}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="lock-closed-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
-                      <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '800' }} allowFontScaling={false}>Delete Building</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-
-              {/* UNITS */}
-              <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary, marginTop: 16, marginBottom: 8, textTransform: 'uppercase' }} allowFontScaling={false}>
-                Registered Units ({assetDeleteUnits.length})
-              </Text>
-              {assetDeleteUnits.length === 0 ? (
-                <Text style={{ fontSize: 12, color: colors.textMuted, fontStyle: 'italic', marginBottom: 16 }} allowFontScaling={false}>No units registered.</Text>
-              ) : (
-                assetDeleteUnits.map((u) => (
-                  <View key={`del-unit-${u.id}`} style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }]}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>Unit {u.unitNumber || u.number}</Text>
-                      <Text style={{ fontSize: 11, color: colors.textSecondary }} allowFontScaling={false}>{u.property?.name || 'Property'} · {u.status || 'Vacant'}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: '#ef4444', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }}
-                      onPress={() => handlePromptAssetDelete(u, 'Unit', 'units')}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="lock-closed-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
-                      <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '800' }} allowFontScaling={false}>Delete Unit</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-            </View>
-          )}
         </ScrollView>
-
-        {/* --- PROVISION NEW USER MODAL --- */}
-        <Modal visible={provisionUserOpen} animationType="slide" transparent>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle} allowFontScaling={false}>PROVISION USER ACCOUNT</Text>
-                  <TouchableOpacity onPress={() => setProvisionUserOpen(false)}>
-                    <Ionicons name="close-circle-outline" size={24} color="#94a3b8" />
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>FULL NAME</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="E.g. David Miller"
-                    placeholderTextColor="#64748b"
-                    value={provFullName}
-                    onChangeText={setProvFullName}
-                  />
-                  {provErrors.fullName && <Text style={styles.errorLabel} allowFontScaling={false}>{provErrors.fullName}</Text>}
-
-                  <Text style={styles.formLabel} allowFontScaling={false}>EMAIL ADDRESS</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="staff@gmail.com"
-                    placeholderTextColor="#64748b"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    value={provEmail}
-                    onChangeText={setProvEmail}
-                  />
-                  {provErrors.email && <Text style={styles.errorLabel} allowFontScaling={false}>{provErrors.email}</Text>}
-
-                  <Text style={styles.formLabel} allowFontScaling={false}>PHONE NUMBER</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="e.g. (555) 0122"
-                    placeholderTextColor="#64748b"
-                    keyboardType="phone-pad"
-                    value={provPhone}
-                    onChangeText={setProvPhone}
-                  />
-                  {provErrors.phone && <Text style={styles.errorLabel} allowFontScaling={false}>{provErrors.phone}</Text>}
-
-                  <Text style={styles.formLabel} allowFontScaling={false}>STATUS</Text>
-                  <TouchableOpacity
-                    style={styles.formPickerSelector}
-                    onPress={() => setActivePicker(activePicker === 'status' ? null : 'status')}
-                  >
-                    <Text style={styles.formPickerText} allowFontScaling={false}>{provStatus}</Text>
-                    <Ionicons name={activePicker === 'status' ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                  </TouchableOpacity>
-                  {activePicker === 'status' && (
-                    <View style={styles.inlineDropdownCard}>
-                      {[
-                        { value: 'Active', label: 'Active' },
-                        { value: 'Suspended', label: 'Suspended' }
-                      ].map((opt) => (
-                        <TouchableOpacity
-                          key={opt.value}
-                          style={[styles.inlineDropdownRow, provStatus === opt.value && styles.inlineDropdownRowActive]}
-                          onPress={() => {
-                            setProvStatus(opt.value);
-                            setActivePicker(null);
-                          }}
-                        >
-                          <Text style={[styles.inlineDropdownText, provStatus === opt.value && styles.inlineDropdownTextActive]} allowFontScaling={false}>
-                            {opt.label}
-                          </Text>
-                          {provStatus === opt.value && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-
-                  <Text style={styles.formLabel} allowFontScaling={false}>USER PASSWORD</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="••••••••"
-                    placeholderTextColor="#64748b"
-                    secureTextEntry
-                    value={provPassword}
-                    onChangeText={setProvPassword}
-                  />
-                  {provErrors.password && <Text style={styles.errorLabel} allowFontScaling={false}>{provErrors.password}</Text>}
-
-                  <Text style={styles.formLabel} allowFontScaling={false}>ROLE</Text>
-                  <TouchableOpacity
-                    style={styles.formPickerSelector}
-                    onPress={() => setActivePicker(activePicker === 'role' ? null : 'role')}
-                  >
-                    <Text style={styles.formPickerText} allowFontScaling={false}>{provRole}</Text>
-                    <Ionicons name={activePicker === 'role' ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                  </TouchableOpacity>
-                  {activePicker === 'role' && (
-                    <View style={styles.inlineDropdownCard}>
-                      {[
-                        { value: 'Collection Manager', label: 'Collection Manager' },
-                        { value: 'Maintenance', label: 'Maintenance' }
-                      ].map((opt) => (
-                        <TouchableOpacity
-                          key={opt.value}
-                          style={[styles.inlineDropdownRow, provRole === opt.value && styles.inlineDropdownRowActive]}
-                          onPress={() => {
-                            setProvRole(opt.value);
-                            if (opt.value !== 'Maintenance') setProvSpecialty('None');
-                            setActivePicker(null);
-                          }}
-                        >
-                          <Text style={[styles.inlineDropdownText, provRole === opt.value && styles.inlineDropdownTextActive]} allowFontScaling={false}>
-                            {opt.label}
-                          </Text>
-                          {provRole === opt.value && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-
-                  {provRole === 'Maintenance' && (
-                    <>
-                      <Text style={styles.formLabel} allowFontScaling={false}>SPECIALTY TRADE</Text>
-                      <TouchableOpacity
-                        style={styles.formPickerSelector}
-                        onPress={() => setActivePicker(activePicker === 'specialty' ? null : 'specialty')}
-                      >
-                        <Text style={styles.formPickerText} allowFontScaling={false}>{provSpecialty}</Text>
-                        <Ionicons name={activePicker === 'specialty' ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                      </TouchableOpacity>
-                      {activePicker === 'specialty' && (
-                        <View style={styles.inlineDropdownCard}>
-                          {[
-                            { value: 'Plumber Specialty', label: 'Plumber Specialty' },
-                            { value: 'Electrician Specialty', label: 'Electrician Specialty' },
-                            { value: 'HVAC Maintenance', label: 'HVAC Maintenance' },
-                            { value: 'General Contractor', label: 'General Contractor' },
-                            { value: 'Cleaning & Turnovers', label: 'Cleaning & Turnovers' },
-                            { value: 'Landscaping & Pools', label: 'Landscaping & Pools' },
-                            { value: 'Pest Control', label: 'Pest Control' },
-                            { value: 'Security & Fire', label: 'Security & Fire' },
-                            { value: 'Roofing & Guttering', label: 'Roofing & Guttering' }
-                          ].map((opt) => (
-                            <TouchableOpacity
-                              key={opt.value}
-                              style={[styles.inlineDropdownRow, provSpecialty === opt.value && styles.inlineDropdownRowActive]}
-                              onPress={() => {
-                                setProvSpecialty(opt.value);
-                                setActivePicker(null);
-                              }}
-                            >
-                              <Text style={[styles.inlineDropdownText, provSpecialty === opt.value && styles.inlineDropdownTextActive]} allowFontScaling={false}>
-                                {opt.label}
-                              </Text>
-                              {provSpecialty === opt.value && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      )}
-
-                      {/* Scope scope checklist */}
-                      <Text style={styles.formLabel} allowFontScaling={false}>ACCESS SCOPE RELATIONSHIPS</Text>
-                      <Text style={{ fontSize: 9.5, color: '#64748b', marginBottom: 6, fontWeight: '700' }} allowFontScaling={false}>ASSIGN BUILDINGS SCOPE</Text>
-                      
-                      <View style={styles.buildingChecklistContainer}>
-                        {['Building 1', 'Buliding 2', 'building A'].map(b => {
-                          const isChecked = provBuildingsScope.includes(b);
-                          return (
-                            <TouchableOpacity key={b} style={styles.scopeCheckRow} onPress={() => toggleBuildingScope(b)}>
-                              <Ionicons name={isChecked ? "checkbox" : "square-outline"} size={18} color={isChecked ? "#38bdf8" : "#64748b"} style={{ marginRight: 6 }} />
-                              <Text style={styles.scopeCheckText} allowFontScaling={false}>{b}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    </>
-                  )}
-                </ScrollView>
-
-                <View style={styles.modalActions}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setProvisionUserOpen(false)}>
-                    <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.submitBtn} onPress={handleProvisionUser} disabled={submitting}>
-                    {submitting ? (
-                      <ActivityIndicator size="small" color="#0f172a" />
-                    ) : (
-                      <Text style={styles.submitBtnText} allowFontScaling={false}>Provision Account</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-
-        {/* --- PASSWORD CONFIRMATION MODAL FOR ASSET DELETION --- */}
-        <Modal visible={isDeletePasswordModalOpen} animationType="slide" transparent>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-                <View style={styles.modalHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="lock-closed" size={20} color="#ef4444" style={{ marginRight: 8 }} />
-                    <Text style={[styles.modalTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
-                      Password Verification Required
-                    </Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setIsDeletePasswordModalOpen(false)}>
-                    <Ionicons name="close-circle-outline" size={24} color="#94a3b8" />
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 16 }} allowFontScaling={false}>
-                  You are about to delete {deleteTargetAsset?.type} <Text style={{ fontWeight: '800', color: colors.textPrimary }}>"{deleteTargetAsset?.name}"</Text>. Enter your account password to confirm deletion:
-                </Text>
-
-                <Text style={styles.formLabel} allowFontScaling={false}>ACCOUNT PASSWORD</Text>
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
-                  placeholder="Enter current password..."
-                  placeholderTextColor="#64748b"
-                  secureTextEntry
-                  value={deleteConfirmPassword}
-                  onChangeText={setDeleteConfirmPassword}
-                />
-
-                <View style={[styles.modalActions, { marginTop: 20 }]}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsDeletePasswordModalOpen(false)} disabled={deletingAsset}>
-                    <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.submitBtn, { backgroundColor: '#ef4444' }]} onPress={handleExecuteAssetDelete} disabled={deletingAsset}>
-                    {deletingAsset ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>Confirm Delete</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
       </View>
     );
   }
@@ -1880,7 +1379,7 @@ const getStyles = (colors) => StyleSheet.create({
   errorLabel: { color: '#ef4444', fontSize: 10.5, marginTop: 4, fontWeight: '700' },
   mainWrapper: { flex: 1, backgroundColor: colors.bg },
   container: { flex: 1, backgroundColor: colors.bg },
-  scrollContent: { paddingHorizontal: 16, paddingBottom: 60, paddingTop: 12 },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 60, paddingTop: 12, width: '100%', maxWidth: 1024, alignSelf: 'center' },
 
   fixedHeader: {
     backgroundColor: colors.bg,
@@ -1890,6 +1389,9 @@ const getStyles = (colors) => StyleSheet.create({
     borderBottomColor: colors.cardBorder,
     zIndex: 10,
     paddingTop: 16,
+    width: '100%',
+    maxWidth: 1024,
+    alignSelf: 'center',
   },
   title: { fontSize: 20, fontWeight: '800', color: colors.textPrimary },
   subtitle: { fontSize: 11.5, color: colors.textSecondary, marginTop: 4, lineHeight: 15 },
@@ -2077,6 +1579,8 @@ const getStyles = (colors) => StyleSheet.create({
     backgroundColor: colors.cardBg,
     borderRadius: 20,
     width: '100%',
+    maxWidth: 580,
+    alignSelf: 'center',
     maxHeight: '85%',
     padding: 20,
     borderWidth: 1,
@@ -2142,7 +1646,9 @@ const getStyles = (colors) => StyleSheet.create({
   pickerModalContent: {
     backgroundColor: colors.cardBg,
     borderRadius: 16,
-    width: '80%',
+    width: '90%',
+    maxWidth: 440,
+    alignSelf: 'center',
     padding: 16,
     borderWidth: 1,
     borderColor: colors.cardBorder,

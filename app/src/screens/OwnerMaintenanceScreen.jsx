@@ -4,7 +4,6 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -12,6 +11,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
@@ -54,7 +54,7 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const OwnerMaintenanceScreen = () => {
+export const OwnerMaintenanceScreen = ({ onNavigate }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
@@ -165,7 +165,21 @@ export const OwnerMaintenanceScreen = () => {
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
         {/* Page Header */}
         <View style={styles.header}>
-          <Text style={styles.title} allowFontScaling={false}>Portfolio Maintenance Tickets</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+            {!!onNavigate && (
+              <TouchableOpacity
+                onPress={() => onNavigate('dashboard')}
+                style={{ marginRight: 8, padding: 4 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <Text style={[styles.title, { marginBottom: 0, flex: 1 }]} allowFontScaling={false}>
+              Portfolio Maintenance Tickets
+            </Text>
+          </View>
           <Text style={styles.subtitle} allowFontScaling={false}>
             Verify contractor dispatches progress and repairs costs deductions.
           </Text>
@@ -290,7 +304,7 @@ export const OwnerMaintenanceScreen = () => {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.modalScroll}>
+            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 12 }}>
               <View style={styles.detailSection}>
                 <Text style={styles.modalSectionHeader} allowFontScaling={false}>ISSUE DIAGNOSTICS & DESCRIPTION</Text>
                 <View style={styles.descBox}>
@@ -355,7 +369,7 @@ export const OwnerMaintenanceScreen = () => {
                   </View>
                 </View>
               </View>
-            </View>
+            </ScrollView>
 
             <TouchableOpacity style={styles.closeModalBtn} onPress={() => setSelectedTicket(null)}>
               <Text style={styles.closeModalBtnText} allowFontScaling={false}>Close Ticket Specs</Text>

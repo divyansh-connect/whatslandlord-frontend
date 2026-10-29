@@ -446,6 +446,7 @@ export const EditPropertyPage: React.FC<{ propertyId?: string }> = ({ propertyId
                   <div className="relative">
                     <Input
                       type={showSecret ? 'text' : 'password'}
+                      disableTogglePassword
                       placeholder={hasExistingToken ? '•••••••••••••••• (Leave blank to keep existing)' : 'sk_live_... or sk_test_...'}
                       value={paymentAuthToken}
                       onChange={(e) => setPaymentAuthToken(e.target.value)}
@@ -495,6 +496,7 @@ export const EditPropertyPage: React.FC<{ propertyId?: string }> = ({ propertyId
                   <div className="relative">
                     <Input
                       type={showSecret ? 'text' : 'password'}
+                      disableTogglePassword
                       placeholder={hasExistingToken ? '•••••••••••••••• (Leave blank to keep existing)' : 'Enter 16-character Transaction Key'}
                       value={paymentAuthToken}
                       onChange={(e) => setPaymentAuthToken(e.target.value)}
@@ -544,6 +546,7 @@ export const EditPropertyPage: React.FC<{ propertyId?: string }> = ({ propertyId
                   <div className="relative">
                     <Input
                       type={showSecret ? 'text' : 'password'}
+                      disableTogglePassword
                       placeholder={hasExistingToken ? '•••••••••••••••• (Leave blank to keep existing)' : 'Enter Razorpay Key Secret'}
                       value={paymentAuthToken}
                       onChange={(e) => setPaymentAuthToken(e.target.value)}

@@ -4,7 +4,6 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -17,6 +16,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore, safeStorage } from '../store/useStore';
 import { useThemeColors } from '../theme';
@@ -75,7 +75,12 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const TenantsScreen = () => {
+export const TenantsScreen = ({
+  initialStatusFilter = 'All',
+  initialAdoptionFilter = null,
+  targetTenantId = null,
+  onNavigate,
+}) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -400,22 +405,85 @@ export const TenantsScreen = () => {
     }
   };
 
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter || 'All');
+  const [adoptionFilter, setAdoptionFilter] = useState(initialAdoptionFilter || null);
+
+  useEffect(() => {
+    if (initialStatusFilter) {
+      setStatusFilter(initialStatusFilter);
+    }
+  }, [initialStatusFilter]);
+
+  useEffect(() => {
+    if (initialAdoptionFilter !== undefined) {
+      setAdoptionFilter(initialAdoptionFilter || null);
+    }
+  }, [initialAdoptionFilter]);
+
+  useEffect(() => {
+    if (targetTenantId && tenants.length > 0) {
+      const found = tenants.find((t) => String(t.id) === String(targetTenantId));
+      if (found) {
+        setSelectedTenant(found);
+      }
+    }
+  }, [targetTenantId, tenants]);
+
+  const getAdoptionFilterLabel = (filter) => {
+    switch (filter) {
+      case 'missing_contact':
+        return 'Missing Contact Details';
+      case 'invalid_email':
+        return 'Invalid Emails';
+      case 'inactive':
+        return 'Inactive Residents';
+      case 'activated':
+        return 'Activated in Portal';
+      case 'payment_setup':
+        return 'Payment Set Up';
+      default:
+        return 'Adoption Filter';
+    }
+  };
 
   const activeCount = tenants.filter(t => (t.status || 'Active').toLowerCase() === 'active').length;
   const pendingCount = tenants.filter(t => (t.status || '').toLowerCase() === 'pending').length;
   const inactiveCount = tenants.filter(t => ['inactive', 'past', 'evicted'].includes((t.status || '').toLowerCase())).length;
 
   const filteredTenants = tenants.filter((item) => {
+    if (!item) return false;
+    const q = searchQuery.toLowerCase().trim();
     const fullName = `${item.firstName || ''} ${item.lastName || ''} ${item.name || ''}`.toLowerCase();
     const propName = (item.unit?.property?.name || item.propertyName || '').toLowerCase();
     const unitNum = (item.unit?.unitNumber || item.unitNumber || '').toLowerCase();
     const emailStr = (item.email || '').toLowerCase();
-    const matchesSearch = fullName.includes(searchQuery.toLowerCase()) ||
-           propName.includes(searchQuery.toLowerCase()) ||
-           unitNum.includes(searchQuery.toLowerCase()) ||
-           emailStr.includes(searchQuery.toLowerCase());
+    const phoneStr = (item.phone || '').toLowerCase();
+    const matchesSearch = !q ||
+           fullName.includes(q) ||
+           propName.includes(q) ||
+           unitNum.includes(q) ||
+           emailStr.includes(q) ||
+           phoneStr.includes(q);
     if (!matchesSearch) return false;
+
+    // Adoption filter matching ManagerDashboard logic
+    if (adoptionFilter) {
+      const hasPhone = Boolean(item.phone && String(item.phone).trim().length > 3);
+      const hasEmail = Boolean(item.email && String(item.email).trim().length > 3);
+      const isValidEmail = hasEmail && String(item.email).includes('@');
+      const isInactive = !item.status || ['inactive', 'pending', 'past', 'evicted'].includes(String(item.status).toLowerCase());
+      const isActivated = Boolean(item.password || String(item.status).toLowerCase() === 'active');
+      const hasPayment = Boolean(
+        (item.invoices && item.invoices.some((inv) => String(inv.status).toLowerCase() === 'paid')) ||
+        item.paymentMethod || item.autopay
+      );
+
+      if (adoptionFilter === 'missing_contact' && hasPhone && hasEmail) return false;
+      if (adoptionFilter === 'invalid_email' && isValidEmail) return false;
+      if (adoptionFilter === 'inactive' && !isInactive) return false;
+      if (adoptionFilter === 'activated' && !isActivated) return false;
+      if (adoptionFilter === 'payment_setup' && !hasPayment) return false;
+    }
 
     const itemStatus = (item.status || 'Active').toLowerCase();
     if (statusFilter === 'All') return true;
@@ -448,9 +516,19 @@ export const TenantsScreen = () => {
       <View style={{ paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 48 : 16 }}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title} allowFontScaling={false}>
-            {language === 'es' ? 'Directorio de Inquilinos' : language === 'hi' ? 'किरायेदार डायरेक्टरी' : 'Tenant Directory'}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+            <TouchableOpacity
+              onPress={() => (onNavigate ? onNavigate('dashboard') : null)}
+              style={{ marginRight: 10, padding: 4 }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="arrow-back" size={24} color={colors.textPrimary || '#f8fafc'} />
+            </TouchableOpacity>
+            <Text style={[styles.title, { flex: 1, marginBottom: 0 }]} allowFontScaling={false}>
+              {language === 'es' ? 'Directorio de Inquilinos' : language === 'hi' ? 'किरायेदार डायरेक्टरी' : 'Tenant Directory'}
+            </Text>
+          </View>
           <Text style={styles.subtitle} allowFontScaling={false}>
             {language === 'es'
               ? 'Residentes activos, estados de contrato y registros de contacto'
@@ -477,6 +555,11 @@ export const TenantsScreen = () => {
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={16} color="#64748b" />
+              </TouchableOpacity>
+            ) : null}
           </View>
           <TouchableOpacity style={styles.addBtn} onPress={() => setIsAddOpen(true)} activeOpacity={0.8}>
             <Ionicons name="add" size={18} color="#0f172a" />
@@ -523,6 +606,43 @@ export const TenantsScreen = () => {
             );
           })}
         </ScrollView>
+
+        {/* Active Adoption Filter Banner */}
+        {adoptionFilter && (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+              borderWidth: 1,
+              borderColor: '#38bdf8',
+              borderRadius: 8,
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              marginBottom: 8,
+            }}
+          >
+            <Ionicons name="filter" size={14} color="#38bdf8" style={{ marginRight: 6 }} />
+            <Text
+              style={{
+                flex: 1,
+                fontSize: 12,
+                color: colors.textPrimary || '#f8fafc',
+                fontWeight: '500',
+              }}
+              allowFontScaling={false}
+            >
+              Filter: <Text style={{ fontWeight: '700', color: '#38bdf8' }}>{getAdoptionFilterLabel(adoptionFilter)}</Text>
+            </Text>
+            <TouchableOpacity
+              onPress={() => setAdoptionFilter(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle" size={18} color="#94a3b8" />
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       <ScrollView
@@ -649,7 +769,7 @@ export const TenantsScreen = () => {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 <Text style={styles.modalSubHeader} allowFontScaling={false}>PERSONAL INFORMATION</Text>
                 <View style={styles.formRow}>
                   <View style={[styles.formGroup, { flex: 1, marginRight: 8 }]}>
@@ -990,7 +1110,7 @@ export const TenantsScreen = () => {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 <Text style={styles.modalSubHeader} allowFontScaling={false}>PERSONAL INFORMATION</Text>
                 <View style={styles.formRow}>
                   <View style={[styles.formGroup, { flex: 1, marginRight: 8 }]}>
@@ -1418,7 +1538,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   modalBg: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.85)', justifyContent: 'center', padding: 20 },
   modalCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: colors.cardBorder, maxHeight: '85%', width: '100%', maxWidth: 580, alignSelf: 'center' },
   modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+  modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary, flex: 1, flexShrink: 1, marginRight: 8 },
   modalSubHeader: { fontSize: 9, fontWeight: '850', color: '#38bdf8', letterSpacing: 0.8, marginTop: 10, marginBottom: 10 },
   modalScroll: { marginBottom: 16 },
 

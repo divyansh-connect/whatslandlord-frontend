@@ -16,6 +16,7 @@ import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { mapBackendErrors } from '../../utils/errorMapping';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { FilterBar } from '../../components/FilterBar';
 
 const ownerFormSchema = zod.object({
   name: zod.string().min(1, 'Full Name is required'),
@@ -36,11 +37,33 @@ export const OwnersPage: React.FC = () => {
   const [editingOwner, setEditingOwner] = useState<Owner | null>(null);
   const [viewingOwner, setViewingOwner] = useState<Owner | null>(null);
   const [selectedProperties, setSelectedProperties] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [payoutFilter, setPayoutFilter] = useState('');
   const [deleteOwnerId, setDeleteOwnerId] = useState<string | null>(null);
 
   const { data: owners = [], isLoading } = useQuery({
     queryKey: ['owners'],
     queryFn: () => api.owner.getAll(),
+  });
+
+  const filteredOwners = (Array.isArray(owners) ? owners : []).filter((item: any) => {
+    if (!item) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const nameStr = String(item.name || `${item.firstName || ''} ${item.lastName || ''}`).toLowerCase();
+    const emailStr = String(item.email || '').toLowerCase();
+    const phoneStr = String(item.phone || '').toLowerCase();
+    const payoutStr = String(item.payoutMethod || '').toLowerCase();
+
+    const matchesSearch = !q ||
+      nameStr.includes(q) ||
+      emailStr.includes(q) ||
+      phoneStr.includes(q) ||
+      payoutStr.includes(q);
+
+    const matchesPayout = !payoutFilter ||
+      payoutStr.replace(/[\s/_-]/g, '') === payoutFilter.toLowerCase().replace(/[\s/_-]/g, '');
+
+    return matchesSearch && matchesPayout;
   });
 
   const { data: properties = [] } = useQuery({
@@ -237,7 +260,31 @@ export const OwnersPage: React.FC = () => {
           icon: <Plus className="w-4 h-4" />,
         }}
       />
-      <DataTable columns={columns} data={owners} loading={isLoading} />
+      <FilterBar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search owners by name, email, phone, payout..."
+        filters={[
+          {
+            key: 'payout',
+            value: payoutFilter,
+            placeholder: 'All Payout Methods',
+            options: [
+              { label: 'ACH/Direct Deposit', value: 'ACH/Direct Deposit' },
+              { label: 'Wire Transfer', value: 'Wire Transfer' },
+              { label: 'Check', value: 'Check' },
+            ],
+          },
+        ]}
+        onFilterChange={(key, val) => {
+          if (key === 'payout') setPayoutFilter(val);
+        }}
+        onReset={() => {
+          setSearchQuery('');
+          setPayoutFilter('');
+        }}
+      />
+      <DataTable columns={columns} data={filteredOwners} loading={isLoading} />
 
       {/* Add / Edit Owner Modal */}
       {isModalOpen && (

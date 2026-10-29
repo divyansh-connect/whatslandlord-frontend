@@ -233,9 +233,23 @@ export const DocsAllPage: React.FC = () => {
   // Combine and filter
   const allDocs = [...mappedGeneralDocs, ...mappedOwnerDocs, ...mappedTenantDocs];
 
-  const filtered = allDocs.filter((d) => {
-    const nameMatch = d.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const catMatch = categoryFilter === '' || d.category === categoryFilter;
+  const filtered = allDocs.filter((d: any) => {
+    if (!d) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const nameStr = String(d.name || '');
+    const catStr = String(d.category || '');
+    const folderStr = String(d.folderName || '');
+    const ownerStr = String(d.owner || '');
+    const propStr = String(d.property || '');
+
+    const nameMatch = !q ||
+      nameStr.toLowerCase().includes(q) ||
+      catStr.toLowerCase().includes(q) ||
+      folderStr.toLowerCase().includes(q) ||
+      ownerStr.toLowerCase().includes(q) ||
+      propStr.toLowerCase().includes(q);
+
+    const catMatch = !categoryFilter || catStr.toLowerCase() === categoryFilter.toLowerCase();
     
     let roleMatch = true;
     if (roleFilter === 'owner') {

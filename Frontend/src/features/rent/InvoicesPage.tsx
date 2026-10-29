@@ -20,7 +20,13 @@ export const InvoicesPage: React.FC = () => {
   const { t } = useTranslation();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('status') || '';
+    } catch {
+      return '';
+    }
+  });
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
@@ -92,11 +98,39 @@ export const InvoicesPage: React.FC = () => {
     },
   });
 
-  const filteredInvoices = invoices.filter((inv) => {
-    const nameMatch = (inv.tenantName || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === '' || inv.status === statusFilter;
-    return nameMatch && matchesStatus;
-  });
+  // Auto-open invoice from notification or query parameter ?id=
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get('id');
+      if (targetId && invoices.length > 0) {
+        const found = invoices.find((inv) => inv.id === targetId);
+        if (found) {
+          setSelectedInvoice(found);
+        }
+      }
+    } catch (_) {}
+  }, [invoices]);
+
+  const filteredInvoices = invoices
+    .slice()
+    .sort((a, b) => new Date(b.createdAt || b.dueDate || 0).getTime() - new Date(a.createdAt || a.dueDate || 0).getTime())
+    .filter((inv) => {
+      const q = searchQuery.toLowerCase().trim();
+      const nameMatch = (inv.tenantName || '').toLowerCase().includes(q);
+      const propMatch = (inv.propertyName || '').toLowerCase().includes(q);
+      const unitMatch = (inv.unitNumber || '').toLowerCase().includes(q);
+      const idMatch = (inv.id || '').toLowerCase().includes(q);
+      const amountMatch = String(inv.amount || '').includes(q) || String(inv.balance || '').includes(q);
+      const matchesSearch = !q || nameMatch || propMatch || unitMatch || idMatch || amountMatch;
+      let matchesStatus = true;
+      if (statusFilter) {
+        const sf = statusFilter.toLowerCase().replace(/[\s_-]/g, '');
+        const is = String(inv.status || '').toLowerCase().replace(/[\s_-]/g, '');
+        matchesStatus = is === sf;
+      }
+      return matchesSearch && matchesStatus;
+    });
 
   const getInvoiceNumber = (invId: string) => {
     const index = invoices.findIndex((inv) => inv.id === invId);

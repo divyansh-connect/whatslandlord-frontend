@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   TextInput,
   Modal,
-  SafeAreaView,
   ScrollView,
   Alert,
 } from 'react-native';
@@ -97,7 +96,7 @@ export const WordPressInquiriesScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       {/* Header */}
       <View style={styles.headerContainer}>
         <Text style={styles.title} allowFontScaling={false}>WordPress Inquiries</Text>
@@ -250,7 +249,7 @@ export const WordPressInquiriesScreen = () => {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 };
 

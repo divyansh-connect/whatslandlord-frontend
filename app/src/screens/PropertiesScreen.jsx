@@ -4,7 +4,6 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -13,6 +12,7 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore, safeStorage } from '../store/useStore';
@@ -22,17 +22,13 @@ import { CustomDatePicker } from '../components/CustomDatePicker';
 
 const PROPERTY_TYPES = [
   'Apartment',
+  'Commercial',
   'Single Family',
   'Multi Family',
-  'Commercial',
-  'Industrial',
-  'Condo',
-  'Townhouse',
   'Mixed-Use Property (MUP)',
   'HOA',
-  'Other',
 ];
-const PROPERTY_STATUSES = ['Active', 'Inactive', 'Under Review', 'Draft'];
+const PROPERTY_STATUSES = ['Active', 'Inactive', 'Under Review', 'Archived', 'Draft'];
 const PAYMENT_ACCOUNT_SETUPS = [
   { label: '🏢 Use Company Default (Company Settings)', value: 'COMPANY_DEFAULT' },
   { label: '⚙️ Other (Custom Payment Gateway)', value: 'OTHER' },
@@ -148,7 +144,13 @@ const generateMonthListFromMoveIn = (dateStr) => {
   return months;
 };
 
-export const PropertiesScreen = ({ initialTab = 'properties' }) => {
+export const PropertiesScreen = ({
+  initialTab = 'properties',
+  initialUnitStatusFilter = 'All',
+  targetUnitId = null,
+  targetPropertyId = null,
+  onNavigate,
+}) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -158,6 +160,11 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
   const [activeTab, setActiveTab] = useState(
     initialTab === 'units' ? 'units' : initialTab === 'drafts' ? 'drafts' : 'properties'
   );
+  const [unitStatusFilter, setUnitStatusFilter] = useState(initialUnitStatusFilter || 'All');
+  const [propTypeFilter, setPropTypeFilter] = useState('All');
+  const [propStatusFilter, setPropStatusFilter] = useState('All');
+  const [unitPropertyFilter, setUnitPropertyFilter] = useState('All');
+  const [propFilterModalOpen, setPropFilterModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -334,6 +341,36 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
     fetchAllData();
   }, []);
 
+  useEffect(() => {
+    if (initialUnitStatusFilter) {
+      setUnitStatusFilter(initialUnitStatusFilter);
+    }
+  }, [initialUnitStatusFilter]);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab === 'units' ? 'units' : initialTab === 'drafts' ? 'drafts' : 'properties');
+    }
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (targetUnitId && units.length > 0) {
+      const found = units.find((u) => String(u.id) === String(targetUnitId));
+      if (found) {
+        setSelectedUnit(found);
+      }
+    }
+  }, [targetUnitId, units]);
+
+  useEffect(() => {
+    if (targetPropertyId && properties.length > 0) {
+      const found = properties.find((p) => String(p.id) === String(targetPropertyId));
+      if (found) {
+        setSelectedProperty(found);
+      }
+    }
+  }, [targetPropertyId, properties]);
+
   const handleRefresh = () => {
     setRefreshing(true);
     fetchAllData();
@@ -420,16 +457,25 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
   const filteredProperties = useMemo(() => {
     return properties.filter((p) => {
       if (p.status === 'Draft' || p.status === 'Inactive') return false;
+      if (propStatusFilter !== 'All') {
+        const pStatus = String(p.status || 'Active').toLowerCase();
+        if (pStatus !== propStatusFilter.toLowerCase()) return false;
+      }
+      if (propTypeFilter !== 'All') {
+        const pType = String(p.type || '').toLowerCase();
+        if (pType !== propTypeFilter.toLowerCase()) return false;
+      }
       const q = searchQuery.toLowerCase().trim();
       if (!q) return true;
       return (
         (p.name || '').toLowerCase().includes(q) ||
         (p.city || '').toLowerCase().includes(q) ||
         (p.address || '').toLowerCase().includes(q) ||
-        (p.type || '').toLowerCase().includes(q)
+        (p.type || '').toLowerCase().includes(q) ||
+        (p.status || '').toLowerCase().includes(q)
       );
     });
-  }, [properties, searchQuery]);
+  }, [properties, searchQuery, propStatusFilter, propTypeFilter]);
 
   const filteredDrafts = useMemo(() => {
     return properties.filter((p) => {
@@ -445,10 +491,31 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
       const q = searchQuery.toLowerCase().trim();
       const uNum = String(u.unitNumber || '');
       const pName = u.propertyName || (u.property ? u.property.name : '');
-      if (!q) return true;
-      return uNum.toLowerCase().includes(q) || pName.toLowerCase().includes(q);
+      const matchesSearch = !q || uNum.toLowerCase().includes(q) || pName.toLowerCase().includes(q);
+      if (!matchesSearch) return false;
+
+      if (unitStatusFilter && unitStatusFilter !== 'All') {
+        const uStatus = String(u.status || 'Vacant').toLowerCase();
+        if (unitStatusFilter.toLowerCase() === 'vacant') {
+          if (uStatus !== 'vacant') return false;
+        } else if (unitStatusFilter.toLowerCase() === 'occupied') {
+          if (uStatus !== 'occupied') return false;
+        } else if (uStatus !== unitStatusFilter.toLowerCase()) {
+          return false;
+        }
+      }
+
+      if (unitPropertyFilter && unitPropertyFilter !== 'All') {
+        const propId = String(u.propertyId || (u.property ? u.property.id : ''));
+        const pNameStr = String(u.propertyName || (u.property ? u.property.name : ''));
+        if (propId !== unitPropertyFilter && pNameStr !== unitPropertyFilter) {
+          return false;
+        }
+      }
+
+      return true;
     });
-  }, [units, searchQuery]);
+  }, [units, searchQuery, unitStatusFilter, unitPropertyFilter]);
 
   // --------------------------------------------------------------------------
   // PROPERTY ACTIONS (Matching Web 1:1)
@@ -580,34 +647,56 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
 
   const handleSaveProperty = async (saveAsDraft = false) => {
     setFormErrors({});
-    const targetStatus = saveAsDraft ? 'Draft' : pStatus;
+    const targetStatus = saveAsDraft ? 'Draft' : (pStatus || 'Active');
     const finalPaymentProvider = pPaymentAccountSetup === 'COMPANY_DEFAULT' ? 'COMPANY_DEFAULT' : pCustomGateway;
+
+    // Resolve ownerId: user selection -> or first available owner
+    let effectiveOwnerId = pOwnerId.trim();
+    if (!effectiveOwnerId && owners.length > 0) {
+      effectiveOwnerId = owners[0].id;
+    }
+
+    if (!effectiveOwnerId) {
+      Alert.alert('Owner Required', 'Please select a Property Owner or add a new owner first.');
+      setFormErrors({ owner: 'Property Owner is required' });
+      return;
+    }
+
+    const street = pStreet.trim();
+    const city = pCity.trim();
+    const state = pState.trim();
+    const country = pCountry.trim() || 'USA';
+    const zip = pZip.trim();
+
+    // Backend requires address with min length 1
+    const constructedAddress = street
+      ? `${street}, ${city || 'Metropolis'}, ${state || 'NY'}, ${country}`
+      : city
+      ? `${city}, ${state || 'NY'}, ${country}`
+      : `${pName.trim() || 'Main Property'}, ${country}`;
+
     const payload = {
       name: pName.trim(),
-      type: pType,
+      type: pType || 'Apartment',
       status: targetStatus,
-      streetAddress: pStreet.trim() || undefined,
-      city: pCity.trim() || undefined,
-      state: pState.trim() || undefined,
-      country: pCountry.trim() || 'USA',
-      zip: pZip.trim() || undefined,
+      streetAddress: street || undefined,
+      city: city || undefined,
+      state: state || undefined,
+      country: country,
+      zip: zip || undefined,
       nycBin: pNycBin.trim() || undefined,
-      address: pStreet.trim()
-        ? `${pStreet.trim()}, ${pCity.trim()}, ${pState.trim()}`
-        : pCity.trim()
-        ? `${pCity.trim()}, ${pState.trim()}`
-        : undefined,
-      ownerId: pOwnerId.trim() || undefined,
+      address: constructedAddress,
+      ownerId: effectiveOwnerId,
       ownershipPercentage: pShare.trim() ? Number(pShare) : 100,
-      managementCompany: pManagementCompany.trim() || undefined,
-      yearBuilt: pYearBuilt.trim() ? Number(pYearBuilt) : undefined,
+      managementCompany: pManagementCompany.trim() || 'Apex Property Management',
+      yearBuilt: pYearBuilt.trim() ? Number(pYearBuilt) : 2020,
       totalFloors: pFloors.trim() ? Number(pFloors) : 1,
       totalBuildings: pFloors.trim() ? Number(pFloors) : 1,
       totalUnits: pUnitsCount.trim() ? Number(pUnitsCount) : 1,
-      squareFootage: pSqft.trim() ? Number(pSqft) : undefined,
-      purchasePrice: pPurchasePrice.trim() ? Number(pPurchasePrice) : undefined,
-      currentValue: pCurrentValue.trim() ? Number(pCurrentValue) : undefined,
-      monthlyExpenses: pExpenses.trim() ? Number(pExpenses) : undefined,
+      squareFootage: pSqft.trim() ? Number(pSqft) : 10000,
+      purchasePrice: pPurchasePrice.trim() ? Number(pPurchasePrice) : 1000000,
+      currentValue: pCurrentValue.trim() ? Number(pCurrentValue) : 1200000,
+      monthlyExpenses: pExpenses.trim() ? Number(pExpenses) : 0,
       paymentProvider: finalPaymentProvider,
       paymentAccountId: pPaymentAccountSetup === 'COMPANY_DEFAULT' ? undefined : (pPaymentAccountId.trim() || undefined),
       paymentAuthToken: pPaymentAccountSetup === 'COMPANY_DEFAULT' ? undefined : (pPaymentAuthToken.trim() || undefined),
@@ -638,7 +727,9 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
       setIsPropModalOpen(false);
       fetchAllData();
     } catch (e) {
-      Alert.alert('Error', e.message || 'Failed to save property');
+      const errMsg = e.response?.data?.message || e.message || 'Failed to save property';
+      const detail = e.response?.data?.errors?.map((err) => `${err.field}: ${err.message}`).join('\n');
+      Alert.alert('Error', detail ? `${errMsg}\n\n${detail}` : errMsg);
     } finally {
       setSubmitting(false);
     }
@@ -1122,9 +1213,19 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
       <View style={styles.container}>
         {/* TOP BAR: TITLE + ACTION */}
         <View style={styles.topHeader}>
-          <Text style={styles.screenTitle} allowFontScaling={false}>
-            {activeTab === 'properties' ? 'Properties' : activeTab === 'units' ? 'Units' : 'Drafts'}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+            <TouchableOpacity
+              onPress={() => (onNavigate ? onNavigate('dashboard') : null)}
+              style={{ marginRight: 10, padding: 4 }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="arrow-back" size={24} color={colors.textPrimary || '#f8fafc'} />
+            </TouchableOpacity>
+            <Text style={styles.screenTitle} allowFontScaling={false}>
+              {activeTab === 'properties' ? 'Properties' : activeTab === 'units' ? 'Units' : 'Drafts'}
+            </Text>
+          </View>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <TouchableOpacity
               style={styles.addBtn}
@@ -1178,23 +1279,109 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
           </TouchableOpacity>
         </View>
 
-        {/* SEARCH INPUT */}
-        <View style={styles.searchContainer}>
-          <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 6 }} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder={activeTab === 'units' ? 'Search by unit number or property...' : 'Search by name, address, city...'}
-            placeholderTextColor={colors.placeholder}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            allowFontScaling={false}
-          />
-          {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
-            </TouchableOpacity>
-          ) : null}
+        {/* SEARCH & FILTER INPUT ROW */}
+        <View style={styles.searchBarRow}>
+          <View style={styles.searchContainer}>
+            <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 6 }} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder={activeTab === 'units' ? 'Search by unit number or property...' : 'Search by name, address, city...'}
+              placeholderTextColor={colors.placeholder}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              allowFontScaling={false}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <TouchableOpacity
+            style={[
+              styles.filterBtn,
+              ((activeTab === 'properties' && (propTypeFilter !== 'All' || propStatusFilter !== 'All')) ||
+                (activeTab === 'units' && (unitPropertyFilter !== 'All' || unitStatusFilter !== 'All'))) &&
+                styles.filterBtnActive,
+            ]}
+            onPress={() => setPropFilterModalOpen(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="filter"
+              size={18}
+              color={
+                ((activeTab === 'properties' && (propTypeFilter !== 'All' || propStatusFilter !== 'All')) ||
+                  (activeTab === 'units' && (unitPropertyFilter !== 'All' || unitStatusFilter !== 'All')))
+                  ? '#FFFFFF'
+                  : colors.textSecondary
+              }
+            />
+          </TouchableOpacity>
         </View>
+
+        {/* ACTIVE FILTER PILLS */}
+        {((activeTab === 'properties' && (propTypeFilter !== 'All' || propStatusFilter !== 'All')) ||
+          (activeTab === 'units' && (unitPropertyFilter !== 'All' || (unitStatusFilter !== 'All' && unitStatusFilter)))) && (
+          <View style={styles.activeFiltersRow}>
+            {activeTab === 'properties' && propTypeFilter !== 'All' && (
+              <TouchableOpacity
+                style={styles.activePill}
+                onPress={() => setPropTypeFilter('All')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.activePillText} allowFontScaling={false}>Type: {propTypeFilter}</Text>
+                <Ionicons name="close" size={14} color={colors.primary} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            )}
+            {activeTab === 'properties' && propStatusFilter !== 'All' && (
+              <TouchableOpacity
+                style={styles.activePill}
+                onPress={() => setPropStatusFilter('All')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.activePillText} allowFontScaling={false}>Status: {propStatusFilter}</Text>
+                <Ionicons name="close" size={14} color={colors.primary} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            )}
+            {activeTab === 'units' && unitPropertyFilter !== 'All' && (
+              <TouchableOpacity
+                style={styles.activePill}
+                onPress={() => setUnitPropertyFilter('All')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.activePillText} allowFontScaling={false}>
+                  Property: {properties.find((p) => String(p.id) === String(unitPropertyFilter))?.name || unitPropertyFilter}
+                </Text>
+                <Ionicons name="close" size={14} color={colors.primary} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            )}
+            {activeTab === 'units' && unitStatusFilter !== 'All' && (
+              <TouchableOpacity
+                style={styles.activePill}
+                onPress={() => setUnitStatusFilter('All')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.activePillText} allowFontScaling={false}>Status: {unitStatusFilter}</Text>
+                <Ionicons name="close" size={14} color={colors.primary} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={() => {
+                if (activeTab === 'properties') {
+                  setPropTypeFilter('All');
+                  setPropStatusFilter('All');
+                } else {
+                  setUnitPropertyFilter('All');
+                  setUnitStatusFilter('All');
+                }
+              }}
+              style={styles.clearFiltersBtn}
+            >
+              <Text style={styles.clearFiltersText} allowFontScaling={false}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* LIST VIEW */}
         <ScrollView
@@ -1278,6 +1465,27 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
           {/* TAB 2: UNITS */}
           {activeTab === 'units' && (
             <>
+              {/* Unit Status Filter Chips (Non-overlapping, responsive flex-wrap) */}
+              <View style={styles.unitFilterPillsRow}>
+                {['All', 'Occupied', 'Vacant'].map((st) => {
+                  const isSel = (unitStatusFilter || 'All').toLowerCase() === st.toLowerCase();
+                  const count = st === 'All'
+                    ? units.length
+                    : units.filter((u) => String(u.status || '').toLowerCase() === st.toLowerCase()).length;
+                  return (
+                    <TouchableOpacity
+                      key={st}
+                      style={[styles.unitFilterPill, isSel && styles.unitFilterPillActive]}
+                      onPress={() => setUnitStatusFilter(st)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.unitFilterPillText, isSel && styles.unitFilterPillTextActive]} allowFontScaling={false}>
+                        {st} ({count})
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
               {filteredUnits.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyText} allowFontScaling={false}>No units found</Text>
@@ -1417,6 +1625,142 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
             </>
           )}
         </ScrollView>
+
+        {/* -------------------------------------------------------------------------- */}
+        {/* FILTER MODAL */}
+        {/* -------------------------------------------------------------------------- */}
+        <Modal visible={propFilterModalOpen} animationType="fade" transparent>
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.modalCard, { maxHeight: '80%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle} allowFontScaling={false}>
+                  Filter {activeTab === 'units' ? 'Units' : 'Properties'}
+                </Text>
+                <TouchableOpacity onPress={() => setPropFilterModalOpen(false)}>
+                  <Ionicons name="close" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ padding: 16 }} showsVerticalScrollIndicator={false}>
+                {activeTab === 'properties' ? (
+                  <>
+                    <Text style={styles.filterSectionTitle} allowFontScaling={false}>Status</Text>
+                    <View style={styles.filterChipRow}>
+                      {['All', 'Active', 'Inactive'].map((st) => (
+                        <TouchableOpacity
+                          key={st}
+                          style={[styles.filterChip, propStatusFilter === st && styles.filterChipActive]}
+                          onPress={() => setPropStatusFilter(st)}
+                        >
+                          <Text
+                            style={[styles.filterChipText, propStatusFilter === st && styles.filterChipTextActive]}
+                            allowFontScaling={false}
+                          >
+                            {st}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <Text style={[styles.filterSectionTitle, { marginTop: 16 }]} allowFontScaling={false}>Property Type</Text>
+                    <View style={styles.filterChipRow}>
+                      {['All', 'Apartment', 'Single Family', 'Multi Family', 'Commercial', 'Condo', 'Townhouse'].map((t) => (
+                        <TouchableOpacity
+                          key={t}
+                          style={[styles.filterChip, propTypeFilter === t && styles.filterChipActive]}
+                          onPress={() => setPropTypeFilter(t)}
+                        >
+                          <Text
+                            style={[styles.filterChipText, propTypeFilter === t && styles.filterChipTextActive]}
+                            allowFontScaling={false}
+                          >
+                            {t}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.filterSectionTitle} allowFontScaling={false}>Unit Status</Text>
+                    <View style={styles.filterChipRow}>
+                      {['All', 'Occupied', 'Vacant'].map((st) => (
+                        <TouchableOpacity
+                          key={st}
+                          style={[styles.filterChip, unitStatusFilter === st && styles.filterChipActive]}
+                          onPress={() => setUnitStatusFilter(st)}
+                        >
+                          <Text
+                            style={[styles.filterChipText, unitStatusFilter === st && styles.filterChipTextActive]}
+                            allowFontScaling={false}
+                          >
+                            {st}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <Text style={[styles.filterSectionTitle, { marginTop: 16 }]} allowFontScaling={false}>Property</Text>
+                    <View style={styles.filterChipRow}>
+                      <TouchableOpacity
+                        style={[styles.filterChip, unitPropertyFilter === 'All' && styles.filterChipActive]}
+                        onPress={() => setUnitPropertyFilter('All')}
+                      >
+                        <Text
+                          style={[styles.filterChipText, unitPropertyFilter === 'All' && styles.filterChipTextActive]}
+                          allowFontScaling={false}
+                        >
+                          All Properties
+                        </Text>
+                      </TouchableOpacity>
+                      {properties.map((p) => (
+                        <TouchableOpacity
+                          key={p.id}
+                          style={[styles.filterChip, (unitPropertyFilter === p.id || unitPropertyFilter === p.name) && styles.filterChipActive]}
+                          onPress={() => setUnitPropertyFilter(p.id)}
+                        >
+                          <Text
+                            style={[
+                              styles.filterChipText,
+                              (unitPropertyFilter === p.id || unitPropertyFilter === p.name) && styles.filterChipTextActive,
+                            ]}
+                            allowFontScaling={false}
+                          >
+                            {p.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                )}
+              </ScrollView>
+
+              <View style={styles.filterModalFooter}>
+                <TouchableOpacity
+                  style={styles.filterResetBtn}
+                  onPress={() => {
+                    if (activeTab === 'properties') {
+                      setPropStatusFilter('All');
+                      setPropTypeFilter('All');
+                    } else {
+                      setUnitStatusFilter('All');
+                      setUnitPropertyFilter('All');
+                    }
+                  }}
+                >
+                  <Text style={styles.filterResetBtnText} allowFontScaling={false}>Reset</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.filterApplyBtn}
+                  onPress={() => setPropFilterModalOpen(false)}
+                >
+                  <Text style={styles.filterApplyBtnText} allowFontScaling={false}>Apply Filters</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* -------------------------------------------------------------------------- */}
         {/* VIEW PROPERTY DETAILS MODAL */}
@@ -1618,7 +1962,8 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
         <Modal visible={isPropModalOpen} animationType="slide" transparent>
           <KeyboardAvoidingView
             style={styles.modalBackdrop}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
           >
             <View style={[styles.modalCard, styles.propFullModalCard]}>
               {/* Header Matching Web */}
@@ -1643,9 +1988,10 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
               {/* Form Content */}
               <ScrollView
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingBottom: 24, paddingTop: 4 }}
-                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 28, paddingTop: 4 }}
+                showsVerticalScrollIndicator={true}
                 keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
               >
                 {/* PROPERTY NAME */}
                 <View style={styles.formGroup}>
@@ -1850,8 +2196,8 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
                 {/* OWNERSHIP PERCENTAGE (%) & MANAGEMENT COMPANY (2 Columns) */}
                 <View style={styles.twoColRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.fieldLabel} allowFontScaling={false}>
-                      OWNERSHIP PERCENTAGE (%) <Text style={styles.requiredStar}>*</Text>
+                    <Text style={styles.fieldLabel} numberOfLines={1} allowFontScaling={false}>
+                      OWNERSHIP % <Text style={styles.requiredStar}>*</Text>
                     </Text>
                     <TextInput
                       style={styles.propInput}
@@ -1864,10 +2210,10 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.fieldLabel} allowFontScaling={false}>MANAGEMENT COMPANY</Text>
+                    <Text style={styles.fieldLabel} numberOfLines={1} allowFontScaling={false}>MANAGEMENT CO.</Text>
                     <TextInput
                       style={styles.propInput}
-                      placeholder="Enter management company name"
+                      placeholder="e.g. Management Co."
                       placeholderTextColor={colors.placeholder}
                       value={pManagementCompany}
                       onChangeText={setPManagementCompany}
@@ -2279,35 +2625,33 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
                   onPress={() => setIsPropModalOpen(false)}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="arrow-back-outline" size={15} color={colors.textSecondary} />
-                  <Text style={styles.propCancelBtnText} allowFontScaling={false}>Cancel</Text>
+                  <Ionicons name="arrow-back-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.propCancelBtnText} numberOfLines={1} allowFontScaling={false}>Cancel</Text>
                 </TouchableOpacity>
 
-                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                  <TouchableOpacity
-                    style={styles.propDraftBtn}
-                    onPress={() => handleSaveProperty(true)}
-                    disabled={submitting}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.propDraftBtnText} allowFontScaling={false}>Save Draft</Text>
-                  </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.propDraftBtn}
+                  onPress={() => handleSaveProperty(true)}
+                  disabled={submitting}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.propDraftBtnText} numberOfLines={1} allowFontScaling={false}>Save Draft</Text>
+                </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={styles.propSubmitBtn}
-                    onPress={() => handleSaveProperty(false)}
-                    disabled={submitting}
-                    activeOpacity={0.8}
-                  >
-                    {submitting ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <Text style={styles.propSubmitBtnText} allowFontScaling={false}>
-                        {editingPropId ? 'Update Property' : 'Create Property'}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                  style={styles.propSubmitBtn}
+                  onPress={() => handleSaveProperty(false)}
+                  disabled={submitting}
+                  activeOpacity={0.8}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={styles.propSubmitBtnText} numberOfLines={1} allowFontScaling={false}>
+                      {editingPropId ? 'Update Property' : 'Create Property'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
               </View>
               {/* ------------------------------------------------------------------ */}
               {/* IN-MODAL DROPDOWN SELECTOR OVERLAY (Guaranteed to work on iOS & Android) */}
@@ -2394,12 +2738,15 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
                               activeOpacity={0.7}
                             >
                               <Text
-                                style={[styles.detailVal, isSelected && { color: colors.primary, fontWeight: '700' }]}
+                                style={[
+                                  styles.detailVal,
+                                  isSelected && { color: isDarkMode ? '#38bdf8' : '#0284c7', fontWeight: '800' }
+                                ]}
                                 allowFontScaling={false}
                               >
                                 {t}
                               </Text>
-                              {isSelected && <Ionicons name="checkmark" size={16} color={colors.primary} />}
+                              {isSelected && <Ionicons name="checkmark" size={16} color={isDarkMode ? '#38bdf8' : '#0284c7'} />}
                             </TouchableOpacity>
                           );
                         })}
@@ -2418,12 +2765,15 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
                               activeOpacity={0.7}
                             >
                               <Text
-                                style={[styles.detailVal, isSelected && { color: colors.primary, fontWeight: '700' }]}
+                                style={[
+                                  styles.detailVal,
+                                  isSelected && { color: isDarkMode ? '#38bdf8' : '#0284c7', fontWeight: '800' }
+                                ]}
                                 allowFontScaling={false}
                               >
                                 {st}
                               </Text>
-                              {isSelected && <Ionicons name="checkmark" size={16} color={colors.primary} />}
+                              {isSelected && <Ionicons name="checkmark" size={16} color={isDarkMode ? '#38bdf8' : '#0284c7'} />}
                             </TouchableOpacity>
                           );
                         })}
@@ -2767,7 +3117,11 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
         {/* ADD / EDIT UNIT MODAL WITH FULL OCCUPIED ONBOARDING & MONTHLY BILLING STATUS */}
         {/* -------------------------------------------------------------------------- */}
         <Modal visible={isUnitModalOpen} animationType="slide" transparent>
-          <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <KeyboardAvoidingView
+            style={styles.modalBackdrop}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+          >
             <View style={[styles.modalCard, styles.unitFullModalCard]}>
               {/* Header */}
               <View style={styles.modalHeaderClean}>
@@ -2788,7 +3142,13 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={{ flex: 1, marginVertical: 8 }} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                style={{ flex: 1, marginVertical: 8 }}
+                contentContainerStyle={{ paddingBottom: 160 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+              >
                 {/* Target Property Card (Matching Web 1:1) */}
                 <View style={styles.targetPropCard}>
                   <View style={styles.targetPropHeader}>
@@ -3310,26 +3670,40 @@ export const PropertiesScreen = ({ initialTab = 'properties' }) => {
                                 }}
                                 activeOpacity={0.7}
                               >
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1, marginRight: 4 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, width: '100%', marginBottom: 4 }}>
                                   <Ionicons
                                     name={isPaid ? "checkmark-circle" : isPartial ? "time" : "close-circle"}
-                                    size={12}
+                                    size={13}
                                     color={isPaid ? colors.success : isPartial ? colors.warning : colors.danger}
                                   />
                                   <Text style={styles.monthChipLabel} allowFontScaling={false} numberOfLines={1}>
                                     {m.label}
                                   </Text>
                                 </View>
-                                <Text
-                                  style={[
-                                    styles.monthChipStatusText,
-                                    isPaid ? { color: colors.success } : isPartial ? { color: colors.warning } : { color: colors.danger }
-                                  ]}
-                                  allowFontScaling={false}
-                                  numberOfLines={1}
+                                <View
+                                  style={{
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 2,
+                                    borderRadius: 4,
+                                    backgroundColor: isPaid
+                                      ? 'rgba(16, 185, 129, 0.12)'
+                                      : isPartial
+                                      ? 'rgba(245, 158, 11, 0.12)'
+                                      : 'rgba(239, 68, 68, 0.12)',
+                                    alignSelf: 'flex-start',
+                                  }}
                                 >
-                                  {isPaid ? 'Paid' : isPartial ? `$${due} Due` : `$${due}`}
-                                </Text>
+                                  <Text
+                                    style={[
+                                      styles.monthChipStatusText,
+                                      isPaid ? { color: colors.success } : isPartial ? { color: colors.warning } : { color: colors.danger }
+                                    ]}
+                                    allowFontScaling={false}
+                                    numberOfLines={1}
+                                  >
+                                    {isPaid ? 'Paid' : isPartial ? `$${due} Due` : `$${due} Due`}
+                                  </Text>
+                                </View>
                               </TouchableOpacity>
                             );
                           })}
@@ -3957,8 +4331,45 @@ const getStyles = (colors, isDarkMode) =>
       fontWeight: '700',
     },
 
-    // Search
+    // Unit Filter Pills
+    unitFilterPillsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 12,
+    },
+    unitFilterPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    unitFilterPillActive: {
+      backgroundColor: (colors.primary || '#38bdf8') + '20',
+      borderColor: colors.primary || '#38bdf8',
+    },
+    unitFilterPillText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    unitFilterPillTextActive: {
+      color: colors.primary || '#38bdf8',
+      fontWeight: '700',
+    },
+
+    // Search & Filter
+    searchBarRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 8,
+      gap: 8,
+    },
     searchContainer: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.surface,
@@ -3967,13 +4378,122 @@ const getStyles = (colors, isDarkMode) =>
       borderRadius: 8,
       paddingHorizontal: 10,
       height: 38,
-      marginBottom: 10,
     },
     searchInput: {
       flex: 1,
       fontSize: 13,
       color: colors.textPrimary,
       paddingVertical: 0,
+    },
+    filterBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 8,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    filterBtnActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    activeFiltersRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 6,
+      marginBottom: 10,
+    },
+    activePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: (colors.primary || '#38bdf8') + '20',
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderRadius: 14,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+    },
+    activePillText: {
+      fontSize: 11.5,
+      fontWeight: '600',
+      color: colors.primary,
+    },
+    clearFiltersBtn: {
+      paddingHorizontal: 6,
+      paddingVertical: 4,
+    },
+    clearFiltersText: {
+      fontSize: 11.5,
+      fontWeight: '700',
+      color: colors.danger || '#ef4444',
+    },
+    filterSectionTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      marginBottom: 8,
+    },
+    filterChipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    filterChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 8,
+      backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    filterChipActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    filterChipText: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      fontWeight: '500',
+    },
+    filterChipTextActive: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+    filterModalFooter: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 16,
+      borderTopWidth: 1,
+      borderTopColor: colors.cardBorder,
+      gap: 12,
+    },
+    filterResetBtn: {
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    filterResetBtnText: {
+      fontSize: 13,
+      color: colors.textMuted,
+      fontWeight: '600',
+    },
+    filterApplyBtn: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: 8,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+    },
+    filterApplyBtnText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#FFFFFF',
     },
 
     // List
@@ -4461,13 +4981,18 @@ const getStyles = (colors, isDarkMode) =>
 
     // Add Property Form Full Modal (Web 1:1 Matching)
     propFullModalCard: {
-      maxHeight: '94%',
-      height: '92%',
-      padding: 16,
-      borderRadius: 14,
+      maxHeight: '92%',
+      flex: 1,
+      width: '100%',
+      maxWidth: 600,
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 8,
+      borderRadius: 16,
       backgroundColor: colors.surface,
       display: 'flex',
       flexDirection: 'column',
+      overflow: 'hidden',
     },
     propHeaderRow: {
       flexDirection: 'row',
@@ -4707,50 +5232,62 @@ const getStyles = (colors, isDarkMode) =>
     // Bottom Footer Actions Bar
     propFooterBar: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
-      paddingTop: 12,
+      justifyContent: 'space-between',
+      gap: 8,
+      paddingTop: 10,
+      paddingBottom: 6,
       borderTopWidth: 1,
       borderTopColor: colors.cardBorder,
       marginTop: 4,
+      backgroundColor: colors.surface,
+      zIndex: 10,
     },
     propCancelBtn: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 5,
-      paddingVertical: 9,
-      paddingHorizontal: 12,
+      justifyContent: 'center',
+      gap: 4,
+      paddingVertical: 10,
+      paddingHorizontal: 4,
       borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      backgroundColor: isDarkMode ? '#1e293b' : '#f8fafc',
     },
     propCancelBtnText: {
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '600',
       color: colors.textSecondary,
     },
     propDraftBtn: {
-      paddingVertical: 9,
-      paddingHorizontal: 14,
+      flex: 1.15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 4,
       borderRadius: 8,
       borderWidth: 1,
       borderColor: colors.cardBorder,
       backgroundColor: isDarkMode ? '#334155' : '#f1f5f9',
     },
     propDraftBtnText: {
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '700',
       color: colors.textPrimary,
     },
     propSubmitBtn: {
+      flex: 1.45,
       backgroundColor: '#2563eb',
-      paddingVertical: 9,
-      paddingHorizontal: 18,
+      paddingVertical: 10,
+      paddingHorizontal: 6,
       borderRadius: 8,
       alignItems: 'center',
       justifyContent: 'center',
-      minWidth: 110,
     },
     propSubmitBtnText: {
-      fontSize: 13,
+      fontSize: 12.5,
       fontWeight: '700',
       color: '#ffffff',
     },
@@ -4758,7 +5295,9 @@ const getStyles = (colors, isDarkMode) =>
     // Unit Full Modal & Clean Form Styles
     unitFullModalCard: {
       maxHeight: '94%',
-      height: '92%',
+      flex: 1,
+      width: '100%',
+      maxWidth: 600,
       padding: 16,
     },
     modalHeaderClean: {
@@ -5027,13 +5566,13 @@ const getStyles = (colors, isDarkMode) =>
       marginBottom: 6,
     },
     monthChipClean: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      justifyContent: 'center',
       width: '48.5%',
-      paddingVertical: 7,
-      paddingHorizontal: 8,
-      borderRadius: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 9,
+      borderRadius: 8,
       borderWidth: 1,
     },
     monthChipCleanPaid: {
@@ -5102,7 +5641,6 @@ const getStyles = (colors, isDarkMode) =>
     },
     unitModalFooter: {
       flexDirection: 'row',
-      justifyContent: 'flex-end',
       alignItems: 'center',
       gap: 10,
       paddingTop: 12,
@@ -5111,8 +5649,9 @@ const getStyles = (colors, isDarkMode) =>
       marginTop: 6,
     },
     unitCancelBtn: {
-      paddingVertical: 9,
-      paddingHorizontal: 16,
+      flex: 1,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
       borderRadius: 8,
       borderWidth: 1,
       borderColor: colors.cardBorder,
@@ -5126,11 +5665,11 @@ const getStyles = (colors, isDarkMode) =>
       color: colors.textSecondary,
     },
     unitSubmitBtn: {
+      flex: 1.5,
       backgroundColor: '#2563eb',
-      paddingVertical: 9,
-      paddingHorizontal: 20,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
       borderRadius: 8,
-      minWidth: 110,
       alignItems: 'center',
       justifyContent: 'center',
     },

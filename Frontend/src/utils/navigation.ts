@@ -72,15 +72,15 @@ export const getNotificationRedirectPath = (
   // Admin / Property Manager Redirects
   if (userRole === 'Property Manager') {
     if (isPayment) {
-      if (targetId) return `/rent/payments/${targetId}`;
+      if (targetId) return `/payments/${targetId}`;
       return '/payments';
     }
     if (isMaintenance) {
-      if (targetId) return `/maintenance/requests/${targetId}`;
+      if (targetId) return `/maintenance/requests?id=${targetId}`;
       return '/maintenance/requests';
     }
     if (isLease) {
-      if (targetId) return `/leasing/leases/${targetId}`;
+      if (targetId) return `/leases/${targetId}`;
       return '/leasing/leases';
     }
     return '/';

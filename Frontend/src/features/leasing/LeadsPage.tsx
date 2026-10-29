@@ -72,11 +72,22 @@ export const LeadsPage: React.FC = () => {
     createMutation.mutate(values);
   };
 
-  const filteredLeads = leads.filter((lead) => {
-    const matchesSearch =
-      `${lead.firstName} ${lead.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      lead.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === '' || lead.status === statusFilter;
+  const filteredLeads = leads.filter((lead: any) => {
+    if (!lead) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const fullName = `${lead.firstName || ''} ${lead.lastName || ''} ${lead.name || ''}`.trim().toLowerCase();
+    const emailStr = String(lead.email || '').toLowerCase();
+    const phoneStr = String(lead.phone || '').toLowerCase();
+    const propStr = String(lead.propertyName || '').toLowerCase();
+    const matchesSearch = !q ||
+      fullName.includes(q) ||
+      emailStr.includes(q) ||
+      phoneStr.includes(q) ||
+      propStr.includes(q);
+
+    const matchesStatus = !statusFilter ||
+      String(lead.status || '').toLowerCase() === statusFilter.toLowerCase();
+
     return matchesSearch && matchesStatus;
   });
 

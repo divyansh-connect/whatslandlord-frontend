@@ -4,7 +4,6 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   TouchableOpacity,
   TextInput,
   Modal,
@@ -12,6 +11,7 @@ import {
   Platform,
   Image,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import { WebView } from 'react-native-webview';
 import apiClient from '../api/client';
 import { useAuthStore } from '../store/useStore';
@@ -358,9 +358,12 @@ export const InspectionDetailsScreen = ({ inspectionId, onNavigate }) => {
             <Text style={styles.title} allowFontScaling={false}>Inspection details</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.saveDraftBtn} onPress={() => handleSaveDraft(false)} disabled={submitting}>
-            <Text style={styles.saveDraftText} allowFontScaling={false}>Save Draft</Text>
-          </TouchableOpacity>
+          {/* Save Draft button hidden per user request; can be unhidden later if requested */}
+          {false && (
+            <TouchableOpacity style={styles.saveDraftBtn} onPress={() => handleSaveDraft(false)} disabled={submitting}>
+              <Text style={styles.saveDraftText} allowFontScaling={false}>Save Draft</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <Text style={styles.subtitle} allowFontScaling={false}>
           {inspection?.templateName || 'Standard Template'} · {inspection?.propertyName || 'Property'} · Room {inspection?.unitNumber || '1A'}

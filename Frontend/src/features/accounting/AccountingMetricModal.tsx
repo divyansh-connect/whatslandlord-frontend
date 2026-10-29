@@ -168,7 +168,19 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
           status: i.status || 'Cleared',
         }));
 
-        const rows = incomeAccounts.length > 0 ? incomeAccounts : recordedIncomeRows;
+        const tenantPaymentRows = payments
+          .filter((p: any) => p.status === 'Paid' || Number(p.amount) > 0)
+          .map((p: any) => ({
+            id: p.id,
+            accountNumber: 'RENT-PAY',
+            accountName: `Rent Collection - ${p.propertyName || 'Property'} (${p.tenantName || 'Resident'})`,
+            accountType: 'Rental Income',
+            balance: `$${(Number(p.amount) || 0).toLocaleString()}`,
+            numericBalance: Number(p.amount) || 0,
+            status: 'Paid',
+          }));
+
+        const rows = incomeAccounts.length > 0 ? incomeAccounts : [...recordedIncomeRows, ...tenantPaymentRows];
 
         const filtered = rows.filter((item: any) =>
           item.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -379,31 +391,31 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="sm:max-w-5xl h-[85vh] max-h-[85vh] p-6 overflow-hidden">
+      <DialogContent className="w-[calc(100vw-1rem)] sm:w-full sm:max-w-5xl h-[92vh] max-h-[92vh] p-3 sm:p-6 overflow-hidden">
         <div className="flex flex-col h-full overflow-hidden gap-3">
           {/* Header Section */}
-          <DialogHeader className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-secondary/80 rounded-2xl shrink-0">
+          <DialogHeader className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 shrink-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="p-2 sm:p-3 bg-secondary/80 rounded-2xl shrink-0">
                 {modalConfig.icon}
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <DialogTitle className="text-xl font-extrabold text-foreground">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <DialogTitle className="text-base sm:text-xl font-extrabold text-foreground truncate">
                     {modalConfig.title}
                   </DialogTitle>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold border ${modalConfig.badgeBg}`}>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-extrabold border ${modalConfig.badgeBg}`}>
                     {modalConfig.count} {modalConfig.countLabel}
                   </span>
                 </div>
-                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                <DialogDescription className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 truncate">
                   {modalConfig.description}
                 </DialogDescription>
               </div>
             </div>
 
             {/* Action Export Buttons */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <Button
                 variant="outline"
                 size="sm"
@@ -428,8 +440,8 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
           </DialogHeader>
 
           {/* Search & Filter Bar */}
-          <div className="shrink-0 flex items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-sm">
+          <div className="shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+            <div className="relative flex-1 w-full sm:max-w-sm">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="text"
@@ -576,11 +588,25 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="pt-2 border-t border-border flex items-center justify-between shrink-0 text-xs text-muted-foreground">
+          <div className="pt-2 border-t border-border flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs text-muted-foreground">
             <span>Real-time accounting financial ledger breakdown</span>
-            <Button variant="outline" size="sm" onClick={onClose} className="px-6">
-              Close
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={onClose} className="px-4">
+                Close
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  onClose();
+                  if (metricType === 'totalIncome') navigate({ to: '/accounting/income' });
+                  else if (metricType === 'totalExpenses') navigate({ to: '/accounting/expenses' });
+                  else navigate({ to: '/accounting/chart-of-accounts' });
+                }}
+                className="px-4 font-bold"
+              >
+                {metricType === 'totalIncome' ? 'View Recorded Income →' : metricType === 'totalExpenses' ? 'View Recorded Expenses →' : 'View Chart of Accounts →'}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

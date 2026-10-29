@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api';
 import { useAuthStore, useThemeStore, useNotificationStore } from '../store/useStore';
 import { getNotificationRedirectPath } from '../utils/navigation';
@@ -42,6 +42,8 @@ export const OwnerLayout: React.FC<OwnerLayoutProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
+  const queryClient = useQueryClient();
+
   // Fetch real backend notifications strictly for Owner
   const { data: realOwnerNotifications = [] } = useQuery({
     queryKey: ['notifications-list', 'Owner'],
@@ -49,13 +51,35 @@ export const OwnerLayout: React.FC<OwnerLayoutProps> = ({
     refetchInterval: 15000,
   });
 
+  const handleMarkAllAsRead = () => {
+    markAllAsRead('Owner');
+    api.notifications.markAllAsRead('Owner');
+    queryClient.setQueryData(['notifications-list', 'Owner'], (old: any[] = []) =>
+      old.map((n) => ({ ...n, read: true }))
+    );
+  };
+
+  const handleClearAll = () => {
+    clearAll('Owner');
+    api.notifications.clearAll('Owner');
+    queryClient.setQueryData(['notifications-list', 'Owner'], []);
+  };
+
+  const handleMarkSingleAsRead = (id: string) => {
+    markAsRead(id);
+    api.notifications.markAsRead(id);
+    queryClient.setQueryData(['notifications-list', 'Owner'], (old: any[] = []) =>
+      old.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
+
   const { data: platformSettings } = useQuery({
     queryKey: ['platform-settings-general'],
     queryFn: () => api.platformSettings.getGeneral(),
     refetchInterval: 15000,
   });
 
-  const localNotifications = notifications.filter((n) => !n.role || n.role === 'Owner');
+  const localNotifications = notifications.filter((n) => n.role === 'Owner');
   const roleNotifications = Array.from(
     new Map(
       [...(realOwnerNotifications || []), ...localNotifications].map((n) => [n.id, n])
@@ -217,11 +241,11 @@ export const OwnerLayout: React.FC<OwnerLayoutProps> = ({
                   <div className="flex items-center justify-between pb-2 border-b border-border/80">
                     <h4 className="font-bold text-sm">{t('header.notifications')}</h4>
                     <div className="flex space-x-2 text-xs font-semibold text-primary">
-                      <button onClick={() => markAllAsRead('Owner')} className="hover:underline">
+                      <button onClick={handleMarkAllAsRead} className="hover:underline">
                         {t('header.readAll')}
                       </button>
                       <span>•</span>
-                      <button onClick={() => clearAll('Owner')} className="hover:underline text-muted-foreground">
+                      <button onClick={handleClearAll} className="hover:underline text-muted-foreground">
                         {t('header.clear')}
                       </button>
                     </div>
@@ -237,9 +261,12 @@ export const OwnerLayout: React.FC<OwnerLayoutProps> = ({
                         <div
                           key={n.id}
                           onClick={() => {
-                            markAsRead(n.id);
+                            handleMarkSingleAsRead(n.id);
                             setShowNotifications(false);
-                            const path = getNotificationRedirectPath(n.title, n.message, user?.role || 'Owner', n.targetId);
+                            const directUrl = (n as any).targetUrl;
+                            const path = directUrl
+                              ? ((n as any).targetId && !directUrl.includes('?') ? `${directUrl}?id=${(n as any).targetId}` : directUrl)
+                              : getNotificationRedirectPath(n.title, n.message, user?.role || 'Owner', n.targetId);
                             if (path) {
                               navigate(path);
                             }
@@ -304,7 +331,7 @@ export const OwnerLayout: React.FC<OwnerLayoutProps> = ({
         )}
 
         {/* OUTLET PAGE BODY */}
-        <main className="flex-1 overflow-y-auto p-6 bg-secondary/5">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 lg:p-8 bg-secondary/5">
           {children}
         </main>
 

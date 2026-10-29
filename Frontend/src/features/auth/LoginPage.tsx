@@ -585,7 +585,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
           {/* Section: Personal & ID Details */}
           <div className="space-y-2.5 border-t border-slate-100 dark:border-slate-800/80 pt-3">
             <h4 className="font-extrabold uppercase text-[10px] text-primary tracking-wider">Personal & Identification</h4>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Date of Birth</label>
                 <Input type="date" {...registerStep3('dob')} className="h-9" />
@@ -601,7 +601,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">ID Type</label>
                 <Select {...registerStep3('idType')} className="h-9">
@@ -633,7 +633,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
           {/* Section: Employment Information */}
           <div className="space-y-2.5 border-t border-slate-100 dark:border-slate-800/80 pt-3">
             <h4 className="font-extrabold uppercase text-[10px] text-primary tracking-wider">Employment Details</h4>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Employer Name</label>
                 <div className="relative">
@@ -649,7 +649,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Monthly Income ($)</label>
                 <div className="relative">
@@ -675,7 +675,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
           {/* Section: Emergency Contact */}
           <div className="space-y-2.5 border-t border-slate-100 dark:border-slate-800/80 pt-3">
             <h4 className="font-extrabold uppercase text-[10px] text-primary tracking-wider">Emergency Contact</h4>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div className="space-y-1 col-span-1">
                 <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Contact Name</label>
                 <Input placeholder="Mary Doe" {...registerStep3('emergencyName')} className="h-9 text-xs" />
@@ -697,7 +697,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
           {/* Section: Application Parameters (Leads details) */}
           <div className="space-y-2.5 border-t border-slate-100 dark:border-slate-800/80 pt-3">
             <h4 className="font-extrabold uppercase text-[10px] text-primary tracking-wider">Lease Request details</h4>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Monthly Budget ($)</label>
                 <div className="relative">
@@ -716,7 +716,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase">Priority Status</label>
                 <Select {...registerStep3('priority')} className="h-9">

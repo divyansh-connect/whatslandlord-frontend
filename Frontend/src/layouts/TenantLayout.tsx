@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api';
 import { useAuthStore, useThemeStore, useNotificationStore } from '../store/useStore';
 import { getNotificationRedirectPath } from '../utils/navigation';
@@ -43,12 +43,36 @@ export const TenantLayout: React.FC<TenantLayoutProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
+  const queryClient = useQueryClient();
+
   // Fetch real backend notifications strictly for Tenant
   const { data: realTenantNotifications = [] } = useQuery({
     queryKey: ['notifications-list', 'Tenant'],
     queryFn: () => api.notifications.getAll({ role: 'Tenant' }),
     refetchInterval: 15000,
   });
+
+  const handleMarkAllAsRead = () => {
+    markAllAsRead('Tenant');
+    api.notifications.markAllAsRead('Tenant');
+    queryClient.setQueryData(['notifications-list', 'Tenant'], (old: any[] = []) =>
+      old.map((n) => ({ ...n, read: true }))
+    );
+  };
+
+  const handleClearAll = () => {
+    clearAll('Tenant');
+    api.notifications.clearAll('Tenant');
+    queryClient.setQueryData(['notifications-list', 'Tenant'], []);
+  };
+
+  const handleMarkSingleAsRead = (id: string) => {
+    markAsRead(id);
+    api.notifications.markAsRead(id);
+    queryClient.setQueryData(['notifications-list', 'Tenant'], (old: any[] = []) =>
+      old.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
 
   const { data: platformSettings } = useQuery({
     queryKey: ['platform-settings-general'],
@@ -72,7 +96,7 @@ export const TenantLayout: React.FC<TenantLayoutProps> = ({
     unitNumber: tenantProfile?.unitNumber,
   };
 
-  const localNotifications = notifications.filter((n) => !n.role || n.role === 'Tenant');
+  const localNotifications = notifications.filter((n) => n.role === 'Tenant');
   const roleNotifications = Array.from(
     new Map(
       [...(realTenantNotifications || []), ...localNotifications]
@@ -221,11 +245,11 @@ export const TenantLayout: React.FC<TenantLayoutProps> = ({
                   <div className="flex items-center justify-between pb-2 border-b border-border/80">
                     <h4 className="font-bold text-sm">{t('header.notifications')}</h4>
                     <div className="flex space-x-2 text-xs font-semibold text-primary">
-                      <button onClick={() => markAllAsRead('Tenant')} className="hover:underline">
+                      <button onClick={handleMarkAllAsRead} className="hover:underline">
                         {t('header.readAll')}
                       </button>
                       <span>•</span>
-                      <button onClick={() => clearAll('Tenant')} className="hover:underline text-muted-foreground">
+                      <button onClick={handleClearAll} className="hover:underline text-muted-foreground">
                         {t('header.clear')}
                       </button>
                     </div>
@@ -241,9 +265,12 @@ export const TenantLayout: React.FC<TenantLayoutProps> = ({
                         <div
                           key={n.id}
                           onClick={() => {
-                            markAsRead(n.id);
+                            handleMarkSingleAsRead(n.id);
                             setShowNotifications(false);
-                            const path = getNotificationRedirectPath(n.title, n.message, user?.role || 'Tenant', n.targetId);
+                            const directUrl = (n as any).targetUrl;
+                            const path = directUrl
+                              ? ((n as any).targetId && !directUrl.includes('?') ? `${directUrl}?id=${(n as any).targetId}` : directUrl)
+                              : getNotificationRedirectPath(n.title, n.message, user?.role || 'Tenant', n.targetId);
                             if (path) {
                               navigate(path);
                             }
@@ -308,7 +335,7 @@ export const TenantLayout: React.FC<TenantLayoutProps> = ({
         )}
 
         {/* OUTLET PAGE BODY */}
-        <main className="flex-1 overflow-y-auto p-6 bg-secondary/5 relative">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 lg:p-8 bg-secondary/5 relative">
           {children}
           <TenantAiConciergeWidget />
         </main>

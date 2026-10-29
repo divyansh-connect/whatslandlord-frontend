@@ -25,12 +25,24 @@ export const useReportFilters = (defaultSortBy = '') => {
   });
 
   const setFilterVal = useCallback((key: keyof ReportFiltersState, value: any) => {
-    setFilters((prev) => ({
-      ...prev,
-      [key]: value,
-      // Reset page back to 1 when any search/filter key changes to prevent empty offsets
-      ...(key !== 'page' && key !== 'limit' && key !== 'sortBy' && key !== 'sortOrder' ? { page: 1 } : {}),
-    }));
+    setFilters((prev) => {
+      const updated: any = {
+        ...prev,
+        [key]: value,
+        // Reset page back to 1 when any search/filter key changes to prevent empty offsets
+        ...(key !== 'page' && key !== 'limit' && key !== 'sortBy' && key !== 'sortOrder' ? { page: 1 } : {}),
+      };
+
+      // Cascade clear child filters when parent filter changes
+      if (key === 'propertyId') {
+        updated.unitId = '';
+        updated.tenantId = '';
+      } else if (key === 'unitId') {
+        updated.tenantId = '';
+      }
+
+      return updated;
+    });
   }, []);
 
   const resetFilters = useCallback(() => {

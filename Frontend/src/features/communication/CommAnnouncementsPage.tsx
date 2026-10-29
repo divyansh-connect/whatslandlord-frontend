@@ -19,16 +19,21 @@ export const CommAnnouncementsPage: React.FC = () => {
 
   // Form states
   const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
   const [category, setCategory] = useState('Community');
   const [audience, setAudience] = useState<'All Tenants' | 'Owners' | 'Vendors' | 'Employees'>('All Tenants');
 
   // Queries
-  const { data: announcements = [], isLoading } = useQuery({ queryKey: ['comm-announcements-list'], queryFn: () => api.announcements.getAll() });
+  const { data: announcements = [], isLoading } = useQuery({
+    queryKey: ['comm-announcements-list'],
+    queryFn: () => api.announcements.getAll(),
+  });
 
   const createMutation = useMutation({
     mutationFn: () => {
       return api.announcements.create({
         title,
+        content: content || title,
         category,
         audience,
       });
@@ -37,23 +42,64 @@ export const CommAnnouncementsPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['comm-announcements-list'] });
       setIsOpen(false);
       setTitle('');
+      setContent('');
     },
   });
 
-  const filteredAnn = announcements.filter((ann) =>
-    ann.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredAnn = (Array.isArray(announcements) ? announcements : []).filter((ann: any) => {
+    if (!ann) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    return !q ||
+      String(ann.title || '').toLowerCase().includes(q) ||
+      String(ann.content || '').toLowerCase().includes(q) ||
+      String(ann.category || '').toLowerCase().includes(q) ||
+      String(ann.audience || '').toLowerCase().includes(q);
+  });
 
   const columns: ColumnDef<any>[] = [
-    { accessorKey: 'publishDate', header: 'Publish Date', id: 'date' },
-    { accessorKey: 'title', header: 'Notice Title', id: 'title', cell: ({ row }) => <span className="font-bold">{row.original.title}</span> },
-    { accessorKey: 'category', header: 'Category', id: 'category' },
-    { accessorKey: 'audience', header: 'Target Audience', id: 'audience' },
+    {
+      accessorKey: 'createdAt',
+      header: 'Publish Date',
+      id: 'date',
+      cell: ({ row }) => {
+        const val = row.original.createdAt || row.original.publishDate;
+        return <span>{val ? new Date(val).toLocaleDateString() : 'Today'}</span>;
+      },
+    },
+    {
+      accessorKey: 'title',
+      header: 'Notice Title',
+      id: 'title',
+      cell: ({ row }) => (
+        <div>
+          <span className="font-bold text-foreground block">{row.original.title}</span>
+          {row.original.content && (
+            <span className="text-xs text-muted-foreground line-clamp-1">{row.original.content}</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'category',
+      header: 'Category',
+      id: 'category',
+      cell: ({ row }) => (
+        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-primary/10 text-primary">
+          {row.original.category || 'General'}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'audience',
+      header: 'Target Audience',
+      id: 'audience',
+      cell: ({ row }) => <span>{row.original.audience || 'All Tenants & Residents'}</span>,
+    },
     {
       accessorKey: 'status',
       header: 'Status',
       id: 'status',
-      cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      cell: () => <StatusBadge status="Active" />,
     },
   ];
 
@@ -76,7 +122,7 @@ export const CommAnnouncementsPage: React.FC = () => {
       <FilterBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        searchPlaceholder="Search notices by title..."
+        searchPlaceholder="Search notices by title or content..."
         onReset={() => setSearchQuery('')}
       />
 
@@ -88,7 +134,21 @@ export const CommAnnouncementsPage: React.FC = () => {
           
           <div className="space-y-1">
             <label className="text-xs font-bold text-muted-foreground uppercase">Notice Title</label>
-            <Input placeholder="E.g., HVAC seasonal maintenance check" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input
+              placeholder="E.g., HVAC seasonal maintenance check"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-muted-foreground uppercase">Notice Details & Instructions</label>
+            <textarea
+              className="w-full min-h-[90px] p-2.5 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 text-foreground"
+              placeholder="Provide complete details, date/time, and safety instructions for residents..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -115,7 +175,7 @@ export const CommAnnouncementsPage: React.FC = () => {
 
           <div className="flex justify-end space-x-2 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
-            <Button onClick={() => createMutation.mutate()} disabled={!title || createMutation.isPending}>
+            <Button onClick={() => createMutation.mutate()} disabled={!title.trim() || createMutation.isPending}>
               {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
               Publish Notice
             </Button>

@@ -59,14 +59,29 @@ export const LeasesPage: React.FC = () => {
   });
 
   // Filter Logic
-  const filteredLeases = leases.filter((l) => {
-    const tenantVal = l.tenantName || '';
-    const idVal = l.id || '';
-    const tenantMatch = tenantVal.toLowerCase().includes(searchQuery.toLowerCase());
-    const leaseIdMatch = idVal.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesProp = propertyFilter === '' || l.propertyId === propertyFilter;
-    const matchesStatus = statusFilter === '' || l.status === statusFilter;
-    return (tenantMatch || leaseIdMatch) && matchesProp && matchesStatus;
+  const filteredLeases = leases.filter((l: any) => {
+    if (!l) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const tenantVal = String(l.tenantName || (l.tenant ? `${l.tenant.firstName || ''} ${l.tenant.lastName || ''}` : '') || '');
+    const propVal = String(l.propertyName || (l.property ? l.property.name : '') || '');
+    const unitVal = String(l.unitNumber || (l.unit ? l.unit.unitNumber : '') || '');
+    const idVal = String(l.id || l.leaseNumber || '');
+
+    const matchesSearch = !q ||
+      tenantVal.toLowerCase().includes(q) ||
+      propVal.toLowerCase().includes(q) ||
+      unitVal.toLowerCase().includes(q) ||
+      idVal.toLowerCase().includes(q);
+
+    const propIdVal = String(l.propertyId || (l.property ? l.property.id : '') || '');
+    const matchesProp = !propertyFilter ||
+      propIdVal === propertyFilter ||
+      propVal.toLowerCase().includes(propertyFilter.toLowerCase());
+
+    const matchesStatus = !statusFilter ||
+      String(l.status || '').toLowerCase() === statusFilter.toLowerCase();
+
+    return matchesSearch && matchesProp && matchesStatus;
   });
 
   const columns: ColumnDef<Lease>[] = [

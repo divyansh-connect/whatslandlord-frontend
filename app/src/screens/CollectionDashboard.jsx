@@ -5,15 +5,16 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Alert,
   Animated,
   Easing,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
+import { Ionicons } from '@expo/vector-icons';
 
 // Animated Touchable Wrapper Component
 const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
@@ -52,8 +53,8 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const CollectionDashboard = () => {
-  const { logout, refreshAccessToken } = useAuthStore();
+export const CollectionDashboard = ({ onNavigate, onOpenMenu }) => {
+  const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
@@ -64,6 +65,7 @@ export const CollectionDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [followUpTenants, setFollowUpTenants] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Animation Values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -92,12 +94,18 @@ export const CollectionDashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [metricsRes, paymentsRes, expensesRes, invoicesRes] = await Promise.all([
+      const [metricsRes, paymentsRes, expensesRes, invoicesRes, notifsRes] = await Promise.all([
         apiClient.get('/dashboard/metrics', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/payments', logout, refreshAccessToken).catch(() => apiClient.get('/portal/payments', logout, refreshAccessToken).catch(() => null)),
         apiClient.get('/portal/expenses', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/invoices', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/notifications?role=Collection Manager', logout, refreshAccessToken).catch(() => null),
       ]);
+
+      const rawNotifs = notifsRes?.data !== undefined ? notifsRes.data : notifsRes;
+      const notifsList = Array.isArray(rawNotifs) ? rawNotifs : (Array.isArray(rawNotifs?.data) ? rawNotifs.data : []);
+      const unreadTotal = notifsList.filter((n) => !n.read && !n.isRead).length;
+      setUnreadCount(unreadTotal);
 
       const mData = metricsRes?.data || metricsRes || {};
       const rawPayments = Array.isArray(paymentsRes) ? paymentsRes : (paymentsRes?.data || []);
@@ -186,24 +194,86 @@ export const CollectionDashboard = () => {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchDashboardData} tintColor="#38bdf8" />}
     >
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-        {/* Page Header matching Web Screenshot 1-to-1 */}
+        {/* Page Header matching All Dashboards */}
         <View style={styles.header}>
           <View style={styles.titleRow}>
-            <Text style={[styles.title, { color: colors.textPrimary }]} allowFontScaling={false}>
-              {language === 'es' ? 'Flujo de Caja y Cobros' : 'Cashflow & Collections'}
-            </Text>
-            
-            <AnimatedTouchable style={[styles.refreshBtn, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]} onPress={fetchDashboardData}>
-              <Text style={[styles.refreshBtnText, { color: colors.textPrimary }]} allowFontScaling={false}>
-                {language === 'es' ? '🔄 Actualizar Libro' : '🔄 Refresh Ledger'}
+            {onOpenMenu && (
+              <TouchableOpacity
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 10,
+                }}
+                onPress={onOpenMenu}
+                activeOpacity={0.7}
+                accessibilityLabel="Open Navigation Menu"
+              >
+                <Ionicons name="menu-outline" size={24} color={colors.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={[styles.title, { color: colors.textPrimary }]} allowFontScaling={false}>
+                Welcome back, {user?.name || user?.firstName || 'Staff'} 👋
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]} allowFontScaling={false}>
+                {language === 'es' ? 'Flujo de Caja y Cobros' : 'Cashflow & Collections Ledger'}
+              </Text>
+            </View>
+
+            <AnimatedTouchable
+              style={[styles.refreshBtn, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}
+              onPress={fetchDashboardData}
+            >
+              <Ionicons name="refresh-outline" size={14} color="#2563eb" style={{ marginRight: 4 }} />
+              <Text style={[styles.refreshBtnText, { color: '#2563eb' }]} allowFontScaling={false}>
+                Sync
               </Text>
             </AnimatedTouchable>
+
+            <TouchableOpacity
+              style={[
+                styles.bellBtn,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  borderColor: colors.cardBorder,
+                },
+              ]}
+              onPress={() => onNavigate && onNavigate('notifications')}
+              activeOpacity={0.7}
+              accessibilityLabel="Notifications"
+            >
+              <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
+              {unreadCount > 0 && (
+                <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.bellBtn,
+                {
+                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  borderColor: colors.cardBorder,
+                  marginLeft: 8,
+                },
+              ]}
+              onPress={() => onNavigate && onNavigate('messages')}
+              activeOpacity={0.7}
+              accessibilityLabel="Direct Messages"
+            >
+              <Ionicons name="chatbubbles-outline" size={18} color="#2563eb" />
+            </TouchableOpacity>
           </View>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]} allowFontScaling={false}>
-            {language === 'es'
-              ? 'Supervise los recibos de alquiler de los inquilinos, los pagos a propietarios y los pagos de reparaciones a proveedores.'
-              : 'Monitor tenant rent receipts, owner distribution payouts, and vendor repair payments.'}
-          </Text>
         </View>
 
         {/* 4 Financial Metric Cards matching Web Screenshot 1-to-1 */}
@@ -358,14 +428,51 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: colors.textSecondary, marginTop: 8 },
 
-  header: { marginBottom: 14, paddingTop: 16 },
+  header: { marginBottom: 14, paddingTop: 4 },
   breadcrumb: { color: '#38bdf8', fontSize: 11, fontWeight: '700', marginBottom: 4 },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  title: { fontSize: 20, fontWeight: '800', color: colors.textPrimary, flex: 1 },
+  title: { fontSize: 20, fontWeight: '800', color: colors.textPrimary },
   subtitle: { fontSize: 11.5, color: colors.textSecondary, marginTop: 4, lineHeight: 16 },
 
-  refreshBtn: { backgroundColor: colors.surface, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: colors.cardBorder },
-  refreshBtnText: { color: colors.textSecondary, fontSize: 11, fontWeight: '700' },
+  refreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  refreshBtnText: { color: colors.textSecondary, fontSize: 11.5, fontWeight: '700' },
+  bellBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    borderWidth: 1,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#ef4444',
+    borderRadius: 9,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: colors.background,
+  },
+  bellBadgeText: {
+    color: '#ffffff',
+    fontSize: 8.5,
+    fontWeight: '900',
+  },
 
   kpiGrid: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   kpiCard: {

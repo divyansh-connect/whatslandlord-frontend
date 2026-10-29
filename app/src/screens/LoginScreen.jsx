@@ -13,7 +13,6 @@ import {
   Image,
   Modal,
   Alert,
-  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
@@ -92,15 +91,16 @@ export const LoginScreen = () => {
 
   const login = useAuthStore((state) => state.login);
 
-  const handleLogin = async (selectedEmail) => {
-    const targetEmail = selectedEmail || email;
-    if (!targetEmail) {
-      setError('Please enter your email address');
+  const handleLogin = async (selectedEmail, selectedPassword) => {
+    const targetEmail = (selectedEmail || email || '').trim();
+    const targetPassword = selectedPassword || password;
+    if (!targetEmail || !targetPassword) {
+      setError('Please enter your email and password');
       return;
     }
     setError('');
     setLoading(true);
-    const success = await login(targetEmail, password);
+    const success = await login(targetEmail, targetPassword);
     setLoading(false);
     if (!success) {
       setError('Login failed. Please check your credentials.');
@@ -142,12 +142,12 @@ export const LoginScreen = () => {
                 <Text style={styles.label} allowFontScaling={false}>Email Address</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="admin@apexpm.com"
                   value={email}
                   onChangeText={setEmail}
                   autoCapitalize="none"
                   keyboardType="email-address"
-                  placeholderTextColor="#94a3b8"
+                  autoComplete="off"
+                  textContentType="none"
                 />
               </View>
 
@@ -155,11 +155,11 @@ export const LoginScreen = () => {
                 <Text style={styles.label} allowFontScaling={false}>Password</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="123456"
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
-                  placeholderTextColor="#94a3b8"
+                  autoComplete="off"
+                  textContentType="none"
                 />
               </View>
 
@@ -189,7 +189,7 @@ export const LoginScreen = () => {
 
             {/* 3-Step Public Tenant Registration Full-Screen Native Modal */}
             <Modal visible={signupModalVisible} animationType="slide" presentationStyle="fullScreen">
-              <SafeAreaView style={styles.modalFullScreenBgDark}>
+              <View style={styles.modalFullScreenBgDark}>
                 <KeyboardAvoidingView
                   behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                   style={{ flex: 1 }}
@@ -694,7 +694,7 @@ export const LoginScreen = () => {
                     )}
                   </ScrollView>
                 </KeyboardAvoidingView>
-              </SafeAreaView>
+              </View>
             </Modal>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -720,8 +720,11 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: Platform.OS === 'ios' ? 40 : 20,
+    width: '100%',
+    maxWidth: 460,
+    alignSelf: 'center',
   },
   header: {
     alignItems: 'center',
@@ -768,6 +771,7 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     shadowOpacity: isDarkMode ? 0.35 : 0.1,
     shadowRadius: 8,
     elevation: 8,
+    width: '100%',
   },
   errorText: {
     color: '#f43f5e',
@@ -845,7 +849,8 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     fontWeight: '700',
   },
   signupLinkBtn: {
-    marginTop: 10,
+    marginTop: 16,
+    paddingVertical: 4,
     alignItems: 'center',
   },
   signupLinkText: {
@@ -894,8 +899,11 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   modalScrollContentFlex: {
     flexGrow: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 18,
+    width: '100%',
+    maxWidth: 640,
+    alignSelf: 'center',
   },
   stepContainerFlex: {
     flex: 1,

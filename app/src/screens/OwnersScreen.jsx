@@ -4,7 +4,6 @@ import {
   Text,
   View,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -17,12 +16,13 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
 } from 'react-native';
+import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
 import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
-export const OwnersScreen = () => {
+export const OwnersScreen = ({ onNavigate }) => {
   const logout = useAuthStore((state) => state.logout);
   const refreshAccessToken = useAuthStore((state) => state.refreshAccessToken);
   const { colors, isDarkMode } = useThemeColors();
@@ -33,6 +33,7 @@ export const OwnersScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [payoutFilter, setPayoutFilter] = useState('ALL');
 
   // View Details Modal State
   const [viewingOwner, setViewingOwner] = useState(null);
@@ -260,9 +261,16 @@ export const OwnersScreen = () => {
   // Filter Owners safely
   const filteredOwners = (Array.isArray(owners) ? owners : []).filter((item) => {
     if (!item) return false;
-    const text = `${item.name || ''} ${item.email || ''} ${item.phone || ''}`.toLowerCase();
-    const q = (searchQuery || '').toLowerCase();
-    return text.includes(q);
+    const q = (searchQuery || '').toLowerCase().trim();
+    const text = `${item.name || ''} ${item.email || ''} ${item.phone || ''} ${item.payoutMethod || ''}`.toLowerCase();
+    const matchesSearch = !q || text.includes(q);
+    if (!matchesSearch) return false;
+    if (payoutFilter && payoutFilter !== 'ALL') {
+      const pm = String(item.payoutMethod || '').toLowerCase();
+      const pf = payoutFilter.toLowerCase();
+      if (!pm.includes(pf.split('/')[0].toLowerCase())) return false;
+    }
+    return true;
   });
 
   const payoutOptions = ['ACH/Direct Deposit', 'Wire Transfer', 'Check'];
@@ -283,7 +291,17 @@ export const OwnersScreen = () => {
       {/* Top Header section */}
       <View style={styles.topSection}>
         <View style={styles.header}>
-          <Text style={styles.title} allowFontScaling={false}>Property Owners</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+            <TouchableOpacity
+              onPress={() => (onNavigate ? onNavigate('dashboard') : null)}
+              style={{ marginRight: 10, padding: 4 }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="arrow-back" size={24} color={colors.textPrimary || '#f8fafc'} />
+            </TouchableOpacity>
+            <Text style={[styles.title, { flex: 1, marginBottom: 0 }]} allowFontScaling={false}>Property Owners</Text>
+          </View>
           <Text style={styles.subtitle} allowFontScaling={false}>
             Manage owner contacts, properties owned, and payout preferences.
           </Text>
@@ -310,6 +328,24 @@ export const OwnersScreen = () => {
             <Ionicons name="add" size={18} color="#ffffff" />
             <Text style={styles.addBtnText} allowFontScaling={false}>Add Owner</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* Payout Method Filter Pills */}
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+          {['ALL', 'ACH', 'Wire', 'Check'].map((pf) => {
+            const isSel = payoutFilter === pf;
+            return (
+              <TouchableOpacity
+                key={pf}
+                style={[styles.filterPill, isSel && styles.filterPillActive]}
+                onPress={() => setPayoutFilter(pf)}
+              >
+                <Text style={[styles.filterPillText, isSel && styles.filterPillTextActive]} allowFontScaling={false}>
+                  {pf === 'ALL' ? 'All Methods' : pf}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -500,7 +536,7 @@ export const OwnersScreen = () => {
       {/* ADD / EDIT OWNER MODAL */}
       <Modal visible={isFormModalOpen} animationType="fade" transparent>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalBackdrop}
         >
           <View style={styles.formModalCard}>
@@ -767,6 +803,28 @@ const getStyles = (colors, isDarkMode) =>
     },
     addBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
 
+    filterPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      borderRadius: 14,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    filterPillActive: {
+      backgroundColor: 'rgba(37, 99, 235, 0.15)',
+      borderColor: '#2563eb',
+    },
+    filterPillText: {
+      fontSize: 11.5,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    filterPillTextActive: {
+      color: '#2563eb',
+      fontWeight: '800',
+    },
+
     countRow: { marginVertical: 12 },
     countText: { fontSize: 10, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.8 },
 
@@ -898,7 +956,7 @@ const getStyles = (colors, isDarkMode) =>
       paddingBottom: 14,
       marginBottom: 14,
     },
-    modalTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
+    modalTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, flex: 1, flexShrink: 1, marginRight: 8 },
     modalCloseBtn: { padding: 4 },
 
     detailSection: { marginBottom: 14 },

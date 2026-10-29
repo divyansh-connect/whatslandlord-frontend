@@ -42,7 +42,7 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
   const units = Array.isArray(unitsData) ? unitsData : [];
 
   const filteredUnits = filters.propertyId
-    ? units.filter((u: any) => u.propertyId === filters.propertyId)
+    ? units.filter((u: any) => u.propertyId === filters.propertyId || u.property?.id === filters.propertyId)
     : units;
 
   // Query tenants
@@ -52,6 +52,33 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
   });
   const tenants = Array.isArray(tenantsData) ? tenantsData : [];
 
+  // Cascading tenant filter based on selected Unit or Property
+  const filteredTenants = tenants.filter((t: any) => {
+    if (filters.unitId) {
+      return t.unitId === filters.unitId || t.unit?.id === filters.unitId;
+    }
+    if (filters.propertyId) {
+      return (
+        t.propertyId === filters.propertyId ||
+        t.unit?.propertyId === filters.propertyId ||
+        t.unit?.property?.id === filters.propertyId ||
+        (Array.isArray(t.leases) && t.leases.some((l: any) => l.propertyId === filters.propertyId))
+      );
+    }
+    return true;
+  });
+
+  const handlePropertyChange = (propId: string) => {
+    onChange('propertyId', propId);
+    if (filters.unitId) onChange('unitId', '');
+    if (filters.tenantId) onChange('tenantId', '');
+  };
+
+  const handleUnitChange = (unitId: string) => {
+    onChange('unitId', unitId);
+    if (filters.tenantId) onChange('tenantId', '');
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
       {/* Property Select */}
@@ -59,7 +86,7 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
         <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Property</label>
         <select
           value={filters.propertyId || ''}
-          onChange={(e) => onChange('propertyId', e.target.value)}
+          onChange={(e) => handlePropertyChange(e.target.value)}
           className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <option value="">All Properties</option>
@@ -76,13 +103,13 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
         <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Unit</label>
         <select
           value={filters.unitId || ''}
-          onChange={(e) => onChange('unitId', e.target.value)}
+          onChange={(e) => handleUnitChange(e.target.value)}
           className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <option value="">All Units</option>
           {filteredUnits.map((u: any) => (
             <option key={u.id} value={u.id}>
-              Unit {u.unitNumber} {u.propertyName ? `(${u.propertyName})` : ''}
+              Unit {u.unitNumber} {u.propertyName || u.property?.name ? `(${u.propertyName || u.property?.name})` : ''}
             </option>
           ))}
         </select>
@@ -97,9 +124,9 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
           className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <option value="">All Tenants</option>
-          {tenants.map((t: any) => (
+          {filteredTenants.map((t: any) => (
             <option key={t.id} value={t.id}>
-              {t.firstName || ''} {t.lastName || ''}
+              {t.firstName || ''} {t.lastName || ''} {t.unit?.unitNumber ? `(Unit ${t.unit.unitNumber})` : ''}
             </option>
           ))}
         </select>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api';
 import { useAuthStore, useThemeStore, useNotificationStore } from '../store/useStore';
 import { getNotificationRedirectPath, getNotificationModule } from '../features/notifications/NotificationsPage';
@@ -288,15 +288,22 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     return filtered;
   };
 
-  const visibleMenuItems = getFilteredMenuItems();
+  const visibleMenuItems = React.useMemo(() => getFilteredMenuItems(), [user?.role, roles]);
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024;
+    }
+    return true;
+  });
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const displayRole = user?.role || 'Property Manager';
+
+  const queryClient = useQueryClient();
 
   // Fetch real backend notifications filtered strictly for Property Manager / User Role
   const { data: realNotifications = [] } = useQuery({
@@ -305,7 +312,29 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     refetchInterval: 15000,
   });
 
-  const localNotifications = notifications.filter((n) => !n.role || n.role === displayRole);
+  const handleMarkAllAsRead = () => {
+    markAllAsRead(displayRole);
+    api.notifications.markAllAsRead(displayRole);
+    queryClient.setQueryData(['notifications-list', displayRole], (old: any[] = []) =>
+      old.map((n) => ({ ...n, read: true }))
+    );
+  };
+
+  const handleClearAll = () => {
+    clearAll(displayRole);
+    api.notifications.clearAll(displayRole);
+    queryClient.setQueryData(['notifications-list', displayRole], []);
+  };
+
+  const handleMarkSingleAsRead = (id: string) => {
+    markAsRead(id);
+    api.notifications.markAsRead(id);
+    queryClient.setQueryData(['notifications-list', displayRole], (old: any[] = []) =>
+      old.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
+
+  const localNotifications = notifications.filter((n) => n.role === displayRole);
   const combinedNotifications = Array.from(
     new Map(
       [...(realNotifications || []), ...localNotifications].map((n) => [n.id, n])
@@ -580,8 +609,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       {/* --- MAIN PAGE CONTENT CONTAINER --- */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* --- HEADER --- */}
-        <header className="glass-header h-16 flex items-center justify-between px-6 z-30">
-          <div className="flex items-center space-x-4">
+        <header className="glass-header h-16 flex items-center justify-between px-3 sm:px-6 z-30">
+          <div className="flex items-center space-x-2 sm:space-x-4">
             <Button
               variant="ghost"
               size="icon"
@@ -590,11 +619,20 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
             >
               <Menu className="w-5 h-5" />
             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden md:flex"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              title="Toggle Sidebar"
+            >
+              <Menu className="w-5 h-5" />
+            </Button>
 
             {/* Breadcrumb renderer removed per user request */}
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-1.5 sm:space-x-3">
             {/* Theme Toggle */}
             <Button variant="ghost" size="icon" onClick={toggleTheme} title={t('header.toggleTheme')}>
               {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
@@ -617,15 +655,15 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
               </Button>
 
               {showNotifications && (
-                <div className="absolute right-0 top-12 z-50 w-80 rounded-xl border border-border bg-card shadow-2xl p-4 animate-fade-in text-foreground">
+                <div className="absolute right-0 top-12 z-50 w-[calc(100vw-2rem)] sm:w-80 max-w-sm rounded-xl border border-border bg-card shadow-2xl p-4 animate-fade-in text-foreground">
                   <div className="flex items-center justify-between pb-2 border-b border-border/80">
                     <h4 className="font-bold text-sm">{t('header.notifications')}</h4>
                     <div className="flex space-x-2 text-xs font-semibold text-primary">
-                      <button onClick={() => markAllAsRead(displayRole)} className="hover:underline">
+                      <button onClick={handleMarkAllAsRead} className="hover:underline">
                         {t('header.readAll')}
                       </button>
                       <span>•</span>
-                      <button onClick={() => clearAll(displayRole)} className="hover:underline text-muted-foreground">
+                      <button onClick={handleClearAll} className="hover:underline text-muted-foreground">
                         {t('header.clear')}
                       </button>
                     </div>
@@ -641,9 +679,12 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                         <div
                           key={n.id}
                           onClick={() => {
-                            markAsRead(n.id);
+                            handleMarkSingleAsRead(n.id);
                             setShowNotifications(false);
-                            const path = getNotificationRedirectPath(n.title, n.message, user?.role || 'Property Manager', n.targetId);
+                            const directUrl = (n as any).targetUrl;
+                            const path = directUrl
+                              ? ((n as any).targetId && !directUrl.includes('?') ? `${directUrl}?id=${(n as any).targetId}` : directUrl)
+                              : getNotificationRedirectPath(n.title, n.message, user?.role || 'Property Manager', n.targetId);
                             if (path) {
                               navigate(path);
                             }
@@ -692,7 +733,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
               </Button>
 
               {showProfileMenu && (
-                <div className="absolute right-0 top-12 z-50 w-56 rounded-xl border border-border bg-card p-3 shadow-2xl animate-fade-in text-foreground">
+                <div className="absolute right-0 top-12 z-50 w-[calc(100vw-2rem)] sm:w-56 max-w-xs rounded-xl border border-border bg-card p-3 shadow-2xl animate-fade-in text-foreground">
                   <div className="pb-2 border-b border-border/80 text-xs">
                     <p className="font-bold">{user?.name || 'Sarah Davis'}</p>
                     <p className="text-muted-foreground truncate">{user?.email || 'manager@apexpm.com'}</p>
@@ -727,7 +768,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         </header>
 
         {/* --- MAIN PAGE VIEW CONTENT --- */}
-        <main className="flex-1 overflow-y-auto p-6 md:p-8 animate-fade-in">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 lg:p-8 animate-fade-in">
           {children}
         </main>
       </div>

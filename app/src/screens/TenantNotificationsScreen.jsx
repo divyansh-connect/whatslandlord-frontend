@@ -11,14 +11,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../api/client';
-import { useAuthStore, useThemeStore } from '../store/useStore';
+import { useAuthStore, useThemeStore, useNotificationStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { isNoticeForTenant } from '../utils/tenantNoticeHelper';
 
-export const TenantNotificationsScreen = () => {
+export const TenantNotificationsScreen = ({ onNavigate }) => {
   const { colors, isDarkMode } = useThemeColors();
   const { language } = useThemeStore();
   const { user, logout, refreshAccessToken } = useAuthStore();
+  const { setUnreadCount, decrementUnread, resetUnread } = useNotificationStore();
   const styles = getStyles(colors, isDarkMode);
   const es = language === 'es';
 
@@ -50,14 +51,17 @@ export const TenantNotificationsScreen = () => {
 
       const isolated = serverList.filter((n) => isNoticeForTenant(n, tenantCtx));
       setNotifications(isolated);
+      const unread = isolated.filter((n) => !n.read && !n.isRead).length;
+      setUnreadCount(unread);
     } catch (e) {
       console.log('Error fetching live tenant notifications:', e.message);
       setNotifications([]);
+      setUnreadCount(0);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, logout, refreshAccessToken]);
+  }, [user, logout, refreshAccessToken, setUnreadCount]);
 
   useEffect(() => {
     fetchLiveNotifications();
@@ -70,6 +74,7 @@ export const TenantNotificationsScreen = () => {
 
   const handleMarkAllRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true, isRead: true })));
+    resetUnread();
     try {
       await apiClient.patch('/portal/tenant/notifications/all/read', {}, logout, refreshAccessToken);
     } catch (_) {}
@@ -90,6 +95,7 @@ export const TenantNotificationsScreen = () => {
           style: 'destructive',
           onPress: async () => {
             setNotifications([]);
+            resetUnread();
             try {
               await apiClient.delete('/portal/tenant/notifications', logout, refreshAccessToken);
             } catch (_) {}
@@ -106,9 +112,57 @@ export const TenantNotificationsScreen = () => {
     );
 
     if (newReadState) {
+      decrementUnread();
       try {
         await apiClient.patch(`/portal/tenant/notifications/${item.id}/read`, {}, logout, refreshAccessToken);
       } catch (_) {}
+    } else {
+      setUnreadCount((c) => c + 1);
+    }
+  };
+
+  const handleDeleteNotification = async (id) => {
+    const target = notifications.find((n) => n.id === id);
+    if (target && !target.read && !target.isRead) {
+      decrementUnread();
+    }
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await apiClient.delete(`/portal/tenant/notifications/${id}`, logout, refreshAccessToken)
+        .catch(() => apiClient.delete(`/notifications/${id}`, logout, refreshAccessToken).catch(() => null));
+    } catch (_) {}
+  };
+
+  const handleNotificationPress = (item) => {
+    if (!item.read && !item.isRead) {
+      handleToggleRead(item);
+    }
+    const title = (item.title || '').toLowerCase();
+    const message = (item.message || '').toLowerCase();
+    const targetUrl = (item.targetUrl || '').toLowerCase();
+
+    if (
+      targetUrl.includes('maintenance') ||
+      title.includes('maintenance') ||
+      title.includes('request') ||
+      title.includes('repair') ||
+      message.includes('maintenance')
+    ) {
+      if (onNavigate) onNavigate('maintenance');
+    } else if (
+      targetUrl.includes('payment') ||
+      title.includes('payment') ||
+      title.includes('rent') ||
+      title.includes('invoice') ||
+      message.includes('payment')
+    ) {
+      if (onNavigate) onNavigate('rent');
+    } else if (targetUrl.includes('lease') || title.includes('lease')) {
+      if (onNavigate) onNavigate('lease');
+    } else if (targetUrl.includes('document') || title.includes('document')) {
+      if (onNavigate) onNavigate('documents');
+    } else if (targetUrl.includes('message') || title.includes('message')) {
+      if (onNavigate) onNavigate('messages');
     }
   };
 
@@ -122,6 +176,14 @@ export const TenantNotificationsScreen = () => {
       {/* Header matching Web */}
       <View style={styles.header}>
         <View style={styles.titleRow}>
+          {onNavigate && (
+            <TouchableOpacity
+              style={{ marginRight: 10, alignSelf: 'flex-start', marginTop: 4, padding: 4 }}
+              onPress={() => onNavigate('dashboard')}
+            >
+              <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+            </TouchableOpacity>
+          )}
           <View style={{ flex: 1, paddingRight: 8 }}>
             <Text style={styles.title} allowFontScaling={false}>
               {es ? 'Centro de Notificaciones' : 'Tenant Notifications Center'}
@@ -202,7 +264,7 @@ export const TenantNotificationsScreen = () => {
                 styles.card,
                 isRead ? styles.cardRead : styles.cardUnreadHighlight,
               ]}
-              onPress={() => handleToggleRead(item)}
+              onPress={() => handleNotificationPress(item)}
               activeOpacity={0.8}
             >
               <View style={styles.cardMain}>
@@ -227,17 +289,26 @@ export const TenantNotificationsScreen = () => {
                   </Text>
                 </View>
 
-                {!isRead && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 }}>
+                  {!isRead && (
+                    <TouchableOpacity
+                      style={styles.readActionBtn}
+                      onPress={() => handleToggleRead(item)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.readActionText} allowFontScaling={false}>
+                        {es ? 'Marcar Leído' : 'Mark Read'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity
-                    style={styles.readActionBtn}
-                    onPress={() => handleToggleRead(item)}
+                    onPress={() => handleDeleteNotification(item.id)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={{ padding: 4 }}
                   >
-                    <Text style={styles.readActionText} allowFontScaling={false}>
-                      {es ? 'Marcar Leído' : 'Mark Read'}
-                    </Text>
+                    <Ionicons name="trash-outline" size={16} color="#f43f5e" />
                   </TouchableOpacity>
-                )}
+                </View>
               </View>
             </TouchableOpacity>
           );

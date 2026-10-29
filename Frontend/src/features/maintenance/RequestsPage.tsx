@@ -23,7 +23,13 @@ export const RequestsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('status') || '';
+    } catch {
+      return '';
+    }
+  });
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // Queries
@@ -37,12 +43,40 @@ export const RequestsPage: React.FC = () => {
     },
   });
 
-  const filteredRequests = requests.filter((r) => {
-    const titleVal = r.title || '';
-    const tenantVal = r.tenantName || '';
-    const searchMatch = titleVal.toLowerCase().includes(searchQuery.toLowerCase()) || tenantVal.toLowerCase().includes(searchQuery.toLowerCase());
-    const prioMatch = priorityFilter === '' || r.priority === priorityFilter;
-    const statusMatch = statusFilter === '' || r.status === statusFilter;
+  const filteredRequests = requests.filter((r: any) => {
+    if (!r) return false;
+    const q = (searchQuery || '').toLowerCase().trim();
+    const titleVal = String(r.title || r.description || '');
+    const tenantVal = String(r.tenantName || (r.tenant ? `${r.tenant.firstName || ''} ${r.tenant.lastName || ''}` : '') || '');
+    const propVal = String(r.propertyName || (r.property ? r.property.name : '') || '');
+    const unitVal = String(r.unitNumber || '');
+    const reqNum = String(r.requestNumber || r.id || '');
+    const statusVal = String(r.status || '');
+    const prioVal = String(r.priority || '');
+
+    const searchMatch = !q ||
+      titleVal.toLowerCase().includes(q) ||
+      tenantVal.toLowerCase().includes(q) ||
+      propVal.toLowerCase().includes(q) ||
+      unitVal.toLowerCase().includes(q) ||
+      reqNum.toLowerCase().includes(q) ||
+      statusVal.toLowerCase().includes(q) ||
+      prioVal.toLowerCase().includes(q);
+
+    const prioMatch = !priorityFilter ||
+      prioVal.toLowerCase() === priorityFilter.toLowerCase();
+
+    let statusMatch = true;
+    if (statusFilter) {
+      const sf = statusFilter.toLowerCase().replace(/[\s_-]/g, '');
+      const rs = statusVal.toLowerCase().replace(/[\s_-]/g, '');
+      if (sf === 'inprogress' || sf === 'inprocess') {
+        statusMatch = rs.includes('prog') || rs.includes('proc');
+      } else {
+        statusMatch = rs === sf;
+      }
+    }
+
     return searchMatch && prioMatch && statusMatch;
   });
 

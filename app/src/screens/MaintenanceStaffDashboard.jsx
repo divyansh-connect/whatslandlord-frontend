@@ -177,6 +177,22 @@ export const MaintenanceStaffDashboard = ({ activeSubTab, onNavigate }) => {
               </View>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.bellBtn,
+              {
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                borderColor: isDarkMode ? '#334155' : '#cbd5e1',
+                marginLeft: 8,
+              },
+            ]}
+            onPress={() => onNavigate && onNavigate('messages')}
+            activeOpacity={0.7}
+            accessibilityLabel="Direct Messages"
+          >
+            <Ionicons name="chatbubbles-outline" size={20} color={isDarkMode ? '#38bdf8' : '#0284c7'} />
+          </TouchableOpacity>
         </View>
 
         {/* Dynamic Stat Cards matching Web UI */}

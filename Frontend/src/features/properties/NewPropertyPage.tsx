@@ -476,6 +476,7 @@ export const NewPropertyPage: React.FC = () => {
                   <div className="relative">
                     <Input
                       type={showSecret ? 'text' : 'password'}
+                      disableTogglePassword
                       placeholder="sk_live_... or sk_test_..."
                       value={paymentAuthToken}
                       onChange={(e) => setPaymentAuthToken(e.target.value)}
@@ -513,6 +514,7 @@ export const NewPropertyPage: React.FC = () => {
                   <div className="relative">
                     <Input
                       type={showSecret ? 'text' : 'password'}
+                      disableTogglePassword
                       placeholder="Enter 16-character Transaction Key"
                       value={paymentAuthToken}
                       onChange={(e) => setPaymentAuthToken(e.target.value)}
@@ -550,6 +552,7 @@ export const NewPropertyPage: React.FC = () => {
                   <div className="relative">
                     <Input
                       type={showSecret ? 'text' : 'password'}
+                      disableTogglePassword
                       placeholder="Enter Razorpay Key Secret"
                       value={paymentAuthToken}
                       onChange={(e) => setPaymentAuthToken(e.target.value)}

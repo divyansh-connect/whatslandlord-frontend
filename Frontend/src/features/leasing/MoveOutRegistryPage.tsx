@@ -15,13 +15,66 @@ export const MoveOutRegistryPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>(''); // empty means all
 
   // Load Move Outs from backend database
-  const { data: moveOuts = [], isLoading, isFetching, refetch } = useQuery({
+  const { data: rawMoveOuts = [], isLoading: isLoadingMoves, isFetching, refetch } = useQuery({
     queryKey: ['moveOuts', statusFilter],
     queryFn: () => api.moveOuts.getAll(statusFilter),
   });
 
+  // Load all leases to ensure terminated / ended leases show up in Move Out registry
+  const { data: allLeases = [], isLoading: isLoadingLeases } = useQuery({
+    queryKey: ['leases'],
+    queryFn: () => api.leasing.getLeases(),
+  });
+
+  const isLoading = isLoadingMoves || isLoadingLeases;
+
+  // Merge backend move-outs with terminated / ended leases
+  const moveOuts = React.useMemo(() => {
+    const list = [...rawMoveOuts];
+    const existingLeaseIds = new Set(
+      list.map((m: any) => m.leaseId || m.lease?.id).filter(Boolean)
+    );
+
+    allLeases.forEach((l: any) => {
+      const isTerminatedOrEnded = ['Terminated', 'Ended', 'Expired', 'Cancelled'].includes(l.status);
+      if (isTerminatedOrEnded && !existingLeaseIds.has(l.id)) {
+        if (!statusFilter || statusFilter === 'SCHEDULED') {
+          list.push({
+            id: `lease-moveout-${l.id}`,
+            leaseId: l.id,
+            unitId: l.unitId,
+            scheduledDate: l.endDate || l.createdAt || new Date().toISOString(),
+            status: 'SCHEDULED',
+            notes: 'Auto-detected from lease status',
+            lease: l,
+            unit: l.unit,
+          });
+        }
+      }
+    });
+
+    return list;
+  }, [rawMoveOuts, allLeases, statusFilter]);
+
   const completeMutation = useMutation({
-    mutationFn: (moveOutId: string) => api.moveOuts.complete(moveOutId),
+    mutationFn: async (m: any) => {
+      const moveOutId = typeof m === 'string' ? m : m.id;
+      const res = await api.moveOuts.complete(moveOutId);
+      // Guarantee lease is Ended and unit is Vacant if virtual or fallback
+      const realLeaseId = (m.leaseId || m.lease?.id || moveOutId).replace('lease-moveout-', '');
+      const unitId = m.unitId || m.unit?.id || m.lease?.unitId;
+      const tenantId = m.lease?.tenantId || m.lease?.tenant?.id;
+      if (realLeaseId) {
+        await api.leasing.updateLease(realLeaseId, { status: 'Ended' }).catch(() => {});
+        if (unitId) {
+          await api.units.update(unitId, { status: 'Vacant' }).catch(() => {});
+        }
+        if (tenantId) {
+          await api.tenants.update(tenantId, { status: 'Inactive', unitId: null }).catch(() => {});
+        }
+      }
+      return res;
+    },
     onSuccess: () => {
       refetch();
       queryClient.invalidateQueries({ queryKey: ['moveOuts'] });
@@ -124,7 +177,7 @@ export const MoveOutRegistryPage: React.FC = () => {
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => completeMutation.mutate(m.id)}
+                            onClick={() => completeMutation.mutate(m)}
                             disabled={completeMutation.isPending}
                             className="border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/10 font-bold"
                           >

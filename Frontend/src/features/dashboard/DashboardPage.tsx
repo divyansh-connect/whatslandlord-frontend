@@ -70,7 +70,7 @@ export const DashboardPage: React.FC = () => {
 
       {/* --- METRIC CARDS GRID --- */}
       {isCollectionManager ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <StatsCard
             title={t('dashboard.monthlyRevenue')}
             value={`$${(metrics?.monthlyRevenue ?? 0).toLocaleString()}`}
@@ -111,7 +111,7 @@ export const DashboardPage: React.FC = () => {
           />
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
           <StatsCard
             title={t('dashboard.totalProperties')}
             value={metrics?.totalProperties ?? 0}

@@ -91,12 +91,14 @@ export const RequestScreeningModal: React.FC<RequestScreeningModalProps> = ({ op
         unitNumber: selectedUnit ? selectedUnit.unitNumber : '101',
         screeningPackage,
         paymentResponsibility,
+        companyId: selectedProp?.companyId,
         status: 'Approved',
         screeningStatus: 'Approved',
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['screening-checks-list'] });
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
       onOpenChange(false);
       // Reset form
       setTenantId('');

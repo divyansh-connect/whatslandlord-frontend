@@ -93,6 +93,13 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
     enabled: open && (metricType === 'pendingRent' || metricType === 'monthlyRevenue'),
   });
 
+  // 5.1 Fetch invoices for pending rent
+  const { data: invoices = [], isLoading: loadingInvoices } = useQuery({
+    queryKey: ['invoices-list'],
+    queryFn: () => api.invoices.getAll(),
+    enabled: open && metricType === 'pendingRent',
+  });
+
   // 6. Fetch expenses
   const { data: expenses = [], isLoading: loadingExpenses } = useQuery({
     queryKey: ['expenses'],
@@ -104,6 +111,13 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
   const { data: workOrders = [], isLoading: loadingWorkOrders } = useQuery({
     queryKey: ['work-orders'],
     queryFn: () => api.workOrders.getAll(),
+    enabled: open && metricType === 'openMaintenance',
+  });
+
+  // 7.1 Fetch service requests
+  const { data: serviceRequests = [] } = useQuery({
+    queryKey: ['service-requests'],
+    queryFn: () => api.serviceRequests.getAll(),
     enabled: open && metricType === 'openMaintenance',
   });
 
@@ -467,6 +481,34 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
       // 7. PENDING RENT
       case 'pendingRent': {
+        const unpaidInvoices = (invoices as any[])
+          .filter((inv: any) => {
+            const st = String(inv.status || '').toLowerCase();
+            const bal = inv.balance !== undefined && inv.balance !== null ? Number(inv.balance) : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+            return (st === 'overdue' || (st !== 'paid' && st !== 'void' && st !== 'cancelled')) && bal > 0;
+          })
+          .map((inv: any, idx: number) => {
+            const bal = inv.balance !== undefined && inv.balance !== null ? Number(inv.balance) : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+            const tenant = tenants.find((t: any) => t.id === inv.tenantId || `${t.firstName} ${t.lastName}` === inv.tenantName);
+            const prop = properties.find((p: any) => p.id === inv.propertyId || p.name === inv.propertyName);
+            return {
+              id: inv.id,
+              paymentId: inv.id,
+              receiptNumber: inv.invoiceNumber || `INV-${String(idx + 1).padStart(4, '0')}`,
+              tenantId: inv.tenantId || tenant?.id,
+              tenantName: inv.tenantName || (tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Resident'),
+              propertyId: inv.propertyId || prop?.id,
+              propertyName: inv.propertyName || prop?.name || 'Property',
+              unitId: inv.unitId,
+              unitNumber: inv.unitNumber ? (String(inv.unitNumber).startsWith('Unit') ? inv.unitNumber : `Unit ${inv.unitNumber}`) : 'Unassigned',
+              amount: `$${bal.toLocaleString()}`,
+              numericAmount: bal,
+              dueDate: inv.dueDate ? String(inv.dueDate).split('T')[0] : 'Immediate',
+              paymentMethod: 'Invoice Statement',
+              status: inv.status || 'Unpaid',
+            };
+          });
+
         const pendingPayments = payments
           .filter((p: any) => p.status === 'Pending' || p.status === 'Overdue' || p.status === 'Late' || p.status === 'Unpaid')
           .map((p: any) => {
@@ -490,7 +532,9 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
             };
           });
 
-        const filtered = pendingPayments.filter((item: any) =>
+        const combinedPending = unpaidInvoices.length > 0 ? unpaidInvoices : pendingPayments;
+
+        const filtered = combinedPending.filter((item: any) =>
           item.receiptNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.tenantName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.propertyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -498,9 +542,10 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           item.status.toLowerCase().includes(searchTerm.toLowerCase())
         );
 
-        const totalPending = metricsSummary?.pendingRent !== undefined 
+        const calculatedSum = combinedPending.reduce((s: number, p: any) => s + p.numericAmount, 0);
+        const totalPending = (metricsSummary?.pendingRent !== undefined && Number(metricsSummary.pendingRent) > 0)
           ? metricsSummary.pendingRent 
-          : pendingPayments.reduce((s: number, p: any) => s + p.numericAmount, 0);
+          : calculatedSum;
 
         return {
           title: 'Pending & Delinquent Rent Matrix',
@@ -601,7 +646,30 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
             };
           });
 
-        const filtered = openOrders.filter((item: any) =>
+        const openReqs = serviceRequests
+          .filter((r: any) => ['Open', 'InProgress', 'Pending', 'In Progress', 'New', 'Submitted', 'Assigned'].includes(r.status))
+          .map((r: any, idx: number) => {
+            const prop = properties.find((p: any) => p.id === r.propertyId || p.name === r.propertyName);
+            return {
+              id: r.id || `sr-${idx}`,
+              workOrderId: r.id,
+              propertyId: r.propertyId || prop?.id,
+              unitId: r.unitId,
+              workOrderNumber: r.requestNumber || `#REQ-${1001 + idx}`,
+              title: r.title || 'Service Ticket',
+              propertyName: r.propertyName || prop?.name || 'Property',
+              unitNumber: r.unitNumber ? (r.unitNumber.startsWith('Unit') ? r.unitNumber : `Unit ${r.unitNumber}`) : 'Common Area',
+              assignedTechnician: r.assignedTechnician || r.vendorName || 'Unassigned',
+              priority: r.priority || 'Normal',
+              estimatedCost: '$0',
+              scheduledDate: r.createdAt ? r.createdAt.split('T')[0] : 'Pending',
+              status: r.status || 'Open',
+            };
+          });
+
+        const allMaintenance = [...openOrders, ...openReqs];
+
+        const filtered = allMaintenance.filter((item: any) =>
           item.workOrderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.propertyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -610,18 +678,22 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           item.status.toLowerCase().includes(searchTerm.toLowerCase())
         );
 
+        const totalOpenMaint = metricsSummary?.openMaintenance !== undefined
+          ? metricsSummary.openMaintenance
+          : allMaintenance.length;
+
         return {
-          title: 'Open Maintenance Orders Matrix',
-          description: 'Active work orders, unresolved repairs, and scheduled technician dispatches',
+          title: 'Open Maintenance Tasks Matrix',
+          description: 'Active work orders and service requests requiring maintenance resolution',
           icon: <Wrench className="w-6 h-6 text-amber-500" />,
           badgeBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
-          count: openOrders.length,
-          countLabel: 'Open Orders',
+          count: totalOpenMaint,
+          countLabel: 'Open Tasks',
           data: filtered,
-          rawData: openOrders,
+          rawData: allMaintenance,
           reportTitle: 'OPEN_MAINTENANCE_REPORT',
           columns: [
-            { header: 'Work Order #', accessorKey: 'workOrderNumber' },
+            { header: 'Order / Ref #', accessorKey: 'workOrderNumber' },
             { header: 'Title / Issue', accessorKey: 'title' },
             { header: 'Property Name', accessorKey: 'propertyName' },
             { header: 'Unit #', accessorKey: 'unitNumber' },
@@ -771,31 +843,31 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="sm:max-w-5xl h-[85vh] max-h-[85vh] p-6 overflow-hidden">
+      <DialogContent className="w-[calc(100vw-1rem)] sm:w-full sm:max-w-5xl h-[92vh] max-h-[92vh] p-3 sm:p-6 overflow-hidden">
         <div className="flex flex-col h-full overflow-hidden gap-3">
           {/* Header Section */}
-          <DialogHeader className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-secondary/80 rounded-2xl shrink-0">
+          <DialogHeader className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 shrink-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="p-2 sm:p-3 bg-secondary/80 rounded-2xl shrink-0">
                 {modalConfig.icon}
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <DialogTitle className="text-xl font-extrabold text-foreground">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <DialogTitle className="text-base sm:text-xl font-extrabold text-foreground truncate">
                     {modalConfig.title}
                   </DialogTitle>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold border ${modalConfig.badgeBg}`}>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-extrabold border ${modalConfig.badgeBg}`}>
                     {modalConfig.count} {modalConfig.countLabel}
                   </span>
                 </div>
-                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                <DialogDescription className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 truncate">
                   {modalConfig.description}
                 </DialogDescription>
               </div>
             </div>
 
             {/* Action Export Buttons */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <Button
                 variant="outline"
                 size="sm"
@@ -820,8 +892,8 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           </DialogHeader>
 
           {/* Search & Filter Bar */}
-          <div className="shrink-0 flex items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-sm">
+          <div className="shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+            <div className="relative flex-1 w-full sm:max-w-sm">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="text"

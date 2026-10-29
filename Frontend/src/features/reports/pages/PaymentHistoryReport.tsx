@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../services/reportApi';
 import { ReportLayout } from '../components/ReportLayout';
@@ -8,6 +8,7 @@ import { ReportTable } from '../components/ReportTable';
 import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
+import { useReportDataFilter } from '../hooks/useReportDataFilter';
 import { DollarSign, CreditCard, CheckCircle2, TrendingUp, Eye } from 'lucide-react';
 
 export const PaymentHistoryReport: React.FC = () => {
@@ -22,12 +23,14 @@ export const PaymentHistoryReport: React.FC = () => {
   });
 
   const reportItems = data?.data || [];
-  const summary = data?.summary || {
-    totalCollectedAmount: reportItems.reduce((acc, curr) => acc + (curr.amount || 0), 0),
-    totalTransactions: data?.pagination?.totalRecords || reportItems.length,
-    averageTransaction: reportItems.length > 0 ? Math.round(reportItems.reduce((acc, curr) => acc + (curr.amount || 0), 0) / reportItems.length) : 0,
-    topMethod: reportItems.length > 0 ? reportItems[0].paymentMethod || 'ACH' : 'N/A',
-  };
+  const filteredReportItems = useReportDataFilter(reportItems, filters);
+
+  const summary = useMemo(() => ({
+    totalCollectedAmount: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0),
+    totalTransactions: filteredReportItems.length,
+    averageTransaction: filteredReportItems.length > 0 ? Math.round(filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0) / filteredReportItems.length) : 0,
+    topMethod: filteredReportItems.length > 0 ? filteredReportItems[0].paymentMethod || 'ACH' : 'N/A',
+  }), [filteredReportItems]);
 
   const columns = [
     { key: 'tenantName', header: 'Tenant Name' },
@@ -85,8 +88,8 @@ export const PaymentHistoryReport: React.FC = () => {
           handleExport({
             reportType: 'PAYMENT_HISTORY',
             filters,
-            data: reportItems,
-            totalRecords: data?.pagination.totalRecords || reportItems.length,
+            data: filteredReportItems,
+            totalRecords: filteredReportItems.length,
             fileType,
           })
         }
@@ -156,7 +159,7 @@ export const PaymentHistoryReport: React.FC = () => {
 
       <ReportTable
         columns={columns}
-        data={reportItems}
+        data={filteredReportItems}
         isLoading={isLoading}
         pagination={data?.pagination}
         onPageChange={(page) => setFilterVal('page', page)}
