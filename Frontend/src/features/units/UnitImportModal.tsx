@@ -22,10 +22,7 @@ import {
   RefreshCw,
   HelpCircle,
   Users,
-  Building2,
-  Calendar,
-  DollarSign,
-  Info,
+  BarChart3,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -34,6 +31,8 @@ interface UnitImportModalProps {
   onOpenChange: (open: boolean) => void;
   onSuccess?: (count: number) => void;
 }
+
+export type ValidationStatus = 'Ready' | 'File Duplicate' | 'DB Duplicate' | 'Error';
 
 export interface ParsedUnitRow {
   rowIndex: number;
@@ -59,8 +58,20 @@ export interface ParsedUnitRow {
   includeLateFee?: boolean;
   outstandingBalance?: number;
 
+  validationStatus: ValidationStatus;
   isValid: boolean;
   errors: string[];
+}
+
+export interface ExecutionSummaryData {
+  totalProcessed: number;
+  importedCount: number;
+  importedOccupied: number;
+  importedVacant: number;
+  occupancyRate: number;
+  skippedCount: number;
+  failedCount: number;
+  isPartial: boolean;
 }
 
 export const UnitImportModal: React.FC<UnitImportModalProps> = ({
@@ -71,10 +82,16 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch real registered properties from the system
+  // Fetch real registered properties
   const { data: properties = [] } = useQuery<any[]>({
     queryKey: ['properties'],
     queryFn: () => api.property.getAll(),
+  });
+
+  // Fetch real registered units for DB Duplicate pre-validation
+  const { data: existingUnits = [] } = useQuery<any[]>({
+    queryKey: ['units'],
+    queryFn: () => api.unit.getAll(),
   });
 
   const availablePropertyNames = properties
@@ -87,6 +104,7 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [executionSummary, setExecutionSummary] = useState<ExecutionSummaryData | null>(null);
 
   const normalizeKey = (key: string): string => {
     return key.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -228,12 +246,11 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
     XLSX.writeFile(workbook, 'Unit_Vacant_Import_Template.xlsx');
   };
 
-  // Download Occupied Units Template (With Granular Tenancy, Dates & 6-Month Invoicing Examples)
+  // Download Occupied Units Template
   const handleDownloadOccupiedTemplate = () => {
     const sampleProp1 = availablePropertyNames[0] || 'Sunset View Apartments';
     const sampleProp2 = availablePropertyNames[1] || sampleProp1;
 
-    // 3 Concrete 6-Month Past Invoicing Examples
     const templateData = [
       {
         'Property Name*': sampleProp1,
@@ -299,24 +316,24 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
 
     const worksheet = XLSX.utils.json_to_sheet(templateData);
     worksheet['!cols'] = [
-      { wch: 26 }, // Property Name*
-      { wch: 14 }, // Unit Number*
-      { wch: 18 }, // Monthly Rent ($)*
-      { wch: 10 }, // Floor
-      { wch: 10 }, // Bedrooms
-      { wch: 10 }, // Bathrooms
-      { wch: 14 }, // Square Footage
-      { wch: 20 }, // Security Deposit ($)
-      { wch: 12 }, // Status
-      { wch: 20 }, // Tenant First Name*
-      { wch: 20 }, // Tenant Last Name*
-      { wch: 26 }, // Tenant Email*
-      { wch: 18 }, // Tenant Phone*
-      { wch: 16 }, // Move-In Date*
-      { wch: 20 }, // Invoices From Date*
-      { wch: 20 }, // Past Rent Status
-      { wch: 22 }, // Include Late Fee ($50)
-      { wch: 24 }, // Outstanding Balance ($)
+      { wch: 26 },
+      { wch: 14 },
+      { wch: 18 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 14 },
+      { wch: 20 },
+      { wch: 12 },
+      { wch: 20 },
+      { wch: 20 },
+      { wch: 26 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 20 },
+      { wch: 20 },
+      { wch: 22 },
+      { wch: 24 },
     ];
 
     const instructionsData = [
@@ -390,27 +407,6 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
         'Example Value': '0 or 2000 or 6000',
         'System Automation': 'Distributes balance using FIFO: older months are Paid, newest months remain Due.',
       },
-      {
-        'Section / Category': '💡 6-MONTH GUIDE',
-        'Column Header Name': 'Example 1: 6-Month ALL PAID',
-        'Description / Instructions': 'Invoices From: 2026-06-01 | Rent: $1,000 | Status: "All Paid" | Balance: $0 | Late Fee: NO',
-        'Example Value': 'Balance = 0',
-        'System Automation': 'Generates 6 separate PAID monthly invoices (Jun to Nov) + 6 Payment Receipts.',
-      },
-      {
-        'Section / Category': '💡 6-MONTH GUIDE',
-        'Column Header Name': 'Example 2: 6-Month PARTIAL PAID',
-        'Description / Instructions': 'Invoices From: 2026-06-01 | Rent: $1,000 | Status: "Partial / Custom" | Balance: $2,000 | Late Fee: YES',
-        'Example Value': 'Balance = 2000',
-        'System Automation': 'First 4 months (Jun-Sep) marked PAID ($4,000); last 2 months (Oct-Nov) marked OVERDUE ($2,000 + Late Fee).',
-      },
-      {
-        'Section / Category': '💡 6-MONTH GUIDE',
-        'Column Header Name': 'Example 3: 6-Month ALL UNPAID',
-        'Description / Instructions': 'Invoices From: 2026-06-01 | Rent: $1,000 | Status: "All Unpaid" | Balance: $6,000 | Late Fee: YES',
-        'Example Value': 'Balance = 6000',
-        'System Automation': 'All 6 months (Jun to Nov) generated as OVERDUE invoices with $50 monthly late fee ($1,050/mo).',
-      },
     ];
 
     const instructionsSheet = XLSX.utils.json_to_sheet(instructionsData);
@@ -433,6 +429,7 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
     setIsParsing(true);
     setParseError(null);
     setErrorMessage(null);
+    setExecutionSummary(null);
 
     const reader = new FileReader();
 
@@ -452,7 +449,23 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
           throw new Error('No unit rows found in the sheet. Please make sure data rows are filled.');
         }
 
-        const seenKeys = new Set<string>();
+        // Build set of existing units in DB for DB Duplicate pre-validation
+        const existingDbUnitKeys = new Set<string>();
+        existingUnits.forEach((u: any) => {
+          const uNum = String(u.unitNumber || '').trim().toLowerCase();
+          if (!uNum) return;
+          if (u.propertyId) {
+            existingDbUnitKeys.add(`${u.propertyId.toLowerCase()}_${uNum}`);
+          }
+          if (u.property?.id) {
+            existingDbUnitKeys.add(`${u.property.id.toLowerCase()}_${uNum}`);
+          }
+          if (u.property?.name) {
+            existingDbUnitKeys.add(`${u.property.name.toLowerCase().trim()}_${uNum}`);
+          }
+        });
+
+        const seenFileKeys = new Set<string>();
 
         const rows: ParsedUnitRow[] = rawJson.map((row, idx) => {
           const normRow: Record<string, any> = {};
@@ -618,15 +631,6 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
             errors.push('Rent must be greater than 0');
           }
 
-          const duplicateKey = `${(propertyId || rawPropertyName).toLowerCase()}_${unitNumber.toLowerCase()}`;
-          if (unitNumber && rawPropertyName) {
-            if (seenKeys.has(duplicateKey)) {
-              errors.push(`Duplicate Unit "${unitNumber}" in this file for this property`);
-            } else {
-              seenKeys.add(duplicateKey);
-            }
-          }
-
           // Occupied Specific Validations
           if (status === 'Occupied') {
             if (!tenantFirstName) {
@@ -640,6 +644,34 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
             }
             if (!moveInDate) {
               errors.push('Missing Move-In Date');
+            }
+          }
+
+          const unitNumClean = unitNumber.toLowerCase().trim();
+          const propIdKey = (propertyId || matchedProp?.id || '').toLowerCase().trim();
+          const propNameKey = (propertyName || rawPropertyName).toLowerCase().trim();
+
+          let validationStatus: ValidationStatus = 'Ready';
+
+          if (errors.length > 0) {
+            validationStatus = 'Error';
+          } else if (unitNumClean) {
+            const fileKey = `${propIdKey || propNameKey}_${unitNumClean}`;
+            const isSeenInFile = seenFileKeys.has(fileKey);
+            const isSeenInDb =
+              (propIdKey && existingDbUnitKeys.has(`${propIdKey}_${unitNumClean}`)) ||
+              (propNameKey && existingDbUnitKeys.has(`${propNameKey}_${unitNumClean}`));
+
+            if (isSeenInFile) {
+              validationStatus = 'File Duplicate';
+              errors.push(`Duplicate Unit "${unitNumber}" in this file for this property`);
+            } else if (isSeenInDb) {
+              validationStatus = 'DB Duplicate';
+              errors.push(`Unit "${unitNumber}" already exists in database for this property`);
+              seenFileKeys.add(fileKey);
+            } else {
+              validationStatus = 'Ready';
+              seenFileKeys.add(fileKey);
             }
           }
 
@@ -664,7 +696,8 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
             pastRentStatus,
             includeLateFee,
             outstandingBalance,
-            isValid: errors.length === 0,
+            validationStatus,
+            isValid: validationStatus === 'Ready',
             errors,
           };
         });
@@ -717,6 +750,7 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
     setParsedRows([]);
     setParseError(null);
     setErrorMessage(null);
+    setExecutionSummary(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -755,10 +789,35 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
       queryClient.invalidateQueries({ queryKey: ['leases'] });
       queryClient.invalidateQueries({ queryKey: ['invoices-list'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-metrics'] });
-      const count = data?.count || validCount;
-      if (onSuccess) onSuccess(count);
-      onOpenChange(false);
-      handleReset();
+
+      const imported = data?.count || validCount;
+      if (onSuccess) onSuccess(imported);
+
+      const totalProcessedBefore = parsedRows.length;
+      const remainingRows = parsedRows.filter((r) => !r.isValid);
+
+      if (remainingRows.length > 0) {
+        // Partial import: show execution summary and preserve remaining invalid rows for user correction
+        const occImported = data?.importedOccupied ?? validRows.filter((r) => r.status === 'Occupied').length;
+        const vacImported = data?.importedVacant ?? validRows.filter((r) => r.status === 'Vacant').length;
+        const occRate = data?.occupancyRate ?? (imported > 0 ? Math.round((occImported / imported) * 100) : 0);
+
+        setExecutionSummary({
+          totalProcessed: totalProcessedBefore,
+          importedCount: imported,
+          importedOccupied: occImported,
+          importedVacant: vacImported,
+          occupancyRate: occRate,
+          skippedCount: remainingRows.length,
+          failedCount: 0,
+          isPartial: true,
+        });
+        setParsedRows(remainingRows);
+      } else {
+        // Complete import of all rows
+        onOpenChange(false);
+        handleReset();
+      }
     },
     onError: (err: any) => {
       setErrorMessage(err?.message || 'Failed to import units. Please verify subscription limits.');
@@ -767,7 +826,10 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
 
   const validRows = parsedRows.filter((r) => r.isValid);
   const validCount = validRows.length;
-  const invalidCount = parsedRows.length - validCount;
+  const readyCount = parsedRows.filter((r) => r.validationStatus === 'Ready').length;
+  const dbDupCount = parsedRows.filter((r) => r.validationStatus === 'DB Duplicate').length;
+  const fileDupCount = parsedRows.filter((r) => r.validationStatus === 'File Duplicate').length;
+  const errorCount = parsedRows.filter((r) => r.validationStatus === 'Error').length;
   const occupiedCount = parsedRows.filter((r) => r.status === 'Occupied').length;
   const vacantCount = parsedRows.filter((r) => r.status === 'Vacant').length;
 
@@ -827,6 +889,108 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
             </span>
           </div>
 
+          {/* Import Execution Summary Banner & KPI Cards (Image 2) */}
+          {executionSummary && (
+            <div className="border border-border/80 rounded-xl p-4 bg-card/60 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-primary" />
+                  <span className="text-xs font-bold tracking-wider uppercase text-foreground">
+                    IMPORT EXECUTION SUMMARY
+                  </span>
+                </div>
+                {executionSummary.isPartial ? (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800">
+                    <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600" /> Partial Success
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800">
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" /> Complete Success
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {/* Card 1: Total Processed */}
+                <div className="border border-border/80 rounded-xl p-3 bg-muted/20">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider block">
+                    TOTAL ROWS PROCESSED
+                  </span>
+                  <div className="text-2xl font-extrabold text-foreground mt-1">
+                    {executionSummary.totalProcessed}
+                  </div>
+                  <span className="text-[11px] text-muted-foreground block mt-0.5">
+                    From uploaded spreadsheet
+                  </span>
+                </div>
+
+                {/* Card 2: Successfully Imported */}
+                <div className="border border-emerald-200 dark:border-emerald-800/60 rounded-xl p-3 bg-emerald-50/50 dark:bg-emerald-950/20">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-400 tracking-wider block">
+                    SUCCESSFULLY IMPORTED
+                  </span>
+                  <div className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
+                    {executionSummary.importedCount}
+                  </div>
+                  <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80 font-medium block mt-0.5">
+                    {executionSummary.importedOccupied} Occ · {executionSummary.importedVacant} Vac
+                  </span>
+                  <span className="text-[11px] text-muted-foreground block">
+                    ({executionSummary.occupancyRate}% Occ.)
+                  </span>
+                </div>
+
+                {/* Card 3: Skipped (Pre-validation) */}
+                <div className="border border-amber-200 dark:border-amber-800/60 rounded-xl p-3 bg-amber-50/50 dark:bg-amber-950/20">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-400 tracking-wider">
+                      SKIPPED (PRE-VALIDATION)
+                    </span>
+                    <AlertTriangle className="w-3 h-3 text-amber-600" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 mt-1">
+                    {executionSummary.skippedCount}
+                  </div>
+                  <span className="text-[11px] text-muted-foreground block mt-0.5">
+                    Duplicates or format errors
+                  </span>
+                </div>
+
+                {/* Card 4: Failed (Server Rejection) */}
+                <div className="border border-rose-200 dark:border-rose-800/60 rounded-xl p-3 bg-rose-50/50 dark:bg-rose-950/20">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-rose-700 dark:text-rose-400 tracking-wider">
+                      FAILED (SERVER REJECTION)
+                    </span>
+                    <XCircle className="w-3 h-3 text-rose-500" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-rose-600 dark:text-rose-400 mt-1">
+                    {executionSummary.failedCount}
+                  </div>
+                  <span className="text-[11px] text-muted-foreground block mt-0.5">
+                    {executionSummary.failedCount === 0 ? 'None' : 'Errors'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Green Partial Success Banner */}
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 flex items-start space-x-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="flex-1 font-medium leading-relaxed">
+                  {executionSummary.isPartial ? (
+                    <>
+                      Partial Success: Successfully imported {executionSummary.importedCount} units ({executionSummary.importedOccupied} Occupied, {executionSummary.importedVacant} Vacant · {executionSummary.occupancyRate}% Occupancy Rate)! {executionSummary.skippedCount} invalid rows were skipped and preserved below. You can correct and import them.
+                    </>
+                  ) : (
+                    <>
+                      Complete Success: Successfully imported all {executionSummary.importedCount} units ({executionSummary.importedOccupied} Occupied, {executionSummary.importedVacant} Vacant · {executionSummary.occupancyRate}% Occupancy Rate)!
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Error Banner */}
           {(parseError || errorMessage) && (
             <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs flex items-start space-x-2.5">
@@ -877,10 +1041,12 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* File Info & Stats Row */}
-              <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-muted/30 rounded-xl border border-border/60">
-                <div className="flex items-center space-x-2.5">
-                  <FileSpreadsheet className="w-5 h-5 text-emerald-500" />
+              {/* File Info & Stats Row (Image 1, 3, 5) */}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-muted/20 rounded-xl border border-border/60">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+                    <FileSpreadsheet className="w-5 h-5" />
+                  </div>
                   <div>
                     <span className="text-xs font-bold text-foreground block">{fileName}</span>
                     <span className="text-[11px] text-muted-foreground">
@@ -889,43 +1055,60 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2 text-xs">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold border border-emerald-500/20">
-                    <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                    {validCount} Ready to Import
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600 dark:text-emerald-400" />
+                    {readyCount} Ready to Import
                   </span>
-                  {invalidCount > 0 && (
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold border border-rose-500/20">
-                      <AlertTriangle className="w-3.5 h-3.5 mr-1" />
-                      {invalidCount} Needs Attention
+
+                  {dbDupCount > 0 && (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                      <XCircle className="w-3.5 h-3.5 mr-1 text-rose-500" />
+                      {dbDupCount} DB Duplicate
                     </span>
                   )}
+
+                  {fileDupCount > 0 && (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full font-semibold bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                      <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600" />
+                      {fileDupCount} File Duplicate
+                    </span>
+                  )}
+
+                  {errorCount > 0 && (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                      <AlertTriangle className="w-3.5 h-3.5 mr-1 text-rose-500" />
+                      {errorCount} Needs Attention
+                    </span>
+                  )}
+
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={handleReset}
-                    className="text-xs h-7 px-2 text-muted-foreground hover:text-foreground"
+                    className="text-xs h-7 px-2 text-muted-foreground hover:text-foreground font-medium flex items-center gap-1"
                   >
-                    <RefreshCw className="w-3.5 h-3.5 mr-1" /> Choose Another File
+                    <RefreshCw className="w-3.5 h-3.5" /> Choose Another File
                   </Button>
                 </div>
               </div>
 
-              {/* Review / Preview Table */}
+              {/* Review / Preview Table (Image 1, 3, 5) */}
               <div className="border border-border/60 rounded-xl overflow-hidden shadow-sm max-h-[380px] overflow-x-auto overflow-y-auto">
                 <table className="w-full text-left text-xs border-collapse min-w-[1100px]">
                   <thead className="bg-muted/50 text-muted-foreground uppercase font-bold sticky top-0 z-10 border-b border-border/60">
                     <tr>
-                      <th className="py-2.5 px-3">Validation</th>
-                      <th className="py-2.5 px-3">Status</th>
-                      <th className="py-2.5 px-3">Property Name</th>
-                      <th className="py-2.5 px-3">Unit Number</th>
-                      <th className="py-2.5 px-3 text-right">Rent ($)</th>
-                      <th className="py-2.5 px-3 text-center">Floor / Specs</th>
-                      <th className="py-2.5 px-3">Occupant / Tenant</th>
-                      <th className="py-2.5 px-3">Move-In / Invoices Date</th>
-                      <th className="py-2.5 px-3 text-right">Balance ($)</th>
-                      <th className="py-2.5 px-3">Review Notes</th>
+                      <th className="py-2.5 px-3">ROW</th>
+                      <th className="py-2.5 px-3">VALIDATION</th>
+                      <th className="py-2.5 px-3">STATUS</th>
+                      <th className="py-2.5 px-3">PROPERTY NAME</th>
+                      <th className="py-2.5 px-3">UNIT NUMBER</th>
+                      <th className="py-2.5 px-3 text-right">RENT ($)</th>
+                      <th className="py-2.5 px-3 text-center">FLOOR / SPECS</th>
+                      <th className="py-2.5 px-3">OCCUPANT / TENANT</th>
+                      <th className="py-2.5 px-3">MOVE-IN / INVOICES DATE</th>
+                      <th className="py-2.5 px-3 text-right">BALANCE ($)</th>
+                      <th className="py-2.5 px-3">REVIEW NOTES</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -934,26 +1117,42 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
                         key={row.rowIndex}
                         className={clsx(
                           'hover:bg-muted/20 transition-colors',
-                          !row.isValid && 'bg-rose-500/5'
+                          !row.isValid && 'bg-rose-50/30 dark:bg-rose-950/10'
                         )}
                       >
-                        {/* Ready vs Error Review Badge */}
+                        {/* ROW */}
+                        <td className="py-2.5 px-3 font-mono text-muted-foreground font-medium whitespace-nowrap">
+                          #{row.rowIndex}
+                        </td>
+
+                        {/* VALIDATION */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
-                          {row.isValid ? (
-                            <span className="inline-flex items-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                          {row.validationStatus === 'Ready' && (
+                            <span className="inline-flex items-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
                               <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-500" /> Ready
                             </span>
-                          ) : (
-                            <span className="inline-flex items-center text-[11px] font-bold text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                          )}
+                          {row.validationStatus === 'File Duplicate' && (
+                            <span className="inline-flex items-center text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2.5 py-0.5 rounded-full border border-rose-500/20">
+                              File Duplicate
+                            </span>
+                          )}
+                          {row.validationStatus === 'DB Duplicate' && (
+                            <span className="inline-flex items-center text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2.5 py-0.5 rounded-full border border-rose-500/20">
+                              <XCircle className="w-3.5 h-3.5 mr-1 text-rose-500" /> DB Duplicate
+                            </span>
+                          )}
+                          {row.validationStatus === 'Error' && (
+                            <span className="inline-flex items-center text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2.5 py-0.5 rounded-full border border-rose-500/20">
                               <XCircle className="w-3.5 h-3.5 mr-1 text-rose-500" /> Error ({row.errors.length})
                             </span>
                           )}
                         </td>
 
-                        {/* Vacant vs Occupied Status Pill */}
+                        {/* STATUS */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {row.status === 'Occupied' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                               Occupied
                             </span>
                           ) : (
@@ -963,27 +1162,37 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
                           )}
                         </td>
 
-                        {/* Property Name */}
+                        {/* PROPERTY NAME */}
                         <td className="py-2.5 px-3 font-semibold text-foreground whitespace-nowrap">
-                          {row.propertyName || <span className="text-rose-500 italic">Missing Property</span>}
+                          {row.propertyName || <span className="text-rose-500 italic font-normal">Missing Property</span>}
                         </td>
 
-                        {/* Unit Number */}
+                        {/* UNIT NUMBER */}
                         <td className="py-2.5 px-3 font-mono font-bold text-foreground whitespace-nowrap">
-                          {row.unitNumber || <span className="text-rose-500 italic">Missing</span>}
+                          {row.unitNumber ? (
+                            row.unitNumber
+                          ) : (
+                            <span className="text-rose-500 italic font-normal">Missing</span>
+                          )}
                         </td>
 
-                        {/* Rent Amount */}
-                        <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                          ${row.rentAmount.toLocaleString()}
+                        {/* RENT ($) */}
+                        <td className="py-2.5 px-3 text-right font-bold whitespace-nowrap">
+                          {row.rentAmount > 0 ? (
+                            <span className="text-emerald-600 dark:text-emerald-400">
+                              ${row.rentAmount.toLocaleString()}
+                            </span>
+                          ) : (
+                            <span className="text-rose-500 italic font-normal">$0.00</span>
+                          )}
                         </td>
 
-                        {/* Floor / Specs */}
+                        {/* FLOOR / SPECS */}
                         <td className="py-2.5 px-3 text-center text-muted-foreground whitespace-nowrap">
                           F{row.floor} · {row.bedrooms}B/{row.bathrooms}B
                         </td>
 
-                        {/* Tenant Info */}
+                        {/* OCCUPANT / TENANT */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {row.status === 'Occupied' ? (
                             row.tenantFirstName || row.tenantLastName ? (
@@ -1003,7 +1212,7 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
                           )}
                         </td>
 
-                        {/* Tenancy Dates */}
+                        {/* MOVE-IN / INVOICES DATE */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           {row.status === 'Occupied' ? (
                             <div>
@@ -1024,7 +1233,7 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
                           )}
                         </td>
 
-                        {/* Outstanding Balance */}
+                        {/* BALANCE ($) */}
                         <td className="py-2.5 px-3 text-right whitespace-nowrap font-medium">
                           {row.status === 'Occupied' ? (
                             <div>
@@ -1053,13 +1262,24 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
                           )}
                         </td>
 
-                        {/* Validation Details */}
+                        {/* REVIEW NOTES */}
                         <td className="py-2.5 px-3 text-[11px] whitespace-nowrap">
-                          {row.isValid ? (
+                          {row.validationStatus === 'Ready' && (
                             <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                               Ready for automated import
                             </span>
-                          ) : (
+                          )}
+                          {row.validationStatus === 'File Duplicate' && (
+                            <span className="text-rose-500 font-medium">
+                              Duplicate unit in this file for this property
+                            </span>
+                          )}
+                          {row.validationStatus === 'DB Duplicate' && (
+                            <span className="text-rose-500 font-medium">
+                              Unit already exists in database for this property
+                            </span>
+                          )}
+                          {row.validationStatus === 'Error' && (
                             <span className="text-rose-500 font-semibold">{row.errors.join(' • ')}</span>
                           )}
                         </td>
@@ -1087,26 +1307,28 @@ export const UnitImportModal: React.FC<UnitImportModalProps> = ({
               }}
               disabled={importMutation.isPending}
             >
-              Cancel
+              {executionSummary ? 'Close' : 'Cancel'}
             </Button>
-            <Button
-              size="sm"
-              onClick={() => importMutation.mutate(validRows)}
-              disabled={validCount === 0 || importMutation.isPending}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center gap-1.5"
-            >
-              {importMutation.isPending ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Importing {validCount} Units...
-                </>
-              ) : (
-                <>
-                  <Upload className="w-3.5 h-3.5" />
-                  Confirm & Import ({validCount})
-                </>
-              )}
-            </Button>
+            {validCount > 0 && (
+              <Button
+                size="sm"
+                onClick={() => importMutation.mutate(validRows)}
+                disabled={importMutation.isPending}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center gap-1.5"
+              >
+                {importMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Importing {validCount} Units...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-3.5 h-3.5" />
+                    Confirm & Import ({validCount})
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>

@@ -52,15 +52,16 @@ export const WorkOrderDetailsPage: React.FC = () => {
 
   const assignMutation = useMutation({
     mutationFn: (vendorId: string) => {
-      const v = vendorsList.find((v) => v.id === vendorId);
+      const v = vendorsList.find((v: any) => v.id === vendorId);
       return api.workOrders.update(id, {
-        status: 'Assigned',
+        status: wo.status === 'Draft' ? 'Assigned' : wo.status,
         vendorId,
         vendorName: v ? v.name : 'Assigned Vendor',
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['work-order-detail', id] });
+      queryClient.invalidateQueries({ queryKey: ['work-orders-list'] });
     },
   });
 
@@ -108,18 +109,22 @@ export const WorkOrderDetailsPage: React.FC = () => {
         </div>
 
         <div className="flex space-x-2">
-          {wo.status === 'Draft' && (
+          {wo.status !== 'Completed' && wo.status !== 'Closed' && wo.status !== 'Cancelled' && (
             <div className="flex items-center space-x-1">
-              <span className="text-xs text-muted-foreground mr-2">Assign Maintenance Staff:</span>
+              <span className="text-xs text-muted-foreground mr-2">
+                {wo.vendorId || wo.vendorName ? 'Assigned Vendor:' : 'Assign Vendor:'}
+              </span>
               <select
-                className="text-xs p-1.5 rounded-lg border bg-card text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-xs p-1.5 rounded-lg border bg-card text-foreground font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 onChange={(e) => assignMutation.mutate(e.target.value)}
-                defaultValue=""
+                value={wo.vendorId || ''}
                 disabled={assignMutation.isPending}
               >
-                <option value="" disabled>Select Maintenance Staff...</option>
-                {vendorsList.slice(0, 15).map((v) => (
-                  <option key={v.id} value={v.id}>{v.name} ({v.category})</option>
+                <option value="" disabled>Select Vendor / Contractor...</option>
+                {vendorsList.map((v: any) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name} ({v.category})
+                  </option>
                 ))}
               </select>
             </div>

@@ -709,6 +709,25 @@ export const api = {
     ...mockApi.vendors,
     getAll: async () => {
       try {
+        const vRes: any = await apiClient.get('/vendors').catch(() => null);
+        if (vRes?.data && Array.isArray(vRes.data) && vRes.data.length > 0) {
+          return vRes.data.map((v: any) => ({
+            id: v.id,
+            name: v.companyName || v.name,
+            companyName: v.companyName,
+            contactName: v.contactName,
+            primaryContact: v.contactName,
+            email: v.email,
+            phone: v.phone || '',
+            category: v.serviceType || 'General Maintenance',
+            serviceType: v.serviceType || 'General Maintenance',
+            rating: v.rating || 5.0,
+            activeJobs: v.workOrders?.filter((w: any) => w.status !== 'Completed' && w.status !== 'Closed').length || 0,
+            completedJobs: v.workOrders?.filter((w: any) => w.status === 'Completed' || w.status === 'Closed').length || 0,
+            status: v.status || 'Active',
+          }));
+        }
+
         const res: any = await apiClient.get('/superadmin/company-users');
         const maintenanceUsers = (res.data || []).filter(
           (u: any) => u.role === 'Maintenance Staff' || u.role === 'Maintenance'
@@ -718,6 +737,7 @@ export const api = {
           name: u.name,
           companyName: u.name,
           contactName: u.name,
+          primaryContact: u.name,
           email: u.email,
           phone: u.phone || '',
           category: u.serviceType || 'General Maintenance',
