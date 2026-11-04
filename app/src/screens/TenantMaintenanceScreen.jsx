@@ -45,7 +45,7 @@ const cleanDescription = (desc) => {
   return desc.replace(/\[Preferred Visit:\s*[^\]]+\]/gi, '').trim();
 };
 
-export const TenantMaintenanceScreen = ({ onNavigate }) => {
+export const TenantMaintenanceScreen = ({ onNavigate, onBack }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -323,10 +323,10 @@ export const TenantMaintenanceScreen = ({ onNavigate }) => {
       {/* Top Header matching Web "Maintenance Request logs" */}
       <View style={styles.header}>
         <View style={styles.headerTitleRow}>
-          {onNavigate && (
+          {(onNavigate || onBack) && (
             <TouchableOpacity
               style={styles.backBtn}
-              onPress={() => onNavigate('dashboard')}
+              onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)}
               activeOpacity={0.7}
             >
               <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />

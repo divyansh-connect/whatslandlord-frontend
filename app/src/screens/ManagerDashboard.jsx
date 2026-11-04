@@ -279,7 +279,7 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
         occupancyRate: occRate,
         monthlyRevenue: Number(m.monthlyRevenue || prev.monthlyRevenue || 0),
         pendingRent: Number(m.pendingRent || prev.pendingRent || 0),
-        expenses: Number(m.expenses !== undefined && m.expenses !== null ? m.expenses : prev.expenses),
+        expenses: Number(prev.expenses || 0),
         openMaintenance: Number(m.openMaintenance !== undefined && m.openMaintenance !== null ? m.openMaintenance : prev.openMaintenance),
         leasesExpiringSoon: Number(m.leasesExpiringSoon !== undefined && m.leasesExpiringSoon !== null ? m.leasesExpiringSoon : prev.leasesExpiringSoon),
       }));
@@ -320,9 +320,16 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
       const tenantArray = Array.isArray(rawTenants) ? rawTenants : [];
       setTenantsList(tenantArray);
 
-      // 2. Process Live Expenses from DB
+      // 2. Process Live Expenses from DB (Isolated by company)
+      const userCompanyId = user?.companyId || user?.user?.companyId;
       const rawExpenses = expensesRes?.data || expensesRes || [];
-      const expArray = Array.isArray(rawExpenses) ? rawExpenses : [];
+      const expArray = (Array.isArray(rawExpenses) ? rawExpenses : []).filter((e) => {
+        let parsed = {};
+        try { parsed = JSON.parse(e.description || '{}'); } catch {}
+        if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
+        if (['Sunset Heights', 'Highland Tower', 'Grand View Apartments'].includes(parsed.propertyName) && !parsed.propertyId) return false;
+        return true;
+      });
       setExpensesList(expArray);
       const totalExpensesSum = expArray.reduce((acc, e) => acc + Number(e.amount || 0), 0);
 
@@ -537,7 +544,7 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
             ? m.pendingRent 
             : (totalPendingRent > 0 ? totalPendingRent : (m.pendingRent || 0))
         ),
-        expenses: Number(m.expenses !== undefined && m.expenses !== null ? m.expenses : totalExpensesSum),
+        expenses: totalExpensesSum,
         openMaintenance: Number(m.openMaintenance !== undefined && m.openMaintenance !== null ? m.openMaintenance : (woNotStarted + woInProgress + woOverdue + taskNotStarted + taskInProgress + taskOverdue)),
         leasesExpiringSoon: Number(
           activeUpcoming.length > 0
@@ -573,7 +580,7 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
               ? m.pendingRent 
               : (totalPendingRent > 0 ? totalPendingRent : (m.pendingRent || 0))
           ),
-          expenses: Number(m.expenses !== undefined && m.expenses !== null ? m.expenses : totalExpensesSum),
+          expenses: totalExpensesSum,
           openMaintenance: Number(m.openMaintenance !== undefined && m.openMaintenance !== null ? m.openMaintenance : (woNotStarted + woInProgress + woOverdue + taskNotStarted + taskInProgress + taskOverdue)),
           leasesExpiringSoon: Number(
             activeUpcoming.length > 0

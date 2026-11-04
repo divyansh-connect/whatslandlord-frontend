@@ -17,6 +17,7 @@ import {
   Keyboard,
   StatusBar,
   Linking,
+  BackHandler,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
@@ -251,6 +252,7 @@ export const MaintenanceScreen = ({
   targetWorkOrderId = null,
   isInternalFilter = false,
   onNavigate,
+  onBack,
 }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -287,12 +289,53 @@ export const MaintenanceScreen = ({
     return t || 'dashboard';
   };
   const [activeTab, setActiveTab] = useState(normalizeTab(initialTab));
+  const [tabHistory, setTabHistory] = useState([]);
 
   useEffect(() => {
     if (initialTab) {
       setActiveTab(normalizeTab(initialTab));
     }
   }, [initialTab]);
+
+  const switchTab = (tabName) => {
+    const normalized = normalizeTab(tabName);
+    if (normalized !== activeTab) {
+      setTabHistory((prev) => [...prev, activeTab]);
+      setActiveTab(normalized);
+    }
+  };
+
+  const handleBackNavigation = () => {
+    if (tabHistory.length > 0) {
+      const prevTab = tabHistory[tabHistory.length - 1];
+      setTabHistory((prev) => prev.slice(0, -1));
+      setActiveTab(prevTab);
+      return;
+    }
+    const baseTab = normalizeTab(initialTab);
+    if (activeTab !== 'dashboard' && activeTab !== baseTab) {
+      setActiveTab('dashboard');
+      return;
+    }
+    if (onBack) {
+      onBack();
+    } else if (onNavigate) {
+      onNavigate('back');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      const baseTab = normalizeTab(initialTab);
+      if (tabHistory.length > 0 || (activeTab !== 'dashboard' && activeTab !== baseTab)) {
+        handleBackNavigation();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [tabHistory, activeTab, initialTab]);
 
   // Filter pickers
   const [priorityFilter, setPriorityFilter] = useState('');
@@ -1801,9 +1844,9 @@ export const MaintenanceScreen = ({
         {/* Header matching web screenshot */}
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-            {!!onNavigate && (
+            {(!!onNavigate || !!onBack) && (
               <TouchableOpacity
-                onPress={() => onNavigate('dashboard')}
+                onPress={handleBackNavigation}
                 style={{ marginRight: 8, padding: 4 }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 activeOpacity={0.7}
@@ -1842,7 +1885,7 @@ export const MaintenanceScreen = ({
             <View style={styles.tabContainer}>
               <TouchableOpacity
                 style={[styles.tabBtn, activeTab === 'dashboard' && styles.tabBtnActive]}
-                onPress={() => setActiveTab('dashboard')}
+                onPress={() => switchTab('dashboard')}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.tabBtnText, activeTab === 'dashboard' && styles.tabBtnTextActive]} allowFontScaling={false}>
@@ -1851,7 +1894,7 @@ export const MaintenanceScreen = ({
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.tabBtn, activeTab === 'requests' && styles.tabBtnActive]}
-                onPress={() => setActiveTab('requests')}
+                onPress={() => switchTab('requests')}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.tabBtnText, activeTab === 'requests' && styles.tabBtnTextActive]} allowFontScaling={false}>
@@ -1860,7 +1903,7 @@ export const MaintenanceScreen = ({
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.tabBtn, activeTab === 'work_orders' && styles.tabBtnActive]}
-                onPress={() => setActiveTab('work_orders')}
+                onPress={() => switchTab('work_orders')}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.tabBtnText, activeTab === 'work_orders' && styles.tabBtnTextActive]} allowFontScaling={false}>
@@ -1869,7 +1912,7 @@ export const MaintenanceScreen = ({
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.tabBtn, activeTab === 'violations' && styles.tabBtnActive]}
-                onPress={() => setActiveTab('violations')}
+                onPress={() => switchTab('violations')}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.tabBtnText, activeTab === 'violations' && styles.tabBtnTextActive]} allowFontScaling={false}>
@@ -1878,7 +1921,7 @@ export const MaintenanceScreen = ({
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.tabBtn, activeTab === 'staff' && styles.tabBtnActive]}
-                onPress={() => setActiveTab('staff')}
+                onPress={() => switchTab('staff')}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.tabBtnText, activeTab === 'staff' && styles.tabBtnTextActive]} allowFontScaling={false}>

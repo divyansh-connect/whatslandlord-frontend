@@ -21,7 +21,7 @@ import { useAuthStore, useThemeStore } from '../store/useStore';
 import { Ionicons } from '@expo/vector-icons';
 import { changePasswordSchema, provisionUserSchema } from '../validations/mobile.validation';
 
-export const ProfileScreen = ({ onNavigate }) => {
+export const ProfileScreen = ({ onNavigate, onBack }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { theme, toggleTheme, language, setLanguage } = useThemeStore();
 
@@ -668,7 +668,7 @@ export const ProfileScreen = ({ onNavigate }) => {
         <View style={[styles.fixedHeader, { backgroundColor: colors.bg, borderBottomColor: colors.cardBorder }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableOpacity
-              onPress={() => (onNavigate ? onNavigate('dashboard') : null)}
+              onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)}
               style={{ marginRight: 10, padding: 4 }}
               accessibilityLabel="Go Back"
               activeOpacity={0.7}

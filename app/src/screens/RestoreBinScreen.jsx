@@ -56,7 +56,7 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const RestoreBinScreen = ({ onNavigate }) => {
+export const RestoreBinScreen = ({ onNavigate, onBack }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
@@ -395,9 +395,9 @@ export const RestoreBinScreen = ({ onNavigate }) => {
           <View style={styles.header}>
             <View style={styles.headerTopRow}>
               <View style={styles.titleArea}>
-                {!!onNavigate && (
+                {(!!onNavigate || !!onBack) && (
                   <TouchableOpacity
-                    onPress={() => onNavigate('dashboard')}
+                    onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)}
                     style={styles.backBtn}
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                     activeOpacity={0.7}

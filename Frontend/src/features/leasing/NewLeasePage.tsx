@@ -78,19 +78,18 @@ export const NewLeasePage: React.FC = () => {
   const selectedPropertyId = watch('propertyId');
   const selectedUnitId = watch('unitId');
 
+  const selectedUnit = React.useMemo(() => units.find((u) => u.id === selectedUnitId), [units, selectedUnitId]);
+
   React.useEffect(() => {
-    if (selectedUnitId) {
-      const selectedUnit = units.find((u) => u.id === selectedUnitId);
-      if (selectedUnit) {
-        if (selectedUnit.rentAmount !== undefined && selectedUnit.rentAmount !== null) {
-          setValue('rentAmount', selectedUnit.rentAmount);
-        }
-        if (selectedUnit.securityDeposit !== undefined && selectedUnit.securityDeposit !== null) {
-          setValue('depositAmount', selectedUnit.securityDeposit);
-        }
+    if (selectedUnit) {
+      if (selectedUnit.rentAmount !== undefined && selectedUnit.rentAmount !== null) {
+        setValue('rentAmount', selectedUnit.rentAmount);
+      }
+      if (selectedUnit.securityDeposit !== undefined && selectedUnit.securityDeposit !== null) {
+        setValue('depositAmount', selectedUnit.securityDeposit);
       }
     }
-  }, [selectedUnitId, units, setValue]);
+  }, [selectedUnit, setValue]);
 
   // Filter units of selected property (allow any status to make testing easy)
   const availableUnits = units.filter((u) => u.propertyId === selectedPropertyId);
@@ -147,6 +146,13 @@ export const NewLeasePage: React.FC = () => {
           <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl text-xs font-bold mb-6 flex items-center space-x-2">
             <Check className="w-5 h-5 flex-shrink-0" />
             <span>Lease created and Move In scheduled successfully! Redirecting...</span>
+          </div>
+        )}
+
+        {selectedUnit && selectedUnit.status?.toLowerCase() === 'occupied' && (
+          <div className="bg-amber-500/10 border border-amber-500/20 text-amber-500 p-4 rounded-xl text-xs font-semibold mb-6 flex items-center space-x-2">
+            <span className="text-base">⚠️</span>
+            <span>This unit is currently Occupied. To create a new lease, please complete the Move-Out / Lease End of the current tenant first.</span>
           </div>
         )}
 

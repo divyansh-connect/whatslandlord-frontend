@@ -126,7 +126,7 @@ export const getNotificationRedirectScreen = (title = '', message = '') => {
   return null;
 };
 
-export const NotificationsScreen = ({ onNavigate }) => {
+export const NotificationsScreen = ({ onNavigate, onBack }) => {
   const { colors, isDarkMode } = useThemeColors();
   const { language } = useThemeStore();
   const { user, logout, refreshAccessToken } = useAuthStore();
@@ -390,7 +390,7 @@ export const NotificationsScreen = ({ onNavigate }) => {
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
             <TouchableOpacity
-              onPress={() => (onNavigate ? onNavigate('dashboard') : null)}
+              onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)}
               style={styles.backBtn}
               accessibilityLabel="Go back"
               activeOpacity={0.7}

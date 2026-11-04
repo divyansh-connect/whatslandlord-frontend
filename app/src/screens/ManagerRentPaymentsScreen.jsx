@@ -15,6 +15,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   KeyboardAvoidingView,
+  BackHandler,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
@@ -42,6 +43,7 @@ const formatCurrency = (val) => {
 
 export const ManagerRentPaymentsScreen = ({
   onNavigate,
+  onBack,
   initialTab = 'payments',
   targetPaymentId = null,
   targetInvoiceId = null,
@@ -56,6 +58,46 @@ export const ManagerRentPaymentsScreen = ({
   const [activeTab, setActiveTab] = useState(
     initialTab === 'rent-dashboard' || initialTab === 'rent' ? 'dashboard' : initialTab
   );
+  const [tabHistory, setTabHistory] = useState([]);
+
+  const switchTab = (tabName) => {
+    if (tabName !== activeTab) {
+      setTabHistory((prev) => [...prev, activeTab]);
+      setActiveTab(tabName);
+    }
+  };
+
+  const handleBackNavigation = () => {
+    if (tabHistory.length > 0) {
+      const prevTab = tabHistory[tabHistory.length - 1];
+      setTabHistory((prev) => prev.slice(0, -1));
+      setActiveTab(prevTab);
+      return;
+    }
+    const baseTab = (initialTab === 'rent-dashboard' || initialTab === 'rent') ? 'dashboard' : initialTab;
+    if (activeTab !== 'dashboard' && activeTab !== baseTab) {
+      setActiveTab('dashboard');
+      return;
+    }
+    if (onBack) {
+      onBack();
+    } else if (onNavigate) {
+      onNavigate('back');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      const baseTab = (initialTab === 'rent-dashboard' || initialTab === 'rent') ? 'dashboard' : initialTab;
+      if (tabHistory.length > 0 || (activeTab !== 'dashboard' && activeTab !== baseTab)) {
+        handleBackNavigation();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [tabHistory, activeTab, initialTab]);
 
   // Drill-down metric modal state (Matching Web / ManagerDashboard)
   const [selectedRentMetric, setSelectedRentMetric] = useState(null);
@@ -407,11 +449,14 @@ export const ManagerRentPaymentsScreen = ({
           description,
           transactionType,
           id: `led-chg-${inv.id}`,
+          invoiceStatus: inv.status,
+          invoicePaidAmount: inv.paidAmount,
+          invoiceBalance: inv.balance,
         });
       });
 
       parsedPayments.forEach((pay) => {
-        const method = pay.paymentMethod ? ` via ${pay.paymentMethod}` : '';
+        const method = pay.paymentMethod ? ` via ${String(pay.paymentMethod).replace(/_/g, ' ')}` : '';
         const ref = pay.referenceNumber ? ` · Ref# ${pay.referenceNumber}` : '';
         allTransactions.push({
           type: 'payment',
@@ -425,6 +470,31 @@ export const ManagerRentPaymentsScreen = ({
           transactionType: 'Payment',
           id: `led-pay-${pay.id}`,
         });
+      });
+
+      // Safety fallback: reflect any invoice paidAmount > 0 as credit if payment not in parsedPayments
+      parsedInvoices.forEach((inv) => {
+        const invPaid = Number(inv.paidAmount) || 0;
+        if (invPaid > 0) {
+          const hasPayment = parsedPayments.some((p) =>
+            p.invoiceId === inv.id ||
+            (p.tenantId === inv.tenantId && Math.abs(Number(p.amount) - invPaid) < 0.01 && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
+          );
+          if (!hasPayment) {
+            allTransactions.push({
+              type: 'payment',
+              date: inv.dueDate && inv.dueDate !== 'N/A' ? inv.dueDate : new Date().toISOString().split('T')[0],
+              amount: invPaid,
+              tenantId: inv.tenantId,
+              tenantName: inv.tenantName,
+              propertyName: inv.propertyName,
+              unitNumber: inv.unitNumber,
+              description: `Payment Received via Offline (Partial) · Ref# RCP-OCCUPIED-AUTO`,
+              transactionType: 'Payment',
+              id: `led-pay-inv-${inv.id}`,
+            });
+          }
+        }
       });
 
       // Chronological sort ascending
@@ -1234,9 +1304,9 @@ export const ManagerRentPaymentsScreen = ({
       <View style={[styles.fixedHeader, { paddingTop: 16 }]}>
         <View style={styles.rowBetween}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            {!!onNavigate && (
+            {(!!onNavigate || !!onBack) && (
               <TouchableOpacity
-                onPress={() => onNavigate('dashboard')}
+                onPress={handleBackNavigation}
                 style={{ marginRight: 8, padding: 4 }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 activeOpacity={0.7}
@@ -1273,7 +1343,7 @@ export const ManagerRentPaymentsScreen = ({
           >
             <TouchableOpacity
               style={[styles.tabItem, activeTab === 'dashboard' && styles.tabItemActive]}
-              onPress={() => setActiveTab('dashboard')}
+              onPress={() => switchTab('dashboard')}
             >
               <Text
                 style={[styles.tabItemText, activeTab === 'dashboard' && styles.tabItemTextActive]}
@@ -1285,7 +1355,7 @@ export const ManagerRentPaymentsScreen = ({
 
             <TouchableOpacity
               style={[styles.tabItem, activeTab === 'payments' && styles.tabItemActive]}
-              onPress={() => setActiveTab('payments')}
+              onPress={() => switchTab('payments')}
             >
               <Text
                 style={[styles.tabItemText, activeTab === 'payments' && styles.tabItemTextActive]}
@@ -1297,7 +1367,7 @@ export const ManagerRentPaymentsScreen = ({
 
             <TouchableOpacity
               style={[styles.tabItem, activeTab === 'invoices' && styles.tabItemActive]}
-              onPress={() => setActiveTab('invoices')}
+              onPress={() => switchTab('invoices')}
             >
               <Text
                 style={[styles.tabItemText, activeTab === 'invoices' && styles.tabItemTextActive]}
@@ -1309,7 +1379,7 @@ export const ManagerRentPaymentsScreen = ({
 
             <TouchableOpacity
               style={[styles.tabItem, activeTab === 'ledger' && styles.tabItemActive]}
-              onPress={() => setActiveTab('ledger')}
+              onPress={() => switchTab('ledger')}
             >
               <Text
                 style={[styles.tabItemText, activeTab === 'ledger' && styles.tabItemTextActive]}
@@ -2036,6 +2106,36 @@ export const ManagerRentPaymentsScreen = ({
                             <Text style={styles.ledgerDesc} allowFontScaling={false} numberOfLines={1}>
                               {item.description}
                             </Text>
+                          )}
+                          {Boolean(item.invoiceStatus) && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                              <View
+                                style={[
+                                  styles.badge,
+                                  {
+                                    paddingVertical: 1.5,
+                                    paddingHorizontal: 7,
+                                    borderColor: item.invoiceStatus === 'Paid' ? '#10b981' : item.invoiceStatus === 'Partially Paid' ? '#f59e0b' : '#ef4444',
+                                    backgroundColor: item.invoiceStatus === 'Paid' ? 'rgba(16, 185, 129, 0.12)' : item.invoiceStatus === 'Partially Paid' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 9.5,
+                                    fontWeight: '800',
+                                    color: item.invoiceStatus === 'Paid' ? '#10b981' : item.invoiceStatus === 'Partially Paid' ? '#f59e0b' : '#ef4444',
+                                  }}
+                                  allowFontScaling={false}
+                                >
+                                  {item.invoiceStatus === 'Partially Paid'
+                                    ? `Partially Paid: $${Number(item.invoicePaidAmount || 0).toLocaleString()} Paid`
+                                    : item.invoiceStatus === 'Paid'
+                                    ? 'Fully Paid'
+                                    : 'Unpaid / Overdue'}
+                                </Text>
+                              </View>
+                            </View>
                           )}
                         </View>
 

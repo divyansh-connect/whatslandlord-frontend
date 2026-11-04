@@ -12,6 +12,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Animated,
+  BackHandler,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import { Ionicons } from '@expo/vector-icons';
@@ -232,6 +233,7 @@ export const PropertiesScreen = ({
   targetUnitId = null,
   targetPropertyId = null,
   onNavigate,
+  onBack,
 }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
@@ -242,6 +244,47 @@ export const PropertiesScreen = ({
   const [activeTab, setActiveTab] = useState(
     initialTab === 'units' ? 'units' : initialTab === 'drafts' ? 'drafts' : 'properties'
   );
+  const [tabHistory, setTabHistory] = useState([]);
+
+  const switchTab = (tabName) => {
+    if (tabName !== activeTab) {
+      setTabHistory((prev) => [...prev, activeTab]);
+      setActiveTab(tabName);
+      setSearchQuery('');
+    }
+  };
+
+  const handleBackNavigation = () => {
+    if (tabHistory.length > 0) {
+      const prevTab = tabHistory[tabHistory.length - 1];
+      setTabHistory((prev) => prev.slice(0, -1));
+      setActiveTab(prevTab);
+      setSearchQuery('');
+      return;
+    }
+    if (activeTab !== 'properties' && initialTab !== activeTab) {
+      setActiveTab('properties');
+      setSearchQuery('');
+      return;
+    }
+    if (onBack) {
+      onBack();
+    } else if (onNavigate) {
+      onNavigate('back');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (tabHistory.length > 0 || (activeTab !== 'properties' && initialTab !== activeTab)) {
+        handleBackNavigation();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [tabHistory, activeTab, initialTab]);
   const [unitStatusFilter, setUnitStatusFilter] = useState(initialUnitStatusFilter || 'All');
   const [propTypeFilter, setPropTypeFilter] = useState('All');
   const [propStatusFilter, setPropStatusFilter] = useState('All');
@@ -1081,6 +1124,9 @@ export const PropertiesScreen = ({
     if (!uNumber.trim()) {
       errMap.unitNumber = 'Unit Number is required.';
     }
+    if (!uRent.trim() || isNaN(Number(uRent)) || Number(uRent) <= 0) {
+      errMap.rentAmount = 'Monthly Rent is required and must be greater than 0.';
+    }
 
     if (uStatus === 'Occupied') {
       if (!tFirstName.trim()) errMap.tFirstName = 'First Name is required.';
@@ -1092,6 +1138,10 @@ export const PropertiesScreen = ({
 
     if (Object.keys(errMap).length > 0) {
       setFormErrors(errMap);
+      Alert.alert(
+        'Required Fields Missing',
+        'Please fill in all required fields marked with * before saving the unit.'
+      );
       return;
     }
 
@@ -1415,7 +1465,7 @@ export const PropertiesScreen = ({
         <View style={styles.topHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
             <TouchableOpacity
-              onPress={() => (onNavigate ? onNavigate('dashboard') : null)}
+              onPress={handleBackNavigation}
               style={{ marginRight: 10, padding: 4 }}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               activeOpacity={0.7}
@@ -1444,10 +1494,7 @@ export const PropertiesScreen = ({
         <View style={styles.tabsRow}>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'properties' && styles.tabActive]}
-            onPress={() => {
-              setActiveTab('properties');
-              setSearchQuery('');
-            }}
+            onPress={() => switchTab('properties')}
           >
             <Text style={[styles.tabText, activeTab === 'properties' && styles.tabTextActive]} allowFontScaling={false}>
               Properties ({properties.filter((p) => p.status !== 'Draft' && p.status !== 'Inactive').length})
@@ -1456,10 +1503,7 @@ export const PropertiesScreen = ({
 
           <TouchableOpacity
             style={[styles.tab, activeTab === 'units' && styles.tabActive]}
-            onPress={() => {
-              setActiveTab('units');
-              setSearchQuery('');
-            }}
+            onPress={() => switchTab('units')}
           >
             <Text style={[styles.tabText, activeTab === 'units' && styles.tabTextActive]} allowFontScaling={false}>
               Units ({units.length})
@@ -1468,10 +1512,7 @@ export const PropertiesScreen = ({
 
           <TouchableOpacity
             style={[styles.tab, activeTab === 'drafts' && styles.tabActive]}
-            onPress={() => {
-              setActiveTab('drafts');
-              setSearchQuery('');
-            }}
+            onPress={() => switchTab('drafts')}
           >
             <Text style={[styles.tabText, activeTab === 'drafts' && styles.tabTextActive]} allowFontScaling={false}>
               Drafts ({properties.filter((p) => p.status === 'Draft').length})
@@ -3679,7 +3720,7 @@ export const PropertiesScreen = ({
                   <View style={styles.twoColField}>
                     <Text style={styles.cleanFieldLabel} allowFontScaling={false}>MONTHLY RENT ($) *</Text>
                     <TextInput
-                      style={styles.cleanInput}
+                      style={[styles.cleanInput, formErrors.rentAmount && styles.inputErrorBorder]}
                       keyboardType="numeric"
                       placeholder="e.g. 1500"
                       placeholderTextColor={colors.placeholder}
@@ -3687,6 +3728,7 @@ export const PropertiesScreen = ({
                       onChangeText={setURent}
                       allowFontScaling={false}
                     />
+                    {formErrors.rentAmount && <Text style={styles.errorText}>{formErrors.rentAmount}</Text>}
                   </View>
                   <View style={styles.twoColField}>
                     <Text style={styles.cleanFieldLabel} allowFontScaling={false}>SECURITY DEPOSIT ($)</Text>
@@ -3825,12 +3867,12 @@ export const PropertiesScreen = ({
                     <View style={styles.twoColRow}>
                       <View style={styles.twoColField}>
                         <Text style={styles.cleanFieldLabel} allowFontScaling={false}>FIRST NAME *</Text>
-                        <TextInput style={styles.cleanInput} placeholder="e.g. John" placeholderTextColor={colors.placeholder} value={tFirstName} onChangeText={setTFirstName} allowFontScaling={false} />
+                        <TextInput style={[styles.cleanInput, formErrors.tFirstName && styles.inputErrorBorder]} placeholder="e.g. John" placeholderTextColor={colors.placeholder} value={tFirstName} onChangeText={setTFirstName} allowFontScaling={false} />
                         {formErrors.tFirstName && <Text style={styles.errorText}>{formErrors.tFirstName}</Text>}
                       </View>
                       <View style={styles.twoColField}>
                         <Text style={styles.cleanFieldLabel} allowFontScaling={false}>LAST NAME *</Text>
-                        <TextInput style={styles.cleanInput} placeholder="e.g. Doe" placeholderTextColor={colors.placeholder} value={tLastName} onChangeText={setTLastName} allowFontScaling={false} />
+                        <TextInput style={[styles.cleanInput, formErrors.tLastName && styles.inputErrorBorder]} placeholder="e.g. Doe" placeholderTextColor={colors.placeholder} value={tLastName} onChangeText={setTLastName} allowFontScaling={false} />
                         {formErrors.tLastName && <Text style={styles.errorText}>{formErrors.tLastName}</Text>}
                       </View>
                     </View>
@@ -3889,13 +3931,13 @@ export const PropertiesScreen = ({
 
                     <View style={{ marginTop: 4 }}>
                       <Text style={styles.cleanFieldLabel} allowFontScaling={false}>EMAIL ADDRESS *</Text>
-                      <TextInput style={styles.cleanInput} keyboardType="email-address" placeholder="e.g. john@example.com" placeholderTextColor={colors.placeholder} value={tEmail} onChangeText={setTEmail} autoCapitalize="none" allowFontScaling={false} />
+                      <TextInput style={[styles.cleanInput, formErrors.tContact && !tEmail.trim() && styles.inputErrorBorder]} keyboardType="email-address" placeholder="e.g. john@example.com" placeholderTextColor={colors.placeholder} value={tEmail} onChangeText={setTEmail} autoCapitalize="none" allowFontScaling={false} />
                     </View>
 
                     <View style={styles.twoColRow}>
                       <View style={styles.twoColField}>
                         <Text style={styles.cleanFieldLabel} allowFontScaling={false}>MOBILE PHONE *</Text>
-                        <TextInput style={styles.cleanInput} keyboardType="phone-pad" placeholder="(512) 555-0199" placeholderTextColor={colors.placeholder} value={tPhone} onChangeText={setTPhone} allowFontScaling={false} />
+                        <TextInput style={[styles.cleanInput, formErrors.tContact && !tPhone.trim() && styles.inputErrorBorder]} keyboardType="phone-pad" placeholder="(512) 555-0199" placeholderTextColor={colors.placeholder} value={tPhone} onChangeText={setTPhone} allowFontScaling={false} />
                       </View>
                       <View style={styles.twoColField}>
                         <Text style={styles.cleanFieldLabel} allowFontScaling={false}>ALTERNATE PHONE</Text>

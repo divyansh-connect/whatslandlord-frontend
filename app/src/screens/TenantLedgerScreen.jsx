@@ -140,6 +140,7 @@ export const TenantLedgerScreen = () => {
         ledgerList.push({
           id: inv.id || `inv-${Math.random()}`,
           date: inv.createdAt ? String(inv.createdAt).split('T')[0] : (inv.dueDate ? String(inv.dueDate).split('T')[0] : 'Recent'),
+          tenantId: inv.tenantId || inv.tenant?.id || '',
           tenantName: inv.tenantName || (inv.tenant ? `${inv.tenant.firstName || ''} ${inv.tenant.lastName || ''}`.trim() : 'Resident'),
           propertyName: inv.propertyName || inv.property?.name || 'Property',
           unitNumber: inv.unitNumber || (inv.unit?.unitNumber ? `Unit ${inv.unit.unitNumber}` : 'N/A'),
@@ -148,6 +149,9 @@ export const TenantLedgerScreen = () => {
           credit: 0,
           transactionType: 'Rent Charge',
           status: inv.status || 'Active',
+          invoiceStatus: inv.status || 'Sent',
+          invoicePaidAmount: Number(inv.paidAmount) || 0,
+          invoiceBalance: Number(inv.balance) || 0,
         });
       });
 
@@ -155,15 +159,42 @@ export const TenantLedgerScreen = () => {
         ledgerList.push({
           id: p.id || `pay-${Math.random()}`,
           date: p.paidDate ? String(p.paidDate).split('T')[0] : (p.date ? String(p.date).split('T')[0] : 'Recent'),
+          tenantId: p.tenantId || p.tenant?.id || '',
           tenantName: p.tenant ? `${p.tenant.firstName || ''} ${p.tenant.lastName || ''}`.trim() : (p.tenantName || 'Resident'),
           propertyName: p.property?.name || p.propertyName || 'Property',
           unitNumber: p.unitNumber || (p.unit?.unitNumber ? `Unit ${p.unit.unitNumber}` : 'N/A'),
-          description: `Payment via ${p.paymentMethod || p.method || 'Online'}`,
+          description: `Payment via ${String(p.paymentMethod || p.method || 'Online').replace(/_/g, ' ')}`,
           debit: 0,
           credit: Number(p.amount) || 0,
           transactionType: 'Payment',
           status: p.status || 'Paid',
         });
+      });
+
+      // Safety fallback: if an invoice has paidAmount > 0 but no separate payment record
+      rawInvoices.forEach((inv) => {
+        const invPaid = Number(inv.paidAmount) || 0;
+        if (invPaid > 0) {
+          const hasPayment = rawPayments.some((p) =>
+            p.invoiceId === inv.id ||
+            ((p.tenantId === inv.tenantId || (inv.tenant && p.tenantId === inv.tenant.id)) && Math.abs(Number(p.amount) - invPaid) < 0.01 && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
+          );
+          if (!hasPayment) {
+            ledgerList.push({
+              id: `pay-inv-${inv.id}`,
+              date: inv.createdAt ? String(inv.createdAt).split('T')[0] : (inv.dueDate ? String(inv.dueDate).split('T')[0] : 'Recent'),
+              tenantId: inv.tenantId || inv.tenant?.id || '',
+              tenantName: inv.tenantName || (inv.tenant ? `${inv.tenant.firstName || ''} ${inv.tenant.lastName || ''}`.trim() : 'Resident'),
+              propertyName: inv.propertyName || inv.property?.name || 'Property',
+              unitNumber: inv.unitNumber || (inv.unit?.unitNumber ? `Unit ${inv.unit.unitNumber}` : 'N/A'),
+              description: 'Payment via Offline (Partial)',
+              debit: 0,
+              credit: invPaid,
+              transactionType: 'Payment',
+              status: 'PartiallyPaid',
+            });
+          }
+        }
       });
 
       // Sort ledger entries by date
@@ -312,6 +343,27 @@ export const TenantLedgerScreen = () => {
                     <Text style={styles.descText} allowFontScaling={false}>
                       {translateDescription(item.description)} · {es ? 'Fecha:' : 'Date:'} {item.date}
                     </Text>
+                    {Boolean(item.invoiceStatus) && (
+                      <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                        <View style={[
+                          styles.typeBadge,
+                          {
+                            paddingHorizontal: 6,
+                            paddingVertical: 1,
+                            borderColor: item.invoiceStatus === 'Paid' ? '#10b981' : item.invoiceStatus === 'Partially Paid' ? '#f59e0b' : '#ef4444',
+                            backgroundColor: item.invoiceStatus === 'Paid' ? 'rgba(16, 185, 129, 0.12)' : item.invoiceStatus === 'Partially Paid' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                          }
+                        ]}>
+                          <Text style={{ fontSize: 9.5, fontWeight: '800', color: item.invoiceStatus === 'Paid' ? '#10b981' : item.invoiceStatus === 'Partially Paid' ? '#f59e0b' : '#ef4444' }} allowFontScaling={false}>
+                            {item.invoiceStatus === 'Partially Paid'
+                              ? `Partially Paid: $${Number(item.invoicePaidAmount || 0).toLocaleString()} Paid`
+                              : item.invoiceStatus === 'Paid'
+                              ? 'Fully Paid'
+                              : 'Unpaid / Overdue'}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
                   </View>
 
                   <View style={styles.rightGroup}>

@@ -15,6 +15,7 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
+  BackHandler,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -26,7 +27,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { apiClient } from '../api/client';
 
-export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
+export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate, onBack }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -35,12 +36,50 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
 
   // Sub-tab: 'dashboard' | 'coa' | 'income' | 'expenses'
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [tabHistory, setTabHistory] = useState([]);
 
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  const switchTab = (tabName) => {
+    if (tabName !== activeTab) {
+      setTabHistory((prev) => [...prev, activeTab]);
+      setActiveTab(tabName);
+    }
+  };
+
+  const handleBackNavigation = () => {
+    if (tabHistory.length > 0) {
+      const prevTab = tabHistory[tabHistory.length - 1];
+      setTabHistory((prev) => prev.slice(0, -1));
+      setActiveTab(prevTab);
+      return;
+    }
+    if (activeTab !== 'dashboard' && initialTab !== activeTab) {
+      setActiveTab('dashboard');
+      return;
+    }
+    if (onBack) {
+      onBack();
+    } else if (onNavigate) {
+      onNavigate('back');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (tabHistory.length > 0 || (activeTab !== 'dashboard' && initialTab !== activeTab)) {
+        handleBackNavigation();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [tabHistory, activeTab, initialTab]);
 
   // Decode JWT companyId helper if not directly on user object
   const decodeJwtCompanyId = (token) => {
@@ -1686,9 +1725,9 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
       {/* FIXED HEADER WITH SWITCHER */}
       <View style={[styles.fixedHeader, { paddingTop: 16 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-          {!!onNavigate && (
+          {(!!onNavigate || !!onBack) && (
             <TouchableOpacity
-              onPress={() => onNavigate('dashboard')}
+              onPress={handleBackNavigation}
               style={{ marginRight: 8, padding: 4 }}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               activeOpacity={0.7}
@@ -1725,22 +1764,22 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled={true}
           >
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'dashboard' && styles.tabItemActive]} onPress={() => setActiveTab('dashboard')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'dashboard' && styles.tabItemActive]} onPress={() => switchTab('dashboard')}>
               <Text style={[styles.tabItemText, activeTab === 'dashboard' && styles.tabItemTextActive]} allowFontScaling={false}>
                 {language === 'es' ? 'Panel' : language === 'hi' ? 'डैशबोर्ड' : 'Dashboard'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'coa' && styles.tabItemActive]} onPress={() => setActiveTab('coa')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'coa' && styles.tabItemActive]} onPress={() => switchTab('coa')}>
               <Text style={[styles.tabItemText, activeTab === 'coa' && styles.tabItemTextActive]} allowFontScaling={false}>
                 {language === 'es' ? 'Plan de Cuentas' : language === 'hi' ? 'खातों का चार्ट' : 'Chart of Accounts'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'income' && styles.tabItemActive]} onPress={() => setActiveTab('income')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'income' && styles.tabItemActive]} onPress={() => switchTab('income')}>
               <Text style={[styles.tabItemText, activeTab === 'income' && styles.tabItemTextActive]} allowFontScaling={false}>
                 {language === 'es' ? 'Ingresos' : language === 'hi' ? 'आय' : 'Income'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'expenses' && styles.tabItemActive]} onPress={() => setActiveTab('expenses')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'expenses' && styles.tabItemActive]} onPress={() => switchTab('expenses')}>
               <Text style={[styles.tabItemText, activeTab === 'expenses' && styles.tabItemTextActive]} allowFontScaling={false}>
                 {language === 'es' ? 'Gastos' : language === 'hi' ? 'व्यय' : 'Expenses'}
               </Text>
