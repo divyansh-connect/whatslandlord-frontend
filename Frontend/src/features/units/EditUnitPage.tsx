@@ -189,7 +189,7 @@ export const EditUnitPage: React.FC = () => {
         const activeTenantId = activeTenantObj?.id || existingTenantId;
 
         // Auto-Create Active Lease if no lease exists
-        if (api.leasing?.createLease && activeTenantId) {
+        if (!existingTenantId && api.leasing?.createLease && activeTenantId) {
           try {
             const endDate = new Date(values.tenantMoveInDate || new Date());
             endDate.setFullYear(endDate.getFullYear() + 1);
@@ -214,7 +214,7 @@ export const EditUnitPage: React.FC = () => {
 
         // Auto-Generate Monthly Invoices for Past Move-In
         const pastMonths = generateMonthListFromMoveIn(values.tenantInvoiceStartDate || values.tenantMoveInDate || '');
-        if (pastMonths.length > 0 && api.invoices?.create && activeTenantId) {
+        if (!existingTenantId && pastMonths.length > 0 && api.invoices?.create && activeTenantId) {
           for (const monthItem of pastMonths) {
             const detail = editMonthDetails[monthItem.id] || { status: 'Unpaid', paidAmount: 0 };
             const pAmt = detail.status === 'Paid' ? Number(values.rentAmount || 0) : (detail.status === 'Partial' ? Math.min(Number(values.rentAmount || 0), Number(detail.paidAmount || 0)) : 0);
