@@ -26,6 +26,21 @@ export const MaintenanceReport: React.FC = () => {
   const filteredReportItems = useReportDataFilter(reportItems, filters);
 
   const summary = useMemo(() => {
+    const beSummary = (data as any)?.summary;
+    const hasClientFilter = Boolean(filters.search || filters.unitId);
+
+    if (beSummary && !hasClientFilter) {
+      return {
+        totalWorkOrders: beSummary.totalWorkOrders ?? 0,
+        totalEstimatedCost: beSummary.totalEstimatedCost ?? 0,
+        totalActualCost: beSummary.totalActualCost ?? 0,
+        completedCount: beSummary.completedCount ?? 0,
+        inProgressCount: beSummary.inProgressCount ?? 0,
+        openCount: beSummary.openCount ?? 0,
+        completionRate: beSummary.completionRate ?? 0,
+      };
+    }
+
     const completed = filteredReportItems.filter((i: any) => i.status === 'Completed' || i.status === 'Closed').length;
     return {
       totalWorkOrders: filteredReportItems.length,
@@ -36,7 +51,7 @@ export const MaintenanceReport: React.FC = () => {
       openCount: filteredReportItems.filter((i: any) => i.status === 'Open').length,
       completionRate: filteredReportItems.length > 0 ? parseFloat(((completed / filteredReportItems.length) * 100).toFixed(1)) : 0.0,
     };
-  }, [filteredReportItems]);
+  }, [data, filteredReportItems, filters]);
 
   const columns = [
     { key: 'ticketId', header: 'Ticket ID' },

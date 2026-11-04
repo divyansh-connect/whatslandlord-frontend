@@ -861,6 +861,26 @@ const invoicesRoute = createRoute({
   ),
 });
 
+const rentPaymentsInvoicesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/rent-payments/invoices',
+  component: () => (
+    <ProtectedWrapper>
+      <InvoicesPage />
+    </ProtectedWrapper>
+  ),
+});
+
+const rentPaymentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/rent-payments',
+  component: () => (
+    <ProtectedWrapper>
+      <PaymentsPage />
+    </ProtectedWrapper>
+  ),
+});
+
 const newInvoiceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/invoices/new',
@@ -5987,6 +6007,8 @@ const routeTree = rootRoute.addChildren([
   paymentDetailsRoute,
   rentLedgerRoute,
   invoicesRoute,
+  rentPaymentsInvoicesRoute,
+  rentPaymentsRoute,
   newInvoiceRoute,
   chargesRoute,
   depositsRoute,

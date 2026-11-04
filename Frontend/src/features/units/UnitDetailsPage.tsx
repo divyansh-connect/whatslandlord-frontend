@@ -14,9 +14,10 @@ import { FormDialog } from '../../components/FormDialog';
 import { 
   Building2, Home, User, CreditCard, Wrench, FileText, ArrowLeft, 
   Plus, Upload, Loader2, Sparkles, Bed, Bath, DollarSign, Calendar,
-  RefreshCw, Edit, Clock
+  RefreshCw, Edit, Clock, UserPlus
 } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
+import { QuickAddTenantModal } from '../tenants/QuickAddTenantModal';
 
 export const UnitDetailsPage: React.FC = () => {
   const { id } = useParams({ from: '/properties/units/$id' });
@@ -25,6 +26,7 @@ export const UnitDetailsPage: React.FC = () => {
 
   const [isAssignOpen, setIsAssignOpen] = useState(false);
   const [selectedTenantId, setSelectedTenantId] = useState('');
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isDocOpen, setIsDocOpen] = useState(false);
 
   // Local state for refreshing market valuation simulation
@@ -405,6 +407,21 @@ export const UnitDetailsPage: React.FC = () => {
               </option>
             ))}
           </Select>
+
+          {/* Quick Add Tenant Trigger */}
+          <div className="pt-2 flex items-center justify-between border-t border-border/50">
+            <span className="text-xs text-muted-foreground">New tenant moving in?</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsQuickAddOpen(true)}
+              className="text-xs font-bold text-primary border-primary/30 hover:bg-primary/10 flex items-center gap-1.5 h-8"
+            >
+              <UserPlus className="w-3.5 h-3.5" /> + Register & Add Tenant
+            </Button>
+          </div>
+
           <div className="flex justify-end space-x-2 pt-2">
             <Button variant="outline" onClick={() => setIsAssignOpen(false)}>Cancel</Button>
             <Button 
@@ -417,6 +434,18 @@ export const UnitDetailsPage: React.FC = () => {
           </div>
         </div>
       </FormDialog>
+
+      {/* QUICK ADD TENANT MODAL (1-to-1 with NewTenantPage) */}
+      <QuickAddTenantModal
+        open={isQuickAddOpen}
+        onOpenChange={setIsQuickAddOpen}
+        unitId={unit.id}
+        unitNumber={unit.unitNumber}
+        onSuccessTenant={() => {
+          setIsAssignOpen(false);
+          setSelectedTenantId('');
+        }}
+      />
     </div>
   );
 };

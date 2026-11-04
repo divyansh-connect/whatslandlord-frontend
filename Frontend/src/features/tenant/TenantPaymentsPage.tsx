@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
-import { CreditCard, Landmark, CheckCircle, Loader2, Shield, Check, Printer } from 'lucide-react';
+import { CreditCard, Landmark, CheckCircle, Loader2, Shield, Check, Printer, AlertTriangle } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { clsx } from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -68,23 +68,6 @@ export const TenantPaymentsPage: React.FC = () => {
         additionalChg: 0,
         status: isPaid ? 'Paid' : (inv.status === 'PENDING' ? 'Pending' : 'Unpaid')
       });
-
-      // If invoice is Paid but has no separate payment record, add matching payment entry so running balance stays accurate
-      if (isPaid) {
-        const hasPayment = tenantPayments.some((pay: any) => pay.invoiceId === inv.id || (pay.amount === inv.amount && pay.dueDate === inv.dueDate));
-        if (!hasPayment) {
-          list.push({
-            date: inv.paidDate ? inv.paidDate.split('T')[0] : inv.dueDate,
-            type: 'Payment',
-            desc: `Rent Payment (Settled)`,
-            ref: `PAY-${inv.id.substring(0, 6).toUpperCase()}`,
-            invoiceAmt: 0,
-            paymentAmt: inv.amount,
-            additionalChg: 0,
-            status: 'Cleared'
-          });
-        }
-      }
     });
 
     // Map real payments
@@ -166,7 +149,7 @@ export const TenantPaymentsPage: React.FC = () => {
     };
   }, [calculatedLedger]);
 
-  const outstandingBalance = ledgerMetrics.currentBal;
+  const outstandingBalance = metrics?.outstandingBalance !== undefined ? Math.max(0, Number(metrics.outstandingBalance)) : Math.max(0, ledgerMetrics.currentBal);
 
   const handleExportCSV = () => {
     const headers = ['Date', 'Transaction Type', 'Description', 'Reference Number', 'Invoice Amount', 'Payment Amount', 'Additional Charge', 'Running Balance', 'Status'];
@@ -277,6 +260,14 @@ export const TenantPaymentsPage: React.FC = () => {
     queryFn: () => api.tenantPayments.getActiveGateway(tenantPropertyId),
   });
 
+  const isOnlineGatewayActive = Boolean(
+    activeGateway &&
+    activeGateway.provider &&
+    activeGateway.provider !== 'MANUAL' &&
+    activeGateway.provider !== 'COMPANY_DEFAULT' &&
+    ['RAZORPAY', 'STRIPE', 'AUTHORIZE_NET'].includes(activeGateway.provider)
+  );
+
   // Inject Razorpay JS SDK dynamically if Manager configured Razorpay
   React.useEffect(() => {
     if (activeGateway?.provider === 'RAZORPAY') {
@@ -294,6 +285,10 @@ export const TenantPaymentsPage: React.FC = () => {
 
   const payMutation = useMutation({
     mutationFn: async () => {
+      if (!isOnlineGatewayActive) {
+        throw new Error('Online payment gateway is not configured yet. Please contact your property manager to enable online payments.');
+      }
+
       if (activeGateway?.provider === 'RAZORPAY' && (window as any).Razorpay) {
         setStep('processing');
         setProcessingMsg('Creating Razorpay secure order...');
@@ -343,12 +338,7 @@ export const TenantPaymentsPage: React.FC = () => {
         });
       }
 
-      return api.tenantPayments.payRent({
-        amount: total,
-        baseAmount: amountNum,
-        method,
-        propertyId: tenantPropertyId,
-      });
+      throw new Error('Online payment gateway is not configured yet. Please contact your property manager to enable online payments.');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenant-payments-list'] });
@@ -844,24 +834,36 @@ export const TenantPaymentsPage: React.FC = () => {
           <form onSubmit={handlePaymentSubmit} className="space-y-4 pt-2 text-xs font-semibold text-foreground">
             
             {/* Gateway Routing Indicator */}
-            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-secondary/30 border border-border text-xs">
-              <Shield className="w-4 h-4 text-emerald-500 shrink-0" />
-              <div className="flex-1">
-                <span className="font-bold text-foreground">
-                  {activeGateway?.source === 'PROPERTY' && activeGateway?.propertyName
-                    ? `Direct Property Gateway: ${activeGateway.propertyName}`
-                    : 'Company Gateway (Option 2 Fallback)'}
-                </span>
-                <span className="text-[10px] text-muted-foreground block">
-                  {activeGateway?.provider === 'MANUAL'
-                    ? 'Standard ACH & Card Direct Processing'
-                    : `Secured via ${activeGateway?.provider?.replace('_', '.')}`}
+            {isOnlineGatewayActive ? (
+              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-secondary/30 border border-border text-xs">
+                <Shield className="w-4 h-4 text-emerald-500 shrink-0" />
+                <div className="flex-1">
+                  <span className="font-bold text-foreground">
+                    {activeGateway?.source === 'PROPERTY' && activeGateway?.propertyName
+                      ? `Direct Property Gateway: ${activeGateway.propertyName}`
+                      : 'Company Gateway (Option 2 Fallback)'}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground block">
+                    Secured via {activeGateway?.provider?.replace('_', '.')}
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  Active
                 </span>
               </div>
-              <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                Active
-              </span>
-            </div>
+            ) : (
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <span className="font-bold text-amber-600 dark:text-amber-400 block">
+                    Online Payment Gateway Not Configured
+                  </span>
+                  <span className="text-[11px] text-muted-foreground block mt-0.5 leading-relaxed">
+                    Online payment gateway is not configured yet. Please contact your property manager to enable online payments.
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Payment Option Selector */}
             <div className="space-y-2">
@@ -1054,8 +1056,12 @@ export const TenantPaymentsPage: React.FC = () => {
 
             <div className="flex justify-end space-x-2 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>{t('tenantPayments.cancel')}</Button>
-              <Button type="submit" disabled={amountNum <= 0 || amountNum > outstandingBalance}>
-                {t('tenantPayments.payRent')}
+              <Button
+                type="submit"
+                disabled={!isOnlineGatewayActive || amountNum <= 0 || amountNum > outstandingBalance || payMutation.isPending}
+                className={!isOnlineGatewayActive ? 'opacity-60 cursor-not-allowed bg-slate-400 dark:bg-slate-700' : ''}
+              >
+                {!isOnlineGatewayActive ? 'Online Payment Unavailable' : t('tenantPayments.payRent')}
               </Button>
             </div>
 

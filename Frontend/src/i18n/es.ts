@@ -1499,6 +1499,7 @@ export const es = {
     Success: "Éxito",
     Failed: "Fallido",
     Pending: "Pendiente",
+    "Pending Approval": "Pendiente de Aprobación",
     Completed: "Completado",
     Approved: "Aprobado",
     Rejected: "Rechazado",

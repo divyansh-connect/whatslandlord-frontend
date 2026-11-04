@@ -10,7 +10,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { Button } from '../../components/ui/Button';
 import { RequestScreeningModal } from './RequestScreeningModal';
 import { ScreeningReportDrawer } from './ScreeningReportDrawer';
-import { Eye, Plus, Play, Loader2 } from 'lucide-react';
+import { Eye, Plus, Play, Loader2, FastForward } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 
 export const TenantScreeningPage: React.FC = () => {
@@ -33,6 +33,15 @@ export const TenantScreeningPage: React.FC = () => {
     mutationFn: (id: string) => api.screening.generateReport(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['screening-checks-list'] });
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+    },
+  });
+
+  const skipScreeningMutation = useMutation({
+    mutationFn: (id: string) => api.screening.generateReport(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['screening-checks-list'] });
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
     },
   });
 
@@ -67,22 +76,6 @@ export const TenantScreeningPage: React.FC = () => {
       header: t('pmLeasing.actions'),
       cell: ({ row }) => (
         <div className="flex items-center gap-1.5">
-          {row.original.screeningStatus === 'Processing' && (
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => generateReportMutation.mutate(row.original.id)}
-              title="Run Check & Generate Report"
-              disabled={generateReportMutation.isPending}
-              className="text-emerald-500 hover:bg-emerald-500/10 border-emerald-500/30 h-7 w-7"
-            >
-              {generateReportMutation.isPending ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Play className="w-3.5 h-3.5" />
-              )}
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="icon"
@@ -129,9 +122,12 @@ export const TenantScreeningPage: React.FC = () => {
             value: statusFilter,
             placeholder: 'All Statuses',
             options: [
-              { label: 'Completed', value: 'Completed' },
+              { label: 'Pending', value: 'Pending' },
               { label: 'Processing', value: 'Processing' },
-              { label: 'Pending Signature', value: 'Pending Signature' },
+              { label: 'Pending Approval', value: 'Pending Approval' },
+              { label: 'Completed', value: 'Completed' },
+              { label: 'Approved', value: 'Approved' },
+              { label: 'Declined', value: 'Declined' },
             ],
           },
         ]}

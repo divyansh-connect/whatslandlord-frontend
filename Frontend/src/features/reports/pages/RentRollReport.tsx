@@ -26,13 +26,29 @@ export const RentRollReport: React.FC = () => {
   const reportItems = data?.data || [];
   const filteredReportItems = useReportDataFilter(reportItems, filters);
 
-  const summary = useMemo(() => ({
-    totalMonthlyRent: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.monthlyRent || 0), 0),
-    totalSecurityDeposits: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.securityDeposit || 0), 0),
-    occupiedCount: filteredReportItems.filter((i: any) => i.unitStatus === 'Occupied' || i.leaseStatus === 'Active').length,
-    vacantCount: Math.max(0, filteredReportItems.length - filteredReportItems.filter((i: any) => i.unitStatus === 'Occupied' || i.leaseStatus === 'Active').length),
-    totalUnits: filteredReportItems.length,
-  }), [filteredReportItems]);
+  const summary = useMemo(() => {
+    const beSummary = (data as any)?.summary;
+    if (beSummary && !filters.search) {
+      return {
+        totalMonthlyRent: beSummary.totalMonthlyRent ?? 0,
+        totalSecurityDeposits: beSummary.totalSecurityDeposits ?? 0,
+        occupiedCount: beSummary.occupiedCount ?? 0,
+        vacantCount: beSummary.vacantCount ?? 0,
+        totalUnits: beSummary.totalUnits ?? filteredReportItems.length,
+      };
+    }
+
+    const occ = filteredReportItems.filter((i: any) => i.unitStatus === 'Occupied' || i.leaseStatus === 'Active').length;
+    const total = filteredReportItems.length;
+
+    return {
+      totalMonthlyRent: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.monthlyRent || 0), 0),
+      totalSecurityDeposits: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.securityDeposit || 0), 0),
+      occupiedCount: occ,
+      vacantCount: Math.max(0, total - occ),
+      totalUnits: total,
+    };
+  }, [data, filteredReportItems, filters]);
 
   const columns = [
     { key: 'propertyName', header: 'Property Name' },

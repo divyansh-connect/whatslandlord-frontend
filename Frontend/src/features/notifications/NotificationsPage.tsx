@@ -244,7 +244,14 @@ export const NotificationsPage: React.FC = () => {
       markAsRead(n.id);
       api.notifications.markAsRead(n.id);
     }
-    const directUrl = (n as any).targetUrl;
+    const rawUrl = (n as any).targetUrl;
+    const directUrl = rawUrl
+      ? rawUrl.startsWith('/rent-payments/invoices')
+        ? rawUrl.replace('/rent-payments/invoices', '/invoices')
+        : rawUrl === '/rent-payments'
+        ? '/payments'
+        : rawUrl
+      : null;
     const path = directUrl
       ? ((n as any).targetId && !directUrl.includes('?') ? `${directUrl}?id=${(n as any).targetId}` : directUrl)
       : getNotificationRedirectPath(n.title, n.message, displayRole, n.targetId);

@@ -7,6 +7,7 @@ import { useNavigate, Link } from '@tanstack/react-router';
 import api from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { PlanLimitReachedModal } from '../../components/PlanLimitReachedModal';
+import { AIGuideButton } from '../ai-guide';
 import { AddressForm } from '../../components/AddressForm';
 import { FileUploader } from '../../components/FileUploader';
 import { Input } from '../../components/ui/Input';
@@ -208,7 +209,9 @@ export const NewPropertyPage: React.FC = () => {
           { label: 'Properties', href: '/properties' },
           { label: 'Add Property' },
         ]}
-      />
+      >
+        <AIGuideButton pageKey="new-property" />
+      </PageHeader>
 
       {success && (
         <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-2xl text-sm font-semibold mb-6 animate-fade-in shadow-lg">
@@ -634,9 +637,15 @@ export const NewPropertyPage: React.FC = () => {
                     onFileSelect={(file) => setImageFile(file)}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">Property Documents</label>
-                  <FileUploader />
+                <div className="space-y-1.5 opacity-80">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">Property Documents</label>
+                    <span className="text-[10px] font-bold text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">❌ Not Connected</span>
+                  </div>
+                  <div className="pointer-events-none opacity-60">
+                    <FileUploader />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground italic">Property document uploading is managed under the Documents section.</p>
                 </div>
               </div>
             </div>

@@ -26,6 +26,28 @@ export const OccupancyReport: React.FC = () => {
   const filteredReportItems = useReportDataFilter(reportItems, filters);
 
   const summary = useMemo(() => {
+    const beSummary = (data as any)?.summary;
+    const hasFilter = Boolean(
+      filters.search ||
+      filters.propertyId ||
+      filters.unitId ||
+      filters.tenantId ||
+      filters.status ||
+      filters.startDate ||
+      filters.endDate
+    );
+
+    if (beSummary && !hasFilter) {
+      return {
+        portfolioTotalUnits: beSummary.portfolioTotalUnits ?? 0,
+        portfolioOccupiedUnits: beSummary.portfolioOccupiedUnits ?? 0,
+        portfolioVacantUnits: beSummary.portfolioVacantUnits ?? 0,
+        portfolioMaintenanceUnits: beSummary.portfolioMaintenanceUnits ?? 0,
+        overallOccupancyPercentage: beSummary.overallOccupancyPercentage ?? 0,
+        totalProperties: beSummary.totalProperties ?? filteredReportItems.length,
+      };
+    }
+
     const totalUnits = filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.totalUnits || 0), 0);
     const occupiedUnits = filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.occupiedUnits || 0), 0);
     const vacantUnits = filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.vacantUnits || 0), 0);
@@ -41,7 +63,7 @@ export const OccupancyReport: React.FC = () => {
       overallOccupancyPercentage,
       totalProperties: filteredReportItems.length,
     };
-  }, [filteredReportItems]);
+  }, [data, filteredReportItems, filters]);
 
   const columns = [
     { key: 'propertyName', header: 'Property Name' },

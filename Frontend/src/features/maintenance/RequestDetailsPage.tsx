@@ -5,10 +5,13 @@ import api from '../../api';
 import { PageHeader } from '../../components/PageHeader';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+import { Select } from '../../components/ui/Select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/Dialog';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { RequestPriorityBadge } from '../../components/MaintenanceComponents';
 import { StatusBadge } from '../../components/StatusBadge';
-import { CheckCircle, AlertTriangle, User, Calendar, Clock, Lock, MessageSquare, Phone, Mail, Send } from 'lucide-react';
+import { CheckCircle, AlertTriangle, User, UserPlus, Calendar, Clock, Lock, MessageSquare, Phone, Mail, Send, Edit2, Eye, EyeOff } from 'lucide-react';
 import { extractPreferredVisit, cleanDescription } from '../../utils/maintenanceHelpers';
 
 import { getFormattedRequestNumber } from '../../utils/format';
@@ -21,6 +24,57 @@ export const RequestDetailsPage: React.FC = () => {
   const [selectedVendorId, setSelectedVendorId] = useState<string>('');
   const [assignedCost, setAssignedCost] = useState<string>('');
   const [newText, setNewText] = useState('');
+  const [isReassigning, setIsReassigning] = useState(false);
+  const [reassignVendorId, setReassignVendorId] = useState('');
+
+  // Quick Add Maintenance Staff Modal State
+  const [isAddStaffModalOpen, setIsAddStaffModalOpen] = useState(false);
+  const [staffName, setStaffName] = useState('');
+  const [staffEmail, setStaffEmail] = useState('');
+  const [staffPhone, setStaffPhone] = useState('');
+  const [staffPassword, setStaffPassword] = useState('');
+  const [showStaffPassword, setShowStaffPassword] = useState(false);
+  const [staffStatus, setStaffStatus] = useState('Active');
+  const [staffServiceType, setStaffServiceType] = useState('Plumber');
+
+  const createStaffMutation = useMutation({
+    mutationFn: async () => {
+      const newUser = await api.users.invite({
+        name: staffName,
+        email: staffEmail,
+        phone: staffPhone,
+        password: staffPassword || '123456',
+        role: 'Maintenance',
+        status: staffStatus,
+        serviceType: staffServiceType,
+      });
+      return newUser;
+    },
+    onSuccess: (newUser: any) => {
+      queryClient.invalidateQueries({ queryKey: ['vendors-list'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-users-list'] });
+
+      // Auto-select the newly created staff in both ticket selectors
+      if (newUser?.id) {
+        setSelectedVendorId(newUser.id);
+        setReassignVendorId(newUser.id);
+        setIsReassigning(true);
+      }
+
+      setIsAddStaffModalOpen(false);
+      setStaffName('');
+      setStaffEmail('');
+      setStaffPhone('');
+      setStaffPassword('');
+      setStaffStatus('Active');
+      setStaffServiceType('Plumber');
+
+      alert(`Maintenance staff "${newUser?.name || 'Staff'}" successfully created and selected!`);
+    },
+    onError: (err: any) => {
+      alert(err?.response?.data?.error?.message || err?.message || 'Failed to create maintenance staff.');
+    },
+  });
 
   // Queries
   const { data: request, isLoading } = useQuery({
@@ -68,6 +122,26 @@ export const RequestDetailsPage: React.FC = () => {
     },
   });
 
+  const reassignMutation = useMutation({
+    mutationFn: (newVendorId: string) => {
+      const v = vendorsList.find((item: any) => item.id === newVendorId);
+      return api.serviceRequests.update(id, {
+        status: 'Assigned',
+        assignedVendorId: newVendorId,
+        assignedVendorName: v ? v.name : 'Assigned Staff',
+        assignedTechnician: v ? v.name : 'Assigned Technician',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-request-detail', id] });
+      setIsReassigning(false);
+      alert('Maintenance staff successfully updated!');
+    },
+    onError: (err: any) => {
+      alert(err?.response?.data?.error?.message || err?.message || 'You cannot change the maintenance staff as the task has already been accepted or started.');
+    }
+  });
+
   const updateCostMutation = useMutation({
     mutationFn: (newCost: number) => {
       return api.serviceRequests.update(id, {
@@ -106,7 +180,7 @@ export const RequestDetailsPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 text-foreground max-w-4xl">
+    <div className="space-y-6 text-foreground w-full">
       <PageHeader
         title={`Service Ticket Details - ${getFormattedRequestNumber(request)}`}
         description="Verify service diagnostics, update statuses, or assign service contractors."
@@ -190,6 +264,16 @@ export const RequestDetailsPage: React.FC = () => {
                   <option key={v.id} value={v.id}>{v.name} ({v.category})</option>
                 ))}
               </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsAddStaffModalOpen(true)}
+                className="text-xs h-8 font-semibold flex items-center gap-1 border-dashed text-primary border-primary/40 hover:bg-primary/5"
+                title="Quick Add new technician"
+              >
+                <UserPlus className="w-3.5 h-3.5 text-primary" />
+                + Add Staff
+              </Button>
               <Button 
                 size="sm" 
                 onClick={() => {
@@ -355,8 +439,119 @@ export const RequestDetailsPage: React.FC = () => {
             </div>
 
             <div className="border-t pt-3.5 mt-2">
-              <p className="text-[10px] text-muted-foreground uppercase">Assigned Maintenance Staff</p>
-              <p className="font-bold mt-0.5">{request.assignedVendorName || 'Not Assigned Yet'}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] text-muted-foreground uppercase font-black tracking-wider">Assigned Maintenance Staff</p>
+                {request.assignedVendorName && (
+                  ((request.status || '').toLowerCase().includes('accept') || (request.status || '').toLowerCase().includes('progress') || (request.status || '').toLowerCase().includes('complete') || (request.status || '').toLowerCase().includes('close')) ? (
+                    <button
+                      type="button"
+                      onClick={() => alert('You cannot change the maintenance staff as the task has already been accepted or started.')}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-all cursor-pointer shadow-xs"
+                      title="Locked - Staff already accepted/started"
+                    >
+                      <Lock className="w-3.5 h-3.5" /> Locked
+                    </button>
+                  ) : !isReassigning ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReassignVendorId(request.assignedVendorId || '');
+                        setIsReassigning(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-black bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm transition-all cursor-pointer"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" /> Change Staff
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsReassigning(false)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-secondary text-secondary-foreground hover:bg-secondary/80 border transition-all cursor-pointer"
+                    >
+                      ✕ Cancel
+                    </button>
+                  )
+                )}
+              </div>
+
+              {!isReassigning ? (
+                <div className="mt-2 flex items-center justify-between bg-secondary/15 p-2.5 rounded-xl border border-border/40">
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-primary shrink-0" />
+                    <div>
+                      <p className="font-extrabold text-sm text-foreground">{request.assignedVendorName || 'Not Assigned Yet'}</p>
+                      {request.assignedTechnician && request.assignedTechnician !== request.assignedVendorName && (
+                        <p className="text-[11px] text-muted-foreground font-semibold">Tech: {request.assignedTechnician}</p>
+                      )}
+                    </div>
+                  </div>
+                  {request.assignedVendorName ? (
+                    <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      ✓ Assigned
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setReassignVendorId('');
+                        setIsReassigning(true);
+                      }}
+                      className="h-7 text-xs font-bold px-2.5 bg-primary hover:bg-primary/90 text-white"
+                    >
+                      Assign Staff
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-2.5 space-y-2.5 p-3.5 rounded-xl border-2 border-primary/40 bg-primary/5 shadow-inner">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-black text-primary uppercase tracking-wider flex items-center gap-1">
+                      <Edit2 className="w-3 h-3" /> Select Maintenance Staff
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddStaffModalOpen(true)}
+                      className="text-[10px] font-bold text-primary hover:underline flex items-center gap-1 bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded cursor-pointer transition-all"
+                      title="Quick Add new technician"
+                    >
+                      <UserPlus className="w-3 h-3" /> + Add Staff
+                    </button>
+                  </div>
+                  <select
+                    className="w-full text-xs p-2 rounded-lg border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary font-bold shadow-xs cursor-pointer"
+                    value={reassignVendorId}
+                    onChange={(e) => setReassignVendorId(e.target.value)}
+                  >
+                    <option value="">Select Maintenance Staff...</option>
+                    {vendorsList.map((v: any) => (
+                      <option key={v.id} value={v.id}>{v.name} ({v.category || 'Maintenance'})</option>
+                    ))}
+                  </select>
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        if (reassignVendorId) {
+                          reassignMutation.mutate(reassignVendorId);
+                        }
+                      }}
+                      disabled={!reassignVendorId || reassignMutation.isPending}
+                      loading={reassignMutation.isPending}
+                      className="flex-1 bg-primary hover:bg-primary/95 text-white text-xs h-8 font-black shadow-sm"
+                    >
+                      Confirm Change
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsReassigning(false)}
+                      className="text-xs h-8 font-bold px-3"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="border-t pt-3.5 mt-2 space-y-1 animate-fade-in">
@@ -386,51 +581,137 @@ export const RequestDetailsPage: React.FC = () => {
                 </span>
               </p>
             </div>
-
-            {/* Resident contact details */}
-            <div className="border-t pt-4 mt-4 space-y-3">
-              <p className="text-[10px] text-muted-foreground uppercase font-black">Direct Contact Channels</p>
-              <div className="flex flex-col gap-2 pt-1.5 font-bold text-xs">
-                <a 
-                  href={`sms:5550199`} 
-                  className="flex items-center justify-between p-2.5 bg-secondary/20 hover:bg-secondary/40 border border-border/40 rounded-xl transition text-foreground"
-                >
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-primary" />
-                    <span>SMS Tenant</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-muted-foreground">555-0199</span>
-                </a>
-                <a 
-                  href={`mailto:${(request.tenantName || 'tenant').toLowerCase().replace(' ', '')}@rentals.com`} 
-                  className="flex items-center justify-between p-2.5 bg-secondary/20 hover:bg-secondary/40 border border-border/40 rounded-xl transition text-foreground"
-                >
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-primary" />
-                    <span>Email Tenant</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-muted-foreground truncate max-w-[100px]">
-                    {(request.tenantName || 'tenant').toLowerCase().replace(' ', '')}@rentals.com
-                  </span>
-                </a>
-                <a 
-                  href={`https://wa.me/${(request.tenantPhone || request.phone || '').replace(/\D/g, '') || '15550199'}?text=${encodeURIComponent(`Hi ${request.tenantName}, updating you regarding your maintenance ticket: ${request.title}`)}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="flex items-center justify-between p-2.5 bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/10 rounded-xl transition text-foreground"
-                >
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-emerald-500" />
-                    <span>WhatsApp Chat</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-emerald-500 font-bold">WhatsApp</span>
-                </a>
-              </div>
-            </div>
           </div>
         </Card>
 
       </div>
+
+      {/* QUICK PROVISION MAINTENANCE STAFF MODAL */}
+      <Dialog open={isAddStaffModalOpen} onOpenChange={setIsAddStaffModalOpen}>
+        <DialogContent className="max-w-lg p-6 rounded-2xl shadow-2xl">
+          <DialogHeader className="pb-3 border-b border-border/60">
+            <DialogTitle className="text-base font-extrabold uppercase tracking-wide">
+              Provision Maintenance Staff
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+              Quick-create technician profile with service specialty
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createStaffMutation.mutate();
+            }}
+            className="space-y-4 pt-2"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase font-bold text-muted-foreground">Full Name *</label>
+                <Input
+                  required
+                  placeholder="E.g., David Miller"
+                  value={staffName}
+                  onChange={(e) => setStaffName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase font-bold text-muted-foreground">Email Address *</label>
+                <Input
+                  required
+                  type="email"
+                  placeholder="david@company.com"
+                  value={staffEmail}
+                  onChange={(e) => setStaffEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase font-bold text-muted-foreground">Phone Number</label>
+                <Input
+                  placeholder="e.g. (555) 0122"
+                  value={staffPhone}
+                  onChange={(e) => setStaffPhone(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase font-bold text-muted-foreground">Status</label>
+                <Select value={staffStatus} onChange={(e) => setStaffStatus(e.target.value)}>
+                  <option value="Active">Active</option>
+                  <option value="Suspended">Suspended</option>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase font-bold text-muted-foreground">User Password *</label>
+                <div className="relative">
+                  <Input
+                    type={showStaffPassword ? "text" : "password"}
+                    placeholder="Choose secure password"
+                    value={staffPassword}
+                    onChange={(e) => setStaffPassword(e.target.value)}
+                    required
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowStaffPassword(!showStaffPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    {showStaffPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase font-bold text-muted-foreground">Role</label>
+                <div className="h-9 px-3 py-2 rounded-lg border bg-muted/40 text-foreground font-bold text-xs flex items-center">
+                  🔧 Maintenance
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <label className="text-[10px] uppercase font-bold text-muted-foreground">Specialty Trade *</label>
+              <Select value={staffServiceType} onChange={(e) => setStaffServiceType(e.target.value)}>
+                <option value="Plumber">Plumber Specialty</option>
+                <option value="Electrician">Electrician Specialty</option>
+                <option value="HVAC">HVAC Maintenance</option>
+                <option value="General Contractor">General Contractor</option>
+                <option value="Cleaning">Cleaning & Turnovers</option>
+                <option value="Landscaping">Landscaping & Pools</option>
+                <option value="Pest Control">Pest Control</option>
+                <option value="Security">Security & Fire</option>
+                <option value="Roofing">Roofing & Guttering</option>
+              </Select>
+            </div>
+
+            <div className="pt-3 border-t border-border/60 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsAddStaffModalOpen(false)}
+                disabled={createStaffMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={createStaffMutation.isPending}
+                loading={createStaffMutation.isPending}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-xs"
+              >
+                Provision & Select Staff
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

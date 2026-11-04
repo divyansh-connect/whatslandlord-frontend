@@ -228,10 +228,10 @@ export const OwnerLayout: React.FC<OwnerLayoutProps> = ({
             {/* NOTIFICATIONS WIDGET */}
             <div className="relative">
               <Button variant="ghost" size="icon" onClick={() => setShowNotifications(!showNotifications)}>
-                <Bell className="w-5 h-5" />
+                <Bell className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center animate-bounce">
-                    {unreadCount}
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-sm border-2 border-background pointer-events-none">
+                    {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
               </Button>
@@ -263,7 +263,14 @@ export const OwnerLayout: React.FC<OwnerLayoutProps> = ({
                           onClick={() => {
                             handleMarkSingleAsRead(n.id);
                             setShowNotifications(false);
-                            const directUrl = (n as any).targetUrl;
+                            const rawUrl = (n as any).targetUrl;
+                            const directUrl = rawUrl
+                              ? rawUrl.startsWith('/rent-payments/invoices')
+                                ? rawUrl.replace('/rent-payments/invoices', '/invoices')
+                                : rawUrl === '/rent-payments'
+                                ? '/payments'
+                                : rawUrl
+                              : null;
                             const path = directUrl
                               ? ((n as any).targetId && !directUrl.includes('?') ? `${directUrl}?id=${(n as any).targetId}` : directUrl)
                               : getNotificationRedirectPath(n.title, n.message, user?.role || 'Owner', n.targetId);

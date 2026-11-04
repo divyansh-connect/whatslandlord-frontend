@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import api from '../../api';
@@ -12,9 +13,11 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { StatusBadge } from '../../components/StatusBadge';
-import { Plus, Eye, UserPlus, Key, RefreshCw, Trash2, Edit, Loader2, Clock } from 'lucide-react';
+import { Plus, Eye, UserPlus, Key, RefreshCw, Trash2, Edit, Loader2, Clock, Upload, Download } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useNavigate } from '@tanstack/react-router';
+import { UnitImportModal } from './UnitImportModal';
+import { QuickAddTenantModal } from '../tenants/QuickAddTenantModal';
 
 export const UnitsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -26,10 +29,12 @@ export const UnitsPage: React.FC = () => {
   const [buildingFilter, setBuildingFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [bedroomsFilter, setBedroomsFilter] = useState('');
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Assign tenant modal state
   const [assignUnitId, setAssignUnitId] = useState<string | null>(null);
   const [selectedTenantId, setSelectedTenantId] = useState('');
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   
   // Change status modal state
   const [statusUnitId, setStatusUnitId] = useState<string | null>(null);
@@ -151,6 +156,48 @@ export const UnitsPage: React.FC = () => {
     return matchesSearch && matchesProp && matchesBld && matchesStatus && matchesBeds;
   });
 
+  const handleExport = (format: 'xlsx' | 'csv' = 'xlsx') => {
+    if (filteredUnits.length === 0) return;
+
+    const exportData = filteredUnits.map((u: any) => ({
+      'Property Name': u.propertyName || '',
+      'Unit Number': u.unitNumber || '',
+      'Status': u.status || 'Vacant',
+      'Tenant Name': u.tenantName || 'Vacant',
+      'Monthly Rent ($)': u.rentAmount ?? 0,
+      'Security Deposit ($)': u.securityDeposit ?? 0,
+      'Floor': u.floor ?? 1,
+      'Bedrooms': u.bedrooms ?? 1,
+      'Bathrooms': u.bathrooms ?? 1,
+      'Square Footage': u.squareFootage ?? 0,
+      'Availability Date': u.availabilityDate || '',
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    worksheet['!cols'] = [
+      { wch: 28 }, // Property Name
+      { wch: 16 }, // Unit Number
+      { wch: 16 }, // Status
+      { wch: 22 }, // Tenant Name
+      { wch: 18 }, // Monthly Rent
+      { wch: 20 }, // Security Deposit
+      { wch: 12 }, // Floor
+      { wch: 12 }, // Bedrooms
+      { wch: 12 }, // Bathrooms
+      { wch: 16 }, // Square Footage
+      { wch: 18 }, // Availability Date
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Units');
+
+    if (format === 'xlsx') {
+      XLSX.writeFile(workbook, 'Units_Export.xlsx');
+    } else {
+      XLSX.writeFile(workbook, 'Units_Export.csv');
+    }
+  };
+
   const columns: ColumnDef<Unit>[] = [
     {
       accessorKey: 'unitNumber',
@@ -270,6 +317,43 @@ export const UnitsPage: React.FC = () => {
         }}
       />
 
+      <div className="flex flex-wrap items-center justify-between gap-3 my-4">
+        <span className="text-xs text-muted-foreground font-medium">
+          Showing {filteredUnits.length} units
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsImportModalOpen(true)}
+            className="text-xs font-semibold flex items-center gap-1.5 border-dashed hover:bg-primary/5 hover:border-primary/60 text-foreground"
+          >
+            <Upload className="w-3.5 h-3.5 text-primary" />
+            Import Excel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleExport('xlsx')}
+            className="text-xs font-semibold flex items-center gap-1.5 hover:bg-emerald-500/10 hover:border-emerald-500/50"
+            title="Export units as Excel (.xlsx)"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-500" />
+            Export Excel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleExport('csv')}
+            className="text-xs font-semibold flex items-center gap-1.5"
+            title="Export units as CSV"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Export CSV
+          </Button>
+        </div>
+      </div>
+
       <FilterBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -339,6 +423,21 @@ export const UnitsPage: React.FC = () => {
               </option>
             ))}
           </Select>
+
+          {/* Quick Add Tenant Trigger */}
+          <div className="pt-2 flex items-center justify-between border-t border-border/50">
+            <span className="text-xs text-muted-foreground">New tenant moving in?</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsQuickAddOpen(true)}
+              className="text-xs font-bold text-primary border-primary/30 hover:bg-primary/10 flex items-center gap-1.5 h-8"
+            >
+              <UserPlus className="w-3.5 h-3.5" /> + Register & Add Tenant
+            </Button>
+          </div>
+
           <div className="flex justify-end space-x-2 pt-2">
             <Button variant="outline" onClick={() => setAssignUnitId(null)}>Cancel</Button>
             <Button 
@@ -351,6 +450,18 @@ export const UnitsPage: React.FC = () => {
           </div>
         </div>
       </FormDialog>
+
+      {/* QUICK ADD TENANT MODAL (1-to-1 with NewTenantPage) */}
+      <QuickAddTenantModal
+        open={isQuickAddOpen}
+        onOpenChange={setIsQuickAddOpen}
+        unitId={assignUnitId}
+        unitNumber={units.find(u => u.id === assignUnitId)?.unitNumber}
+        onSuccessTenant={() => {
+          setAssignUnitId(null);
+          setSelectedTenantId('');
+        }}
+      />
 
       {/* CHANGE STATUS MODAL */}
       <FormDialog
@@ -496,6 +607,11 @@ export const UnitsPage: React.FC = () => {
         variant="destructive"
         loading={deleteMutation.isPending}
         onConfirm={() => deleteUnitItem && deleteMutation.mutate(deleteUnitItem)}
+      />
+
+      <UnitImportModal
+        open={isImportModalOpen}
+        onOpenChange={setIsImportModalOpen}
       />
     </div>
   );

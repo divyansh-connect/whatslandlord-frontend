@@ -27,37 +27,33 @@ export const ApplicationsPage: React.FC = () => {
     queryFn: () => api.leasing.getApplications(),
   });
 
-  const startScreeningMutation = useMutation({
+  const acceptAndScreenMutation = useMutation({
     mutationFn: async (app: Application) => {
-      const names = app.tenantName.split(' ');
+      const names = (app.tenantName || 'Applicant').trim().split(' ');
       const first = names[0] || 'Applicant';
-      const last = names.slice(1).join(' ') || 'User';
+      const last = names.slice(1).join(' ') || 'Tenant';
 
-      // 1. Create screening check in the backend
-      await api.screening.create({
-        email: app.email,
-        firstName: first,
-        lastName: last,
-        propertyName: app.propertyName,
-        unitNumber: app.unitNumber,
-        status: 'Processing',
-      });
+      // 1. Mark Application as Approved in DB
+      await api.leasing.updateApplication(app.id, { status: 'Approved' });
 
-      // 2. Set application status to Ready for Screening
-      return api.leasing.updateApplication(app.id, { status: 'Ready for Screening' });
+      // 2. Automatically create screening check in the backend
+      try {
+        await api.screening.create({
+          email: app.email,
+          firstName: first,
+          lastName: last,
+          propertyName: app.propertyName,
+          unitNumber: app.unitNumber,
+          status: 'Processing',
+        });
+      } catch (e) {
+        console.warn('Screening auto-create warning:', e);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['applications-list'] });
-      setSelectedApp(null);
-      // Redirect to screening checks directory
-      navigate({ to: '/leasing/screening' });
-    },
-  });
-
-  const approveMutation = useMutation({
-    mutationFn: (id: string) => api.leasing.updateApplication(id, { status: 'Approved' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['applications-list'] });
+      queryClient.invalidateQueries({ queryKey: ['screening-checks-list'] });
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
       setSelectedApp(null);
     },
   });
@@ -116,22 +112,10 @@ export const ApplicationsPage: React.FC = () => {
       }
     },
     {
-      id: 'creditScore',
-      header: t('pmApplications.creditScore'),
-      cell: ({ row }) => {
-        const score = 650 + (((row.original.tenantName || '').length * 7) % 150);
-        return (
-          <span className={`font-bold ${score >= 700 ? 'text-emerald-500' : 'text-amber-500'}`}>
-            {score}
-          </span>
-        );
-      },
-    },
-    {
       accessorKey: 'rentProposed',
       header: t('pmApplications.proposedRent'),
       id: 'rentProposed',
-      cell: ({ row }) => <span className="font-semibold">${row.original.rentProposed.toLocaleString()}</span>,
+      cell: ({ row }) => <span className="font-semibold">${Number(row.original.rentProposed || 0).toLocaleString()}</span>,
     },
     {
       accessorKey: 'status',
@@ -143,10 +127,32 @@ export const ApplicationsPage: React.FC = () => {
       id: 'actions',
       header: t('pmApplications.actions'),
       cell: ({ row }) => (
-        <div className="flex space-x-1">
+        <div className="flex items-center space-x-1">
           <Button variant="ghost" size="icon" onClick={() => setSelectedApp(row.original)} title="Review Application">
             <Eye className="w-4 h-4" />
           </Button>
+          {row.original.status === 'Pending' && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => acceptAndScreenMutation.mutate(row.original)}
+                title="Accept & Send to Screening"
+                className="text-emerald-500 hover:bg-emerald-500/10"
+              >
+                <Check className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => rejectMutation.mutate(row.original.id)}
+                title="Reject Application"
+                className="text-rose-500 hover:bg-rose-500/10"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </>
+          )}
         </div>
       ),
     },
@@ -159,7 +165,7 @@ export const ApplicationsPage: React.FC = () => {
         description={t('pmApplications.desc')}
         breadcrumbs={[
           { label: t('header.home'), href: '/' },
-          { label: t('nav.leasing'), href: '/leasing/leases' },
+          { label: t('nav.leasing'), href: '/leasing/leads' },
           { label: t('pmApplications.title') },
         ]}
       />
@@ -195,13 +201,13 @@ export const ApplicationsPage: React.FC = () => {
       <FormDialog
         open={!!selectedApp}
         onOpenChange={(open) => !open && setSelectedApp(null)}
-        title="Applicant Screening Record"
+        title="Application Review"
       >
         {selectedApp && (
           <div className="space-y-6 pt-3 text-xs font-semibold text-foreground">
             <div className="flex items-center space-x-3 p-4 bg-secondary/30 rounded-xl">
               <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm">
-                {selectedApp.tenantName.charAt(0)}
+                {(selectedApp.tenantName || 'A').charAt(0)}
               </div>
               <div>
                 <h4 className="font-bold text-sm">{selectedApp.tenantName}</h4>
@@ -209,44 +215,92 @@ export const ApplicationsPage: React.FC = () => {
               </div>
             </div>
 
+            {/* HIGHLIGHTED PROPERTY, UNIT & RENT CARD */}
+            <div className="p-3.5 bg-gradient-to-br from-primary/10 via-primary/5 to-indigo-500/5 border border-primary/20 rounded-xl grid grid-cols-3 gap-3">
+              <div>
+                <p className="text-[9px] uppercase font-black text-primary/75 tracking-wider">Property Interest</p>
+                <p className="text-xs font-bold text-foreground mt-0.5 truncate">{selectedApp.propertyName}</p>
+              </div>
+              <div>
+                <p className="text-[9px] uppercase font-black text-primary/75 tracking-wider">Unit Number</p>
+                <p className="text-xs font-bold text-primary mt-0.5">{selectedApp.unitNumber || 'TBD'}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9px] uppercase font-black text-emerald-600 dark:text-emerald-400 tracking-wider">Proposed Rent</p>
+                <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  ${Number(selectedApp.rentProposed || 0).toLocaleString()}/mo
+                </p>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-muted-foreground text-[10px] uppercase">Property Interest</p>
-                <p className="text-foreground mt-0.5">{selectedApp.propertyName} - Unit {selectedApp.unitNumber}</p>
+                <p className="text-muted-foreground text-[10px] uppercase font-bold">Application Status</p>
+                <div className="mt-0.5">
+                  <StatusBadge status={selectedApp.status} />
+                </div>
               </div>
               <div>
-                <p className="text-muted-foreground text-[10px] uppercase">Proposed Monthly Rent</p>
-                <p className="text-foreground mt-0.5">${selectedApp.rentProposed.toLocaleString()}</p>
+                <p className="text-muted-foreground text-[10px] uppercase font-bold">Submission Date</p>
+                <p className="text-foreground font-semibold mt-0.5">
+                  {selectedApp.submittedDate ? selectedApp.submittedDate.split('T')[0] : 'Today'}
+                </p>
               </div>
               <div>
-                <p className="text-muted-foreground text-[10px] uppercase">Income Verification</p>
-                <p className="text-foreground mt-0.5">$5,200/mo (Verified via W2)</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-[10px] uppercase">Credit Score Rating</p>
-                <p className="text-emerald-500 font-bold mt-0.5">720 (Excellent)</p>
+                <p className="text-muted-foreground text-[10px] uppercase font-bold">Contact Email</p>
+                <p className="text-foreground font-semibold mt-0.5">{selectedApp.email}</p>
               </div>
             </div>
 
-            <div className="space-y-2 border-t pt-4">
-              <h5 className="font-bold uppercase text-[10px] tracking-wide text-muted-foreground">Screening Checklists</h5>
-              <div className="flex justify-between items-center bg-secondary/10 p-2.5 rounded-lg border">
-                <span className="flex items-center gap-1.5"><ShieldAlert className="w-4 h-4 text-emerald-500" /> Criminal Eviction check</span>
-                <span className="text-emerald-500">CLEARED</span>
-              </div>
-              <div className="flex justify-between items-center bg-secondary/10 p-2.5 rounded-lg border">
-                <span className="flex items-center gap-1.5"><FileText className="w-4 h-4 text-emerald-500" /> Reference validation</span>
-                <span className="text-emerald-500">SUCCESS</span>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-2 pt-6 border-t">
+            <div className="flex justify-between items-center pt-6 border-t">
               <Button variant="outline" onClick={() => setSelectedApp(null)}>Close</Button>
-              {selectedApp.status === 'Approved' && (
-                <Button onClick={() => navigate({ to: '/leases/new' })}>
-                  Convert to Lease
-                </Button>
-              )}
+              
+              <div className="flex items-center space-x-2">
+                {selectedApp.status === 'Pending' && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => rejectMutation.mutate(selectedApp.id)}
+                      disabled={rejectMutation.isPending || acceptAndScreenMutation.isPending}
+                      className="text-rose-500 hover:bg-rose-500/10 border-rose-500/30"
+                    >
+                      {rejectMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}
+                      Reject
+                    </Button>
+                    <Button
+                      onClick={() => acceptAndScreenMutation.mutate(selectedApp)}
+                      disabled={acceptAndScreenMutation.isPending || rejectMutation.isPending}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      {acceptAndScreenMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}
+                      Accept & Send to Screening
+                    </Button>
+                  </>
+                )}
+
+                {selectedApp.status === 'Approved' && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedApp(null);
+                        navigate({ to: '/leasing/screening' });
+                      }}
+                      className="text-primary hover:bg-primary/10"
+                    >
+                      View in Screening
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setSelectedApp(null);
+                        navigate({ to: '/leases/new' });
+                      }}
+                    >
+                      Convert to Lease
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         )}

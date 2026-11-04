@@ -19,6 +19,7 @@ interface PageHeaderProps {
     variant?: 'default' | 'outline' | 'secondary' | 'destructive';
     className?: string;
   };
+  children?: React.ReactNode;
 }
 
 export const PageHeader: React.FC<PageHeaderProps> = ({
@@ -26,6 +27,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   description,
   breadcrumbs,
   action,
+  children,
 }) => {
   return (
     <div className="flex flex-col space-y-3 sm:space-y-2 md:flex-row md:items-center md:justify-between md:space-y-0 pb-4 sm:pb-6 border-b border-border/60 mb-4 sm:mb-6">
@@ -41,16 +43,19 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         )}
       </div>
 
-      {action && (
-        <div className="flex items-center pt-1 md:pt-0 shrink-0 w-full sm:w-auto">
-          <Button
-            variant={action.variant || 'default'}
-            onClick={action.onClick}
-            className={clsx("shadow-sm font-semibold flex items-center justify-center gap-1.5 w-full sm:w-auto text-xs sm:text-sm", action.className)}
-          >
-            {action.icon}
-            {action.label}
-          </Button>
+      {(action || children) && (
+        <div className="flex items-center gap-2 pt-1 md:pt-0 shrink-0 w-full sm:w-auto">
+          {action && (
+            <Button
+              variant={action.variant || 'default'}
+              onClick={action.onClick}
+              className={clsx("shadow-sm font-semibold flex items-center justify-center gap-1.5 w-full sm:w-auto text-xs sm:text-sm", action.className)}
+            >
+              {action.icon}
+              {action.label}
+            </Button>
+          )}
+          {children}
         </div>
       )}
     </div>

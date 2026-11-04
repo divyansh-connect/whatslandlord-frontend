@@ -7,7 +7,7 @@ import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { LoadingSkeleton } from '../../components/LoadingSkeleton';
-import { User, Save, CheckCircle, Loader2, Lock, KeyRound, Edit3 } from 'lucide-react';
+import { User, Save, CheckCircle, Loader2, KeyRound, Edit3, Car, PawPrint, Globe } from 'lucide-react';
 
 export const TenantProfilePage: React.FC = () => {
   const { t } = useTranslation();
@@ -40,12 +40,12 @@ export const TenantProfilePage: React.FC = () => {
 
   useEffect(() => {
     if (profile) {
-      setFirstName(profile.firstName || 'person');
-      setLastName(profile.lastName || '1');
-      setPhone(profile.phone || '344232');
-      setEmail(profile.email || 'person1b@gmail.com');
-      setVehicles(profile.vehicles || 'Toyota Camry (2022)');
-      setPets(profile.pets || 'Golden Retriever (Dog)');
+      setFirstName(profile.firstName || '');
+      setLastName(profile.lastName || '');
+      setPhone(profile.phone || '');
+      setEmail(profile.email || '');
+      setVehicles(profile.vehicles || profile.vehicle || '');
+      setPets(profile.pets || profile.pet || '');
       setPreferredLanguage(profile.preferredLanguage || 'English (US)');
     }
   }, [profile]);
@@ -186,15 +186,12 @@ export const TenantProfilePage: React.FC = () => {
                   <Input value={phone} onChange={(e) => setPhone(e.target.value)} required />
                 </div>
 
-                {/* EMAIL ADDRESS IS LOCKED / READ-ONLY */}
+                {/* EMAIL ADDRESS */}
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1">
-                    {t('tenant.profile.email')} <span className="text-[10px] text-amber-500 font-normal lowercase">(cannot be changed)</span>
+                  <label className="text-xs font-bold text-muted-foreground uppercase">
+                    {t('tenant.profile.email')}
                   </label>
-                  <div className="relative">
-                    <Input value={email} disabled={true} readOnly={true} className="bg-muted/50 cursor-not-allowed opacity-70 border-muted pr-8" />
-                    <Lock className="w-3.5 h-3.5 text-muted-foreground absolute right-3 top-3" />
-                  </div>
+                  <Input value={email} disabled={true} readOnly={true} className="bg-muted/50 cursor-not-allowed opacity-70 border-muted" />
                 </div>
               </div>
 
@@ -252,14 +249,13 @@ export const TenantProfilePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[10px] uppercase font-bold text-muted-foreground/60">{t('tenant.profile.email')}</p>
-                  <p className="text-foreground mt-0.5 flex items-center gap-1.5 font-bold">
+                  <p className="text-foreground mt-0.5 font-bold">
                     {email}
-                    <span className="text-[9px] bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded font-mono">locked</span>
                   </p>
                 </div>
                 <div>
                   <p className="text-[10px] uppercase font-bold text-muted-foreground/60">{t('tenant.profile.preferredLanguage')}</p>
-                  <p className="text-foreground mt-0.5">{preferredLanguage}</p>
+                  <p className="text-foreground mt-0.5">{preferredLanguage || 'English (US)'}</p>
                 </div>
               </div>
             </div>
@@ -272,17 +268,50 @@ export const TenantProfilePage: React.FC = () => {
           
           <div className="space-y-1.5">
             <label className="text-[10px] text-muted-foreground uppercase font-bold">{t('tenant.profile.registeredVehicles')}</label>
-            <Input value={vehicles} onChange={(e) => setVehicles(e.target.value)} />
+            {activeTab === 'edit' ? (
+              <Input
+                value={vehicles}
+                onChange={(e) => setVehicles(e.target.value)}
+                placeholder="e.g. Toyota Camry (2022) or N/A"
+              />
+            ) : (
+              <div className="flex items-center gap-2.5 p-2.5 rounded-lg bg-secondary/15 border border-border/40 text-foreground font-medium">
+                <Car className="w-4 h-4 text-sky-500 shrink-0" />
+                <span className="text-xs">{vehicles && vehicles.trim() ? vehicles : 'N/A'}</span>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5 border-t pt-3">
             <label className="text-[10px] text-muted-foreground uppercase font-bold">{t('tenant.profile.registeredPets')}</label>
-            <Input value={pets} onChange={(e) => setPets(e.target.value)} />
+            {activeTab === 'edit' ? (
+              <Input
+                value={pets}
+                onChange={(e) => setPets(e.target.value)}
+                placeholder="e.g. Golden Retriever (Dog) or N/A"
+              />
+            ) : (
+              <div className="flex items-center gap-2.5 p-2.5 rounded-lg bg-secondary/15 border border-border/40 text-foreground font-medium">
+                <PawPrint className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span className="text-xs">{pets && pets.trim() ? pets : 'N/A'}</span>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5 border-t pt-3">
             <label className="text-[10px] text-muted-foreground uppercase font-bold">{t('tenant.profile.preferredLanguage')}</label>
-            <Input value={preferredLanguage} onChange={(e) => setPreferredLanguage(e.target.value)} />
+            {activeTab === 'edit' ? (
+              <Input
+                value={preferredLanguage}
+                onChange={(e) => setPreferredLanguage(e.target.value)}
+                placeholder="English (US) or Español (ES)"
+              />
+            ) : (
+              <div className="flex items-center gap-2.5 p-2.5 rounded-lg bg-secondary/15 border border-border/40 text-foreground font-medium">
+                <Globe className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-xs">{preferredLanguage || 'English (US)'}</span>
+              </div>
+            )}
           </div>
         </Card>
       </div>

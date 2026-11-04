@@ -633,9 +633,15 @@ export const EditPropertyPage: React.FC<{ propertyId?: string }> = ({ propertyId
                     onFileSelect={(file) => setImageFile(file)}
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-muted-foreground uppercase">Property Documents</label>
-                  <FileUploader />
+                <div className="space-y-1 opacity-80">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-muted-foreground uppercase">Property Documents</label>
+                    <span className="text-[10px] font-bold text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">❌ Not Connected</span>
+                  </div>
+                  <div className="pointer-events-none opacity-60">
+                    <FileUploader />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground italic">Property document uploading is managed under the Documents section.</p>
                 </div>
               </div>
             </div>

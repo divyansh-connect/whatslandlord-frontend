@@ -47,10 +47,16 @@ export const LeadsPage: React.FC = () => {
   });
 
   // Mutations
+  // Mutations
   const updateStatusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: any }) => {
-      // simulate updating in local mock db
-      return api.leasing.createLead({ id, status });
+      const targetLead = leads.find((l) => l.id === id);
+      return api.leasing.createLead({
+        id,
+        status,
+        email: targetLead?.email,
+        name: targetLead?.name,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leads'] });
@@ -60,19 +66,39 @@ export const LeadsPage: React.FC = () => {
   const convertMutation = useMutation({
     mutationFn: async (lead: Lead) => {
       const resolvedName = lead.name || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unnamed Lead';
-      const resolvedProperty = lead.property || lead.propertyName || 'Unknown Property';
+      let resolvedProperty = lead.property || lead.propertyName || 'Unknown Property';
+      let resolvedUnit = 'Unit 101';
 
-      // Create an Application in DB instead of direct Tenant
+      if (resolvedProperty.includes(' · Unit ')) {
+        const parts = resolvedProperty.split(' · Unit ');
+        resolvedProperty = parts[0];
+        resolvedUnit = `Unit ${parts[1]}`;
+      } else if (resolvedProperty.includes(' · ')) {
+        const parts = resolvedProperty.split(' · ');
+        resolvedProperty = parts[0];
+        resolvedUnit = parts[1];
+      } else if (lead.notes && lead.notes.includes('Unit:')) {
+        const match = lead.notes.match(/Unit:\s*([^\s|]+)/i);
+        if (match && match[1]) resolvedUnit = match[1].startsWith('Unit') ? match[1] : `Unit ${match[1]}`;
+      }
+
+      // Create an Application in DB
       await api.leasing.createApplication({
         tenantName: resolvedName,
         email: lead.email,
         propertyName: resolvedProperty,
-        unitNumber: 'TBD',
+        unitNumber: resolvedUnit,
         rentProposed: lead.budget || 1500,
+        status: 'Pending',
       });
 
       // Update lead status to 'Application Sent'
-      return api.leasing.createLead({ id: lead.id, status: 'Application Sent' });
+      return api.leasing.createLead({
+        id: lead.id,
+        status: 'Application Sent',
+        email: lead.email,
+        name: resolvedName,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leads'] });
@@ -84,9 +110,21 @@ export const LeadsPage: React.FC = () => {
   });
 
   const filteredLeads = leads.filter((l) => {
-    const nameMatch = `${l.firstName} ${l.lastName}`.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesProp = propertyFilter === '' || l.propertyOfInterestId === propertyFilter;
-    const matchesStatus = statusFilter === '' || l.status === statusFilter;
+    const leadName = (l.name || `${l.firstName || ''} ${l.lastName || ''}`).toLowerCase();
+    const leadEmail = String(l.email || '').toLowerCase();
+    const leadPhone = String(l.phone || '').toLowerCase();
+    const query = searchQuery.toLowerCase().trim();
+    const nameMatch = !query || leadName.includes(query) || leadEmail.includes(query) || leadPhone.includes(query);
+
+    const propName = (l.property || l.propertyName || '').toLowerCase();
+    const selectedProp = properties.find((p) => p.id === propertyFilter);
+    const selectedPropName = selectedProp ? selectedProp.name.toLowerCase() : '';
+    const matchesProp = propertyFilter === '' || 
+      l.propertyOfInterestId === propertyFilter || 
+      (selectedPropName && propName.includes(selectedPropName)) ||
+      propName === propertyFilter.toLowerCase();
+
+    const matchesStatus = statusFilter === '' || String(l.status || '').toLowerCase() === statusFilter.toLowerCase();
     return nameMatch && matchesProp && matchesStatus;
   });
 
@@ -322,9 +360,28 @@ export const LeadsPage: React.FC = () => {
         {convertLead && (
           <div className="space-y-4 pt-2 text-xs font-semibold">
             <p className="text-muted-foreground">
-              Are you sure you want to promote {convertLead.firstName} {convertLead.lastName} to a resident tenant?
-              This will create a new Active profile in the Tenant Directory.
+              Are you sure you want to promote {convertLead.name || `${convertLead.firstName || ''} ${convertLead.lastName || ''}`} to an application?
+              This will create a verified application record for tenant screening.
             </p>
+
+            {/* VISUALLY STUNNING PROPERTY, UNIT & RENT SUMMARY CARD */}
+            <div className="p-3.5 bg-gradient-to-br from-primary/10 via-primary/5 to-indigo-500/5 border border-primary/20 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] font-black uppercase text-primary/75 tracking-wider">Property & Unit Target</span>
+                  <p className="text-xs font-bold text-foreground">
+                    {convertLead.property || convertLead.propertyName || 'Property Interest'}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400">Budget / Rent</span>
+                  <p className="text-xs font-black text-foreground">
+                    ${Number(convertLead.budget || 1500).toLocaleString()}/mo
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-end space-x-2 pt-2 border-t">
               <Button variant="outline" onClick={() => setConvertLead(null)}>Cancel</Button>
               <Button

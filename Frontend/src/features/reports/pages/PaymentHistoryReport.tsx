@@ -9,7 +9,7 @@ import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
 import { useReportDataFilter } from '../hooks/useReportDataFilter';
-import { DollarSign, CreditCard, CheckCircle2, TrendingUp, Eye } from 'lucide-react';
+import { DollarSign, CheckCircle2, TrendingUp, Eye } from 'lucide-react';
 
 export const PaymentHistoryReport: React.FC = () => {
   const { filters, setFilterVal, resetFilters } = useReportFilters('paymentDate');
@@ -25,12 +25,26 @@ export const PaymentHistoryReport: React.FC = () => {
   const reportItems = data?.data || [];
   const filteredReportItems = useReportDataFilter(reportItems, filters);
 
-  const summary = useMemo(() => ({
-    totalCollectedAmount: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0),
-    totalTransactions: filteredReportItems.length,
-    averageTransaction: filteredReportItems.length > 0 ? Math.round(filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0) / filteredReportItems.length) : 0,
-    topMethod: filteredReportItems.length > 0 ? filteredReportItems[0].paymentMethod || 'ACH' : 'N/A',
-  }), [filteredReportItems]);
+  const summary = useMemo(() => {
+    const beSummary = (data as any)?.summary;
+    const hasClientFilter = Boolean(filters.search || filters.unitId);
+
+    if (beSummary && !hasClientFilter) {
+      return {
+        totalCollectedAmount: beSummary.totalCollectedAmount ?? 0,
+        totalTransactions: beSummary.totalTransactions ?? 0,
+        averageTransaction: beSummary.averageTransaction ?? 0,
+      };
+    }
+
+    const paidItems = filteredReportItems.filter((curr: any) => !curr.paymentStatus || ['Paid', 'Partially Paid', 'PartiallyPaid', 'Cleared'].includes(curr.paymentStatus));
+
+    return {
+      totalCollectedAmount: paidItems.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0),
+      totalTransactions: filteredReportItems.length,
+      averageTransaction: filteredReportItems.length > 0 ? Math.round(filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0) / filteredReportItems.length) : 0,
+    };
+  }, [data, filteredReportItems, filters]);
 
   const columns = [
     { key: 'tenantName', header: 'Tenant Name' },
@@ -107,7 +121,7 @@ export const PaymentHistoryReport: React.FC = () => {
       />
 
       {/* KPI Cards Header */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="p-4 bg-teal-50 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900/50 rounded-xl flex items-center justify-between">
           <div>
             <span className="text-[10px] font-extrabold text-teal-700 dark:text-teal-400 uppercase tracking-wide">Total Collected Revenue</span>
@@ -129,30 +143,6 @@ export const PaymentHistoryReport: React.FC = () => {
           </div>
           <div className="p-2.5 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-700 dark:text-emerald-300">
             <CheckCircle2 className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="p-4 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/50 rounded-xl flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-400 uppercase tracking-wide">Avg Transaction Size</span>
-            <h3 className="text-xl font-black text-indigo-950 dark:text-indigo-200 mt-0.5">
-              ${summary.averageTransaction.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </h3>
-          </div>
-          <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg text-indigo-700 dark:text-indigo-300">
-            <TrendingUp className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 rounded-xl flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-extrabold text-blue-700 dark:text-blue-400 uppercase tracking-wide">Top Payment Method</span>
-            <h3 className="text-xl font-black text-blue-950 dark:text-blue-200 mt-0.5">
-              {summary.topMethod}
-            </h3>
-          </div>
-          <div className="p-2.5 bg-blue-100 dark:bg-blue-900/40 rounded-lg text-blue-700 dark:text-blue-300">
-            <CreditCard className="w-5 h-5" />
           </div>
         </div>
       </div>

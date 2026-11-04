@@ -1499,6 +1499,7 @@ export const en = {
     Success: "Success",
     Failed: "Failed",
     Pending: "Pending",
+    "Pending Approval": "Pending Approval",
     Completed: "Completed",
     Approved: "Approved",
     Rejected: "Rejected",

@@ -121,11 +121,11 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({
     }
   }, [propertyId, properties, type]);
 
-  // Handle file selections & size checks (max 1 MB)
+  // Handle file selections & size checks (max 5 MB)
   const processFile = (selectedFile: File) => {
     setErrorMsg('');
-    if (selectedFile.size > 1 * 1024 * 1024) {
-      setErrorMsg('File size exceeds the 1 MB limit. Please select a smaller file.');
+    if (selectedFile.size > 5 * 1024 * 1024) {
+      setErrorMsg('File size exceeds the 5 MB limit. Please select a smaller file.');
       setFile(null);
       return;
     }
@@ -397,7 +397,7 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({
                 <Upload className="w-10 h-10 text-muted-foreground opacity-50" />
                 <div>
                   <p className="font-extrabold text-xs text-foreground">Drag & drop document here</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">or click to browse. Max 1 MB.</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">or click to browse. Max 5 MB.</p>
                 </div>
               </>
             )}

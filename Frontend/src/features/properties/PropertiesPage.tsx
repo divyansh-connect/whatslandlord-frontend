@@ -16,6 +16,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import * as XLSX from 'xlsx';
 import { PropertyImportModal } from './PropertyImportModal';
+import { AIGuideButton } from '../ai-guide';
 
 export const PropertiesPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -128,13 +129,13 @@ export const PropertiesPage: React.FC = () => {
         'State': p.state || '',
         'Zip Code': p.zip || '',
         'Country': p.country || 'USA',
+        'Total Floors': (p as any).totalFloors || (p as any).floors || 1,
         'Total Units': p.unitsCount ?? 0,
         'Occupied Units': p.occupiedUnits ?? 0,
         'Occupancy Rate (%)': p.occupancyRate ?? 0,
         'Monthly Revenue ($)': p.monthlyRevenue ?? 0,
         'Monthly Expenses ($)': p.monthlyExpenses ?? 0,
         'Year Built': p.yearBuilt ?? '',
-        'Total Buildings': p.totalBuildings ?? 1,
         'Square Footage': p.squareFootage ?? '',
         'Purchase Price ($)': p.purchasePrice ?? '',
         'Current Value ($)': p.currentValue ?? '',
@@ -156,13 +157,13 @@ export const PropertiesPage: React.FC = () => {
       { wch: 10 }, // State
       { wch: 12 }, // Zip Code
       { wch: 12 }, // Country
+      { wch: 14 }, // Total Floors
       { wch: 14 }, // Total Units
       { wch: 16 }, // Occupied Units
       { wch: 18 }, // Occupancy Rate
       { wch: 20 }, // Monthly Revenue
       { wch: 20 }, // Monthly Expenses
       { wch: 14 }, // Year Built
-      { wch: 16 }, // Total Buildings
       { wch: 18 }, // Square Footage
       { wch: 18 }, // Purchase Price
       { wch: 18 }, // Current Value
@@ -313,7 +314,9 @@ export const PropertiesPage: React.FC = () => {
           onClick: () => navigate({ to: '/properties/new' }),
           icon: <Plus className="w-4.5 h-4.5" />,
         }}
-      />
+      >
+        <AIGuideButton pageKey="properties-list" />
+      </PageHeader>
 
       <div className="flex justify-between items-center mb-3">
         <span className="text-xs font-bold text-muted-foreground uppercase">

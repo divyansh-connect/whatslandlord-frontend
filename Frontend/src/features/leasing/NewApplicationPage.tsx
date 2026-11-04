@@ -44,6 +44,7 @@ export const NewApplicationPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['applications'] });
+      queryClient.invalidateQueries({ queryKey: ['applications-list'] });
       setSuccess(true);
       setTimeout(() => navigate({ to: '/leasing/applications' }), 2000);
     },

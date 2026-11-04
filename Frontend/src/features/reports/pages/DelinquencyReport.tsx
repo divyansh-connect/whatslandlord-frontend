@@ -25,13 +25,28 @@ export const DelinquencyReport: React.FC = () => {
   const reportItems = data?.data || [];
   const filteredReportItems = useReportDataFilter(reportItems, filters);
 
-  const summary = useMemo(() => ({
-    totalDelinquentBalance: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.outstandingBalance || 0), 0),
-    totalOriginalAmount: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.rentAmount || 0), 0),
-    totalDelinquentTenants: new Set(filteredReportItems.map((i: any) => i.tenantName)).size,
-    totalDelinquentInvoices: filteredReportItems.length,
-    averageDaysLate: filteredReportItems.length > 0 ? Math.round(filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.daysLate || 0), 0) / filteredReportItems.length) : 0,
-  }), [filteredReportItems]);
+  const summary = useMemo(() => {
+    const beSummary = (data as any)?.summary;
+    const hasClientFilter = Boolean(filters.search || filters.unitId);
+
+    if (beSummary && !hasClientFilter) {
+      return {
+        totalDelinquentBalance: beSummary.totalDelinquentBalance ?? 0,
+        totalOriginalAmount: beSummary.totalOriginalAmount ?? 0,
+        totalDelinquentTenants: beSummary.totalDelinquentTenants ?? 0,
+        totalDelinquentInvoices: beSummary.totalDelinquentInvoices ?? 0,
+        averageDaysLate: beSummary.averageDaysLate ?? 0,
+      };
+    }
+
+    return {
+      totalDelinquentBalance: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.outstandingBalance || 0), 0),
+      totalOriginalAmount: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.rentAmount || 0), 0),
+      totalDelinquentTenants: new Set(filteredReportItems.map((i: any) => i.tenantName)).size,
+      totalDelinquentInvoices: filteredReportItems.length,
+      averageDaysLate: filteredReportItems.length > 0 ? Math.round(filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.daysLate || 0), 0) / filteredReportItems.length) : 0,
+    };
+  }, [data, filteredReportItems, filters]);
 
   const columns = [
     { key: 'tenantName', header: 'Tenant Name' },

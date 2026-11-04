@@ -63,6 +63,7 @@ export interface DelinquencyItem {
 export interface ProfitLossData {
   income: { name: string; amount: number }[];
   expenses: { name: string; amount: number }[];
+  transactions?: any[];
   summary: {
     totalIncome: number;
     totalExpenses: number;

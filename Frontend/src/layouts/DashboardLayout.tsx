@@ -425,16 +425,16 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   };
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground transition-colors duration-300">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground transition-colors duration-300">
       {/* --- DESKTOP SIDEBAR --- */}
       <aside
         className={clsx(
-          'hidden md:flex flex-col border-r border-border/80 bg-card/45 backdrop-blur-xl sticky top-0 h-screen transition-all duration-300 z-40',
+          'hidden md:flex flex-col border-r border-border/80 bg-card/45 backdrop-blur-xl h-full shrink-0 transition-all duration-300 z-40',
           isSidebarOpen ? 'w-64' : 'w-20'
         )}
       >
         {/* Brand Header */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-border/60">
+        <div className="h-16 flex items-center justify-between px-4 border-b border-border/60 shrink-0">
           <div className="flex items-center space-x-3 overflow-hidden">
             {isSidebarOpen && (
               <span className="font-extrabold text-lg tracking-tight whitespace-nowrap text-foreground">
@@ -507,7 +507,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         </nav>
 
         {/* Desktop Sidebar Footer - Logout */}
-        <div className="p-4 border-t border-border/60">
+        <div className="p-4 border-t border-border/60 shrink-0">
           <button
             onClick={() => {
               logout();
@@ -607,9 +607,9 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       )}
 
       {/* --- MAIN PAGE CONTENT CONTAINER --- */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {/* --- HEADER --- */}
-        <header className="glass-header h-16 flex items-center justify-between px-3 sm:px-6 z-30">
+        <header className="glass-header h-16 flex items-center justify-between px-3 sm:px-6 z-30 shrink-0">
           <div className="flex items-center space-x-2 sm:space-x-4">
             <Button
               variant="ghost"
@@ -646,10 +646,10 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                 onClick={() => setShowNotifications(!showNotifications)}
                 className="relative"
               >
-                <Bell className="w-5 h-5" />
+                <Bell className="w-5 h-5 text-muted-foreground hover:text-foreground transition-colors" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white rounded-full text-[10px] flex items-center justify-center font-bold animate-bounce">
-                    {unreadCount}
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white rounded-full text-[10px] font-black flex items-center justify-center shadow-sm border-2 border-background pointer-events-none">
+                    {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
               </Button>
@@ -681,7 +681,14 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                           onClick={() => {
                             handleMarkSingleAsRead(n.id);
                             setShowNotifications(false);
-                            const directUrl = (n as any).targetUrl;
+                            const rawUrl = (n as any).targetUrl;
+                            const directUrl = rawUrl
+                              ? rawUrl.startsWith('/rent-payments/invoices')
+                                ? rawUrl.replace('/rent-payments/invoices', '/invoices')
+                                : rawUrl === '/rent-payments'
+                                ? '/payments'
+                                : rawUrl
+                              : null;
                             const path = directUrl
                               ? ((n as any).targetId && !directUrl.includes('?') ? `${directUrl}?id=${(n as any).targetId}` : directUrl)
                               : getNotificationRedirectPath(n.title, n.message, user?.role || 'Property Manager', n.targetId);

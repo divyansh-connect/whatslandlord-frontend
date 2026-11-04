@@ -50,20 +50,14 @@ export const AccountingDashboardPage: React.FC = () => {
   const accountsIncomeSum = accounts.filter(a => a.accountType === 'Income' || a.accountType === 'Revenue').reduce((sum, a) => sum + (a.balance || 0), 0);
   const accountsExpenseSum = accounts.filter(a => a.accountType === 'Expenses').reduce((sum, a) => sum + (a.balance || 0), 0);
 
-  // Sum of recorded income transactions from /accounting/income
-  const incomeSum = income.reduce((sum: number, i: any) => sum + (Number(i.amount) || 0), 0);
-
-  // Real tenant rent payments
-  const paymentsSum = payments.filter((p: any) => p.status === 'Paid').reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+  // Sum of recorded income transactions from /accounting/income (strictly manager auxiliary income)
+  const totalIncome = income.reduce((sum: number, i: any) => sum + (Number(i.amount) || 0), 0);
 
   // Real recorded expenses from /accounting/expenses
-  const expensesSum = expenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
+  const totalExpenses = expenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
 
-  // Real aggregated totals
-  const totalIncome = accountsIncomeSum > 0 ? accountsIncomeSum : (incomeSum + paymentsSum);
-  const totalExpenses = accountsExpenseSum > 0 ? accountsExpenseSum : expensesSum;
+  // Real isolated Net Profit
   const netProfit = totalIncome - totalExpenses;
-  const cashBalance = accountsAssetSum > 0 ? accountsAssetSum : (totalIncome > totalExpenses ? totalIncome - totalExpenses : totalIncome);
 
   // Real monthly data grouped by actual transaction dates
   const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -75,20 +69,16 @@ export const AccountingDashboardPage: React.FC = () => {
 
   const monthlyData = last6Months.map(month => {
     const mRecordedIncome = income
-      .filter((i: any) => i.date && new Date(i.date).toLocaleString('en-US', { month: 'short' }) === month)
+      .filter((i: any) => (i.date || i.createdAt) && new Date(i.date || i.createdAt).toLocaleString('en-US', { month: 'short' }) === month)
       .reduce((sum: number, i: any) => sum + (Number(i.amount) || 0), 0);
 
-    const mPayments = payments
-      .filter((p: any) => p.status === 'Paid' && p.paidDate && new Date(p.paidDate).toLocaleString('en-US', { month: 'short' }) === month)
-      .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
-
     const mExpenses = expenses
-      .filter((e: any) => e.date && new Date(e.date).toLocaleString('en-US', { month: 'short' }) === month)
+      .filter((e: any) => (e.date || e.createdAt) && new Date(e.date || e.createdAt).toLocaleString('en-US', { month: 'short' }) === month)
       .reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
 
     return { 
       month, 
-      Income: mRecordedIncome + mPayments, 
+      Income: mRecordedIncome, 
       Expenses: mExpenses 
     };
   });
@@ -118,17 +108,19 @@ export const AccountingDashboardPage: React.FC = () => {
       </div>
 
       {/* STATS CARDS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Cash Balance */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Net Profit */}
         <Card 
-          onClick={() => setSelectedMetric('cashBalance')}
+          onClick={() => setSelectedMetric('netProfit')}
           className="p-5 border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
         >
           <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('pmAccountingDashboard.cashBalance')}</p>
-            <p className="text-2xl font-black mt-1 text-emerald-500">${cashBalance.toLocaleString()}</p>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('pmAccountingDashboard.netProfitMargin')}</p>
+            <p className={`text-2xl font-black mt-1 ${netProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+              {netProfit < 0 ? `-$${Math.abs(netProfit).toLocaleString()}` : `$${netProfit.toLocaleString()}`}
+            </p>
           </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('pmAccountingDashboard.cashSubtitle')}</span>
+          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('pmAccountingDashboard.profitSubtitle')}</span>
         </Card>
 
         {/* Total Income YTD */}
@@ -153,18 +145,6 @@ export const AccountingDashboardPage: React.FC = () => {
             <p className="text-2xl font-black mt-1 text-rose-500">${totalExpenses.toLocaleString()}</p>
           </div>
           <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('pmAccountingDashboard.expensesSubtitle')}</span>
-        </Card>
-
-        {/* Net Profit Margin */}
-        <Card 
-          onClick={() => setSelectedMetric('netProfit')}
-          className="p-5 border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
-        >
-          <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('pmAccountingDashboard.netProfitMargin')}</p>
-            <p className="text-2xl font-black mt-1 text-emerald-500">${netProfit.toLocaleString()}</p>
-          </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('pmAccountingDashboard.profitSubtitle')}</span>
         </Card>
       </div>
 
@@ -240,7 +220,7 @@ export const AccountingDashboardPage: React.FC = () => {
             <p className="text-muted-foreground">Reconciliation period closing: Active Ledger</p>
             <div className="flex justify-between items-center bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 p-3 rounded-xl">
               <span>Cleared Statement Balance:</span>
-              <span className="font-black text-sm">${cashBalance.toLocaleString()}</span>
+              <span className="font-black text-sm">{netProfit < 0 ? `-$${Math.abs(netProfit).toLocaleString()}` : `$${netProfit.toLocaleString()}`}</span>
             </div>
             <div className="flex justify-end pt-2">
               <Button size="sm" onClick={() => navigate({ to: '/accounting/reconciliation' })} className="flex items-center gap-1.5 text-xs">
@@ -257,7 +237,7 @@ export const AccountingDashboardPage: React.FC = () => {
         open={!!selectedMetric}
         metricType={selectedMetric}
         summaryData={{
-          cashBalance,
+          cashBalance: netProfit,
           totalIncome,
           totalExpenses,
           netProfit,

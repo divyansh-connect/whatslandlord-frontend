@@ -78,12 +78,16 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
   const realAssetSum = accounts.filter((a: any) => a.accountType === 'Assets').reduce((sum: number, a: any) => sum + (a.balance || 0), 0);
   const realIncomeSum = accounts.filter((a: any) => a.accountType === 'Income' || a.accountType === 'Revenue').reduce((sum: number, a: any) => sum + (a.balance || 0), 0);
   const realExpensesSum = accounts.filter((a: any) => a.accountType === 'Expenses').reduce((sum: number, a: any) => sum + (a.balance || 0), 0);
-  const realNetProfit = realIncomeSum - realExpensesSum;
+
+  const recordedExpensesSum = expenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
+  const recordedIncomeSum = income.reduce((sum: number, i: any) => sum + (Number(i.amount) || 0), 0);
+  const paymentsSum = payments.filter((p: any) => p.status === 'Paid' || !p.status || Number(p.amount) > 0).reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+  const realDirectIncome = recordedIncomeSum + paymentsSum;
 
   const displayCashBalance = summaryData?.cashBalance ?? realAssetSum;
-  const displayIncome = summaryData?.totalIncome ?? realIncomeSum;
-  const displayExpenses = summaryData?.totalExpenses ?? realExpensesSum;
-  const displayNetProfit = summaryData?.netProfit ?? realNetProfit;
+  const displayIncome = summaryData?.totalIncome ?? (realDirectIncome > 0 ? realDirectIncome : realIncomeSum);
+  const displayExpenses = summaryData?.totalExpenses ?? (recordedExpensesSum > 0 ? recordedExpensesSum : realExpensesSum);
+  const displayNetProfit = summaryData?.netProfit ?? (displayIncome - displayExpenses);
 
   const modalConfig = useMemo(() => {
     if (!metricType) return null;
@@ -168,19 +172,7 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
           status: i.status || 'Cleared',
         }));
 
-        const tenantPaymentRows = payments
-          .filter((p: any) => p.status === 'Paid' || Number(p.amount) > 0)
-          .map((p: any) => ({
-            id: p.id,
-            accountNumber: 'RENT-PAY',
-            accountName: `Rent Collection - ${p.propertyName || 'Property'} (${p.tenantName || 'Resident'})`,
-            accountType: 'Rental Income',
-            balance: `$${(Number(p.amount) || 0).toLocaleString()}`,
-            numericBalance: Number(p.amount) || 0,
-            status: 'Paid',
-          }));
-
-        const rows = incomeAccounts.length > 0 ? incomeAccounts : [...recordedIncomeRows, ...tenantPaymentRows];
+        const rows = recordedIncomeRows.length > 0 ? recordedIncomeRows : incomeAccounts;
 
         const filtered = rows.filter((item: any) =>
           item.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -233,7 +225,7 @@ export const AccountingMetricModal: React.FC<AccountingMetricModalProps> = ({
           status: e.status || 'Cleared',
         }));
 
-        const rows = expenseAccounts.length > 0 ? expenseAccounts : recordedExpenseRows;
+        const rows = recordedExpenseRows.length > 0 ? recordedExpenseRows : expenseAccounts;
 
         const filtered = rows.filter((item: any) =>
           item.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||

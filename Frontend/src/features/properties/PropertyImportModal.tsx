@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../api';
 import {
   Dialog,
@@ -69,6 +69,16 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Fetch real registered owners from the system
+  const { data: owners = [] } = useQuery<any[]>({
+    queryKey: ['owners'],
+    queryFn: () => api.owner.getAll(),
+  });
+
+  const availableOwnerNames = owners
+    .map((o: any) => o.name || `${o.firstName || ''} ${o.lastName || ''}`.trim())
+    .filter((n: string) => Boolean(n && n.trim()));
+
   const [dragActive, setDragActive] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedPropertyRow[]>([]);
@@ -82,27 +92,31 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
   };
 
   const handleDownloadTemplate = () => {
+    const sampleOwner1 = availableOwnerNames[0] || 'Registered Owner';
+    const sampleOwner2 = availableOwnerNames[1] || sampleOwner1;
+    const sampleOwner3 = availableOwnerNames[2] || sampleOwner1;
+
+    // Sheet 1: Properties Import Template (Building removed, Floor retained)
     const templateData = [
       {
         'Property Name*': 'Sunset View Apartments',
-        'Property Type': 'Apartment',
-        'Status': 'Active',
-        'Owner Name': 'Sarah Jenkins',
-        'Ownership Percentage (%)': 100,
-        'Management Company': 'Apex Property Management',
+        'Property Type*': 'Apartment',
+        'Owner Name*': sampleOwner1,
         'Street Address*': '1200 Ocean Drive',
         'City*': 'Miami',
         'State*': 'FL',
         'Zip Code*': '33139',
-        'Country': 'USA',
+        'Total Floors': 4,
         'Total Units': 24,
+        'Status': 'Active',
+        'Ownership Percentage (%)': 100,
+        'Country': 'USA',
+        'Management Company': 'Apex Property Management',
         'Occupied Units': 22,
         'Occupancy Rate (%)': 92,
         'Monthly Revenue ($)': 48000,
         'Monthly Expenses ($)': 4500,
         'Year Built': 2021,
-        'Total Buildings': 1,
-        'Total Floors': 4,
         'Square Footage': 28000,
         'Purchase Price ($)': 3500000,
         'Current Value ($)': 4200000,
@@ -110,24 +124,23 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
       },
       {
         'Property Name*': 'Highland Commerce Plaza',
-        'Property Type': 'Commercial',
-        'Status': 'Active',
-        'Owner Name': 'Robert Sterling',
-        'Ownership Percentage (%)': 100,
-        'Management Company': 'Apex Property Management',
+        'Property Type*': 'Commercial',
+        'Owner Name*': sampleOwner2,
         'Street Address*': '450 Congress Ave',
         'City*': 'Austin',
         'State*': 'TX',
         'Zip Code*': '78701',
-        'Country': 'USA',
+        'Total Floors': 2,
         'Total Units': 8,
+        'Status': 'Active',
+        'Ownership Percentage (%)': 100,
+        'Country': 'USA',
+        'Management Company': 'Apex Property Management',
         'Occupied Units': 7,
         'Occupancy Rate (%)': 88,
         'Monthly Revenue ($)': 32000,
         'Monthly Expenses ($)': 2800,
         'Year Built': 2019,
-        'Total Buildings': 1,
-        'Total Floors': 2,
         'Square Footage': 16000,
         'Purchase Price ($)': 2100000,
         'Current Value ($)': 2600000,
@@ -135,24 +148,23 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
       },
       {
         'Property Name*': 'Pine Ridge Townhomes',
-        'Property Type': 'Multi Family',
-        'Status': 'Active',
-        'Owner Name': 'Elena Rostova',
-        'Ownership Percentage (%)': 100,
-        'Management Company': 'Apex Property Management',
+        'Property Type*': 'Multi Family',
+        'Owner Name*': sampleOwner3,
         'Street Address*': '884 Pine Ridge Way',
         'City*': 'Denver',
         'State*': 'CO',
         'Zip Code*': '80203',
-        'Country': 'USA',
+        'Total Floors': 2,
         'Total Units': 6,
+        'Status': 'Active',
+        'Ownership Percentage (%)': 100,
+        'Country': 'USA',
+        'Management Company': 'Apex Property Management',
         'Occupied Units': 6,
         'Occupancy Rate (%)': 100,
         'Monthly Revenue ($)': 15000,
         'Monthly Expenses ($)': 1200,
         'Year Built': 2022,
-        'Total Buildings': 2,
-        'Total Floors': 2,
         'Square Footage': 9200,
         'Purchase Price ($)': 1400000,
         'Current Value ($)': 1650000,
@@ -162,35 +174,181 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
 
     const worksheet = XLSX.utils.json_to_sheet(templateData);
 
-    // Format column widths for great readability
+    // Format column widths for high legibility
     worksheet['!cols'] = [
-      { wch: 28 }, // Property Name
-      { wch: 18 }, // Type
-      { wch: 14 }, // Status
-      { wch: 22 }, // Owner Name
-      { wch: 24 }, // Ownership %
-      { wch: 25 }, // Management Company
-      { wch: 26 }, // Street Address
-      { wch: 16 }, // City
-      { wch: 10 }, // State
-      { wch: 12 }, // Zip Code
-      { wch: 12 }, // Country
+      { wch: 28 }, // Property Name*
+      { wch: 18 }, // Property Type*
+      { wch: 24 }, // Owner Name*
+      { wch: 26 }, // Street Address*
+      { wch: 16 }, // City*
+      { wch: 10 }, // State*
+      { wch: 12 }, // Zip Code*
+      { wch: 14 }, // Total Floors
       { wch: 14 }, // Total Units
+      { wch: 14 }, // Status
+      { wch: 24 }, // Ownership %
+      { wch: 12 }, // Country
+      { wch: 25 }, // Management Company
       { wch: 16 }, // Occupied Units
       { wch: 18 }, // Occupancy Rate
       { wch: 20 }, // Monthly Revenue
       { wch: 20 }, // Monthly Expenses
       { wch: 14 }, // Year Built
-      { wch: 16 }, // Total Buildings
-      { wch: 14 }, // Total Floors
       { wch: 18 }, // Square Footage
       { wch: 18 }, // Purchase Price
       { wch: 18 }, // Current Value
       { wch: 14 }, // NYC BIN #
     ];
 
+    // Sheet 2: Notes & Instructions
+    const instructionsData = [
+      {
+        'Requirement Type': '★ COMPULSORY',
+        'Field Name': 'Property Name*',
+        'Required/Optional': 'MANDATORY',
+        'Allowed Values / Instructions': 'Required. Unique name of the property asset.',
+      },
+      {
+        'Requirement Type': '★ COMPULSORY',
+        'Field Name': 'Property Type*',
+        'Required/Optional': 'MANDATORY',
+        'Allowed Values / Instructions': 'Must be one of: Apartment | Commercial | Single Family | Multi Family | Mixed-Use Property (MUP) | HOA',
+      },
+      {
+        'Requirement Type': '★ COMPULSORY',
+        'Field Name': 'Owner Name*',
+        'Required/Optional': 'MANDATORY',
+        'Allowed Values / Instructions': availableOwnerNames.length > 0
+          ? `Must match a saved owner in your system: [ ${availableOwnerNames.join(' | ')} ]`
+          : 'Must match an existing registered owner from your system.',
+      },
+      {
+        'Requirement Type': '★ COMPULSORY',
+        'Field Name': 'Street Address*',
+        'Required/Optional': 'MANDATORY',
+        'Allowed Values / Instructions': 'Required physical street location (e.g. 1200 Ocean Drive).',
+      },
+      {
+        'Requirement Type': '★ COMPULSORY',
+        'Field Name': 'City*',
+        'Required/Optional': 'MANDATORY',
+        'Allowed Values / Instructions': 'Required city/municipality (e.g. Miami, Austin).',
+      },
+      {
+        'Requirement Type': '★ COMPULSORY',
+        'Field Name': 'State*',
+        'Required/Optional': 'MANDATORY',
+        'Allowed Values / Instructions': 'Required state abbreviation or name (e.g. FL, TX, CA, NY).',
+      },
+      {
+        'Requirement Type': '★ COMPULSORY',
+        'Field Name': 'Zip Code*',
+        'Required/Optional': 'MANDATORY',
+        'Allowed Values / Instructions': 'Required 5-digit postal zip code (e.g. 33139).',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Total Floors',
+        'Required/Optional': 'OPTIONAL (Default: 1)',
+        'Allowed Values / Instructions': 'Total floor count for building hierarchy. Defaults to 1 if blank.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Total Units',
+        'Required/Optional': 'OPTIONAL (Default: 1)',
+        'Allowed Values / Instructions': 'Total units count. Defaults to 1 if blank.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Status',
+        'Required/Optional': 'OPTIONAL (Default: Active)',
+        'Allowed Values / Instructions': 'Active | Inactive | Under Review | Archived | Draft. Defaults to Active.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Ownership Percentage (%)',
+        'Required/Optional': 'OPTIONAL (Default: 100)',
+        'Allowed Values / Instructions': 'Percentage between 1 and 100. Defaults to 100.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Country',
+        'Required/Optional': 'OPTIONAL (Default: USA)',
+        'Allowed Values / Instructions': 'Location country. Defaults to USA.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Management Company',
+        'Required/Optional': 'OPTIONAL',
+        'Allowed Values / Instructions': 'Management agency name (e.g. Apex Property Management).',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Occupied Units',
+        'Required/Optional': 'OPTIONAL (Default: 0)',
+        'Allowed Values / Instructions': 'Occupied units count. Defaults to 0.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Occupancy Rate (%)',
+        'Required/Optional': 'OPTIONAL',
+        'Allowed Values / Instructions': 'Calculated automatically from (Occupied / Total Units * 100) if left blank.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Monthly Revenue ($)',
+        'Required/Optional': 'OPTIONAL (Default: 0)',
+        'Allowed Values / Instructions': 'Gross monthly rental revenue. Defaults to 0.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Monthly Expenses ($)',
+        'Required/Optional': 'OPTIONAL (Default: 0)',
+        'Allowed Values / Instructions': 'Monthly operating expenses. Defaults to 0.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Year Built',
+        'Required/Optional': 'OPTIONAL',
+        'Allowed Values / Instructions': 'Construction year (e.g. 2021).',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Square Footage',
+        'Required/Optional': 'OPTIONAL',
+        'Allowed Values / Instructions': 'Total rentable area in square feet.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Purchase Price ($)',
+        'Required/Optional': 'OPTIONAL',
+        'Allowed Values / Instructions': 'Acquisition price.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'Current Value ($)',
+        'Required/Optional': 'OPTIONAL',
+        'Allowed Values / Instructions': 'Current market value.',
+      },
+      {
+        'Requirement Type': '○ OPTIONAL',
+        'Field Name': 'NYC BIN #',
+        'Required/Optional': 'OPTIONAL',
+        'Allowed Values / Instructions': '7-digit NYC Building ID Number (only for NYC properties).',
+      },
+    ];
+
+    const instructionsSheet = XLSX.utils.json_to_sheet(instructionsData);
+    instructionsSheet['!cols'] = [
+      { wch: 24 }, // Requirement Type
+      { wch: 28 }, // Field Name
+      { wch: 26 }, // Required/Optional
+      { wch: 80 }, // Allowed Values / Instructions
+    ];
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Properties_Template');
+    XLSX.utils.book_append_sheet(workbook, instructionsSheet, 'Notes_&_Instructions');
     XLSX.writeFile(workbook, 'Property_Full_Import_Template.xlsx');
   };
 
@@ -225,7 +383,7 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
             normRow[normalizeKey(k)] = row[k];
           });
 
-          const name = String(
+          const rawName = String(
             normRow['propertyname'] ||
             normRow['name'] ||
             normRow['property'] ||
@@ -233,19 +391,55 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
             ''
           ).trim();
 
-          const type = String(
+          // Standardize Property Type based on exact supported values
+          const rawType = String(
             normRow['propertytype'] ||
             normRow['type'] ||
             'Apartment'
           ).trim();
 
+          const validTypes = [
+            'Apartment',
+            'Commercial',
+            'Single Family',
+            'Multi Family',
+            'Mixed-Use Property (MUP)',
+            'HOA',
+          ];
+
+          let type = validTypes.find(
+            (vt) => vt.toLowerCase().replace(/[^a-z0-9]/g, '') === rawType.toLowerCase().replace(/[^a-z0-9]/g, '')
+          );
+
+          if (!type) {
+            if (rawType.toLowerCase().includes('mixed') || rawType.toLowerCase().includes('mup')) {
+              type = 'Mixed-Use Property (MUP)';
+            } else if (rawType.toLowerCase().includes('single')) {
+              type = 'Single Family';
+            } else if (rawType.toLowerCase().includes('multi')) {
+              type = 'Multi Family';
+            } else if (rawType.toLowerCase().includes('commercial')) {
+              type = 'Commercial';
+            } else if (rawType.toLowerCase().includes('hoa')) {
+              type = 'HOA';
+            } else {
+              type = 'Apartment';
+            }
+          }
+
           const status = String(normRow['status'] || 'Active').trim();
 
-          const ownerName = String(
+          const rawOwner = String(
             normRow['ownername'] ||
             normRow['owner'] ||
             ''
           ).trim();
+
+          // Case-insensitive matching with saved real owners
+          const matchedOwner = availableOwnerNames.find(
+            (oName: string) => oName.toLowerCase() === rawOwner.toLowerCase()
+          );
+          const ownerName = matchedOwner || rawOwner;
 
           const ownershipPercentage = parseFloat(normRow['ownershippercentage'] || normRow['ownership'] || '100') || 100;
           const managementCompany = String(normRow['managementcompany'] || normRow['management'] || 'Apex Property Management').trim();
@@ -274,7 +468,7 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
           const monthlyExpenses = parseFloat(normRow['monthlyexpenses'] || normRow['expenses'] || '0') || 0;
 
           const yearBuilt = parseInt(normRow['yearbuilt'] || normRow['year'] || '2020', 10) || 2020;
-          const totalBuildings = Math.max(1, parseInt(normRow['totalbuildings'] || normRow['buildings'] || '1', 10) || 1);
+          const totalBuildings = 1; // Hidden in UI, auto-managed in DB
           const totalFloors = Math.max(1, parseInt(normRow['totalfloors'] || normRow['floors'] || '1', 10) || 1);
           const squareFootage = parseFloat(normRow['squarefootage'] || normRow['sqft'] || '10000') || 10000;
           const purchasePrice = parseFloat(normRow['purchaseprice'] || normRow['price'] || '1000000') || 1000000;
@@ -282,12 +476,17 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
           const nycBin = String(normRow['nycbin'] || normRow['bin'] || '').trim();
 
           const errors: string[] = [];
-          if (!name) errors.push('Missing Property Name');
+          if (!rawName) errors.push('Missing Property Name');
           if (!streetAddress) errors.push('Missing Street Address');
+          if (!ownerName) {
+            errors.push('Missing Owner Name');
+          } else if (availableOwnerNames.length > 0 && !matchedOwner) {
+            errors.push(`Owner "${rawOwner}" is not saved in system. Please select a registered owner.`);
+          }
 
           return {
             rowIndex: idx + 2, // Excel 1-based index including header
-            name,
+            name: rawName,
             type,
             status,
             ownerName,

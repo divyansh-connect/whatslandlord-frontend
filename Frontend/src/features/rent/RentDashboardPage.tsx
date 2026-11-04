@@ -126,7 +126,7 @@ export const RentDashboardPage: React.FC = () => {
       </div>
 
       {/* STATS METRIC GRID */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
         {/* Collected Today */}
         <Card 
           onClick={() => setSelectedMetric('collectedToday')}
@@ -165,30 +165,6 @@ export const RentDashboardPage: React.FC = () => {
           <span className="text-[10px] text-rose-500 font-bold mt-4 flex items-center gap-0.5">
             <AlertCircle className="w-3.5 h-3.5" /> {latePayments} Overdue Bills
           </span>
-        </Card>
-
-        {/* Payment Plans */}
-        <Card 
-          onClick={() => setSelectedMetric('paymentPlans')}
-          className="p-5 border border-border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
-        >
-          <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">Payment Plans</p>
-            <p className="text-2xl font-extrabold mt-1">{activePlans}</p>
-          </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">Active installment plans</span>
-        </Card>
-
-        {/* Late Fee Invoices */}
-        <Card 
-          onClick={() => setSelectedMetric('lateFeeInvoices')}
-          className="p-5 border border-border bg-card flex flex-col justify-between cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative group"
-        >
-          <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">Late Fee Invoices</p>
-            <p className="text-2xl font-extrabold mt-1">{latePayments}</p>
-          </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">Dispatched automatically</span>
         </Card>
       </div>
 

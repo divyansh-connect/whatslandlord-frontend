@@ -77,6 +77,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
   // App states
   const [mode, setMode] = useState<'login' | 'signup-step1' | 'signup-step2' | 'signup-step3' | 'signup-success'>('login');
   const [selectedProperty, setSelectedProperty] = useState<any | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<any | null>(null);
   const [signupStep1Data, setSignupStep1Data] = useState<CredentialsFormInputs | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [isSubmittingSignup, setIsSubmittingSignup] = useState(false);
@@ -88,6 +89,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
     queryFn: () => api.auth.getPublicProperties(),
     enabled: mode === 'signup-step2',
   });
+
+  // Flatten available units across properties for direct unit selection
+  const availableUnits = React.useMemo(() => {
+    const list: any[] = [];
+    properties.forEach((p: any) => {
+      const units = p.units && p.units.length > 0 
+        ? p.units 
+        : [{ id: `fallback-${p.id}`, unitNumber: 'Unit 101', rentAmount: 1500, status: 'Vacant' }];
+      
+      units.forEach((u: any) => {
+        // Only show Vacant units for rental applications!
+        const isVacant = !u.status || u.status === 'Vacant' || u.status === 'Vacant_Needs_Preparation';
+        if (!isVacant) return;
+
+        list.push({
+          unitId: u.id,
+          unitNumber: u.unitNumber ? (String(u.unitNumber).startsWith('Unit') ? u.unitNumber : `Unit ${u.unitNumber}`) : 'Unit 101',
+          rentAmount: u.rentAmount || 1500,
+          status: u.status || 'Vacant',
+          bedrooms: u.bedrooms,
+          bathrooms: u.bathrooms,
+          propertyId: p.id,
+          propertyName: p.name,
+          propertyAddress: p.address || 'Address not listed',
+          propertyCompanyId: p.companyId,
+          propertyOwner: p.owner?.name || 'Apex Property Manager',
+          propertyImageUrl: p.imageUrl,
+        });
+      });
+    });
+    return list;
+  }, [properties]);
 
   // Login Form
   const {
@@ -189,8 +222,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
   // Action: Step 2 Next
   const onStep2Next = () => {
     setApiError(null);
-    if (!selectedProperty) {
-      setApiError('Please select a property from the list.');
+    if (!selectedUnit || !selectedProperty) {
+      setApiError('Please select a home unit from the list.');
       return;
     }
     setMode('signup-step3');
@@ -207,6 +240,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
         ...step3Data,
         companyId: selectedProperty.companyId,
         property: selectedProperty.name,
+        unitId: selectedUnit?.unitId && !selectedUnit.unitId.startsWith('fallback-') ? selectedUnit.unitId : undefined,
+        unitNumber: selectedUnit?.unitNumber,
+        budget: selectedUnit?.rentAmount || step3Data.budget,
       };
       await api.auth.tenantSignup(payload);
       setMode('signup-success');
@@ -297,7 +333,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
             Sign In
           </Button>
 
-          <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
             <Button
               type="button"
               variant="outline"
@@ -308,6 +344,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
               className="w-full flex items-center justify-center h-10 font-bold border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/50"
             >
               Signup for Tenant
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                navigate('/landing');
+              }}
+              className="w-full flex items-center justify-center h-10 font-bold border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 dark:border-primary/50 dark:bg-primary/10 dark:text-primary dark:hover:bg-primary/20 transition-all duration-200"
+            >
+              Signup for Property Manager
             </Button>
           </div>
         </form>
@@ -436,7 +483,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
 
         <div className="text-center">
           <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">Choose Your Home</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Select the property you want to assign yourself to</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Select the apartment unit & property you want to apply for</p>
         </div>
 
         {apiError && (
@@ -447,8 +494,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
         )}
 
         <div className="space-y-1.5">
-          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-1">
-            <Building className="w-3.5 h-3.5" /> Available Properties
+          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center justify-between">
+            <span className="flex items-center gap-1"><Building className="w-3.5 h-3.5" /> Available Vacant Units</span>
+            <span className="text-[10px] text-muted-foreground font-semibold">{availableUnits.length} Vacant Units</span>
           </label>
 
           {isLoadingProperties ? (
@@ -457,39 +505,59 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
             </div>
           ) : (
             <div className="max-h-72 overflow-y-auto space-y-2.5 pr-1 custom-scrollbar border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 bg-slate-50 dark:bg-slate-900/30">
-              {properties.length === 0 ? (
-                <p className="text-xs text-center text-slate-500 py-10">No properties currently available.</p>
+              {availableUnits.length === 0 ? (
+                <p className="text-xs text-center text-slate-500 py-10">No rental units currently available.</p>
               ) : (
-                properties.map((prop: any) => {
-                  const isSelected = selectedProperty?.id === prop.id;
-                  const ownerName = prop.owner?.name || 'Apex Property Manager';
+                availableUnits.map((item: any) => {
+                  const isSelected = selectedUnit?.unitId === item.unitId && selectedProperty?.id === item.propertyId;
                   return (
                     <div
-                      key={prop.id}
-                      onClick={() => setSelectedProperty(prop)}
+                      key={`${item.propertyId}-${item.unitId}`}
+                      onClick={() => {
+                        setSelectedUnit(item);
+                        setSelectedProperty({
+                          id: item.propertyId,
+                          name: item.propertyName,
+                          companyId: item.propertyCompanyId,
+                        });
+                      }}
                       className={`flex items-center gap-3.5 p-3 rounded-xl border cursor-pointer transition-all duration-200 hover:shadow-sm ${
                         isSelected
                           ? 'border-primary bg-primary/5 dark:bg-primary/10 shadow-sm ring-1 ring-primary'
                           : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-slate-300 dark:hover:border-slate-700'
                       }`}
                     >
-                      <div className="w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
-                        {prop.imageUrl ? (
-                          <img src={prop.imageUrl} alt={prop.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <Building className="w-6 h-6 text-slate-400" />
-                        )}
+                      <div className="w-12 h-12 rounded-lg bg-primary/10 text-primary flex flex-col items-center justify-center shrink-0 font-bold">
+                        <Building className="w-5 h-5 text-primary" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-black text-slate-900 dark:text-white truncate">{prop.name}</p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{prop.address || 'Address not listed'}</p>
-                        <p className="text-[9px] text-primary/80 dark:text-primary-foreground/75 font-bold mt-1">Owner/Manager: {ownerName}</p>
+                        <div className="flex items-center justify-between gap-1">
+                          <p className="text-xs font-black text-slate-900 dark:text-white truncate">
+                            {item.unitNumber}
+                          </p>
+                          <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400">
+                            ${Number(item.rentAmount).toLocaleString()}/mo
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 truncate mt-0.5">
+                          {item.propertyName}
+                        </p>
+                        <p className="text-[9.5px] text-slate-500 dark:text-slate-400 truncate">
+                          {item.propertyAddress}
+                        </p>
                       </div>
                       <div className="shrink-0 flex items-center pr-1">
                         <input
                           type="radio"
                           checked={isSelected}
-                          onChange={() => setSelectedProperty(prop)}
+                          onChange={() => {
+                            setSelectedUnit(item);
+                            setSelectedProperty({
+                              id: item.propertyId,
+                              name: item.propertyName,
+                              companyId: item.propertyCompanyId,
+                            });
+                          }}
                           className="h-3.5 w-3.5 text-primary focus:ring-primary border-slate-300 dark:border-slate-700"
                         />
                       </div>
@@ -504,7 +572,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
         <Button
           onClick={onStep2Next}
           className="w-full flex items-center justify-center h-10 font-bold bg-primary text-white hover:bg-primary/90 mt-4"
-          disabled={!selectedProperty}
+          disabled={!selectedUnit}
         >
           Next: Application details <ArrowRight className="w-4 h-4 ml-1" />
         </Button>
@@ -560,11 +628,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
 
         {/* 1. VISUALLY STUNNING SELECTED DETAILS CARD */}
         <div className="p-3.5 bg-gradient-to-br from-primary/10 via-primary/5 to-indigo-500/5 border border-primary/20 rounded-xl space-y-2">
-          <div className="flex items-center gap-2">
-            <Building className="w-4 h-4 text-primary shrink-0" />
-            <div className="min-w-0">
-              <span className="text-[9px] font-black uppercase text-primary/75 tracking-wider">Selected Property</span>
-              <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{selectedProperty?.name}</p>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Building className="w-4 h-4 text-primary shrink-0" />
+              <div className="min-w-0">
+                <span className="text-[9px] font-black uppercase text-primary/75 tracking-wider">Selected Home</span>
+                <p className="text-xs font-bold text-slate-800 dark:text-white truncate">
+                  {selectedUnit?.unitNumber} · {selectedProperty?.name}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{selectedUnit?.propertyAddress}</p>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400">Rent</span>
+              <p className="text-xs font-black text-slate-900 dark:text-white">
+                ${Number(selectedUnit?.rentAmount || 1500).toLocaleString()}/mo
+              </p>
             </div>
           </div>
           <div className="border-t border-slate-200/50 dark:border-slate-800/50 pt-2 grid grid-cols-2 gap-2 text-[9px] font-semibold text-slate-600 dark:text-slate-400">

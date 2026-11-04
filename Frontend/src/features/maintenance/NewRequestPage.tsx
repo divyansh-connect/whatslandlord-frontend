@@ -35,6 +35,8 @@ export const NewRequestPage: React.FC = () => {
   const { data: properties = [] } = useQuery({ queryKey: ['properties'], queryFn: () => api.property.getAll() });
   const { data: buildings = [] } = useQuery({ queryKey: ['buildings'], queryFn: () => api.building.getAll() });
   const { data: units = [] } = useQuery({ queryKey: ['units'], queryFn: () => api.unit.getAll() });
+  const { data: tenants = [] } = useQuery({ queryKey: ['tenants'], queryFn: () => api.tenant.getAll() });
+  const { data: leases = [] } = useQuery({ queryKey: ['leases'], queryFn: () => api.leasing.getLeases() });
 
   const { register, handleSubmit, watch, setValue, setError, formState: { errors } } = useForm<RequestFormValues>({
     resolver: zodResolver(newRequestFormSchema),
@@ -53,13 +55,59 @@ export const NewRequestPage: React.FC = () => {
 
   const selectedPropertyId = watch('propertyId');
   const selectedBuildingId = watch('buildingId');
+  const selectedUnitId = watch('unitId');
+  const currentTenantName = watch('tenantName');
 
-  // Reset fields on change
+  // Reset fields on property change
   React.useEffect(() => {
     const matchingBuilding = buildings.find((b) => b.propertyId === selectedPropertyId);
     setValue('buildingId', matchingBuilding ? matchingBuilding.id : '');
     setValue('unitId', '');
+    setValue('tenantName', '');
   }, [selectedPropertyId, buildings, setValue]);
+
+  // Auto-populate resident name when unit is selected
+  React.useEffect(() => {
+    if (!selectedUnitId) {
+      setValue('tenantName', '');
+      return;
+    }
+
+    // 1. Check tenant by unitId
+    const tenant = tenants.find((t: any) => t.unitId === selectedUnitId);
+    if (tenant) {
+      const name = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim();
+      if (name) {
+        setValue('tenantName', name, { shouldValidate: true });
+        return;
+      }
+    }
+
+    // 2. Check unit's tenants list or tenantName
+    const unit = units.find((u: any) => u.id === selectedUnitId);
+    if (unit?.tenants && Array.isArray(unit.tenants) && unit.tenants.length > 0) {
+      const t0 = unit.tenants[0];
+      const name = `${t0.firstName || ''} ${t0.lastName || ''}`.trim();
+      if (name) {
+        setValue('tenantName', name, { shouldValidate: true });
+        return;
+      }
+    }
+
+    if (unit?.tenantName && unit.tenantName !== 'Vacant' && unit.tenantName !== 'Unassigned') {
+      setValue('tenantName', unit.tenantName, { shouldValidate: true });
+      return;
+    }
+
+    // 3. Check active lease
+    const lease = leases.find((l: any) => l.unitId === selectedUnitId);
+    if (lease?.tenantName && lease.tenantName !== 'Resident') {
+      setValue('tenantName', lease.tenantName, { shouldValidate: true });
+      return;
+    }
+
+    setValue('tenantName', '');
+  }, [selectedUnitId, units, tenants, leases, setValue]);
 
   const filteredUnits = selectedPropertyId
     ? units.filter((u) => u.propertyId === selectedPropertyId || (selectedBuildingId && u.buildingId === selectedBuildingId))
@@ -154,7 +202,16 @@ export const NewRequestPage: React.FC = () => {
 
           <div className="space-y-1">
             <label className="text-xs font-bold text-muted-foreground uppercase">Resident Payee Name</label>
-            <Input placeholder="Resident contact name..." {...register('tenantName')} />
+            <Input
+              placeholder="Resident contact name..."
+              {...register('tenantName')}
+              readOnly={!!currentTenantName}
+              className={
+                currentTenantName
+                  ? 'bg-muted/70 text-muted-foreground border-border/60 cursor-not-allowed select-none font-medium'
+                  : ''
+              }
+            />
             {errors.tenantName && <p className="text-rose-500">{errors.tenantName.message}</p>}
           </div>
 

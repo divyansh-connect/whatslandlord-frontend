@@ -31,6 +31,12 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className }) =
         return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 dark:bg-emerald-500/20';
       case 'pending':
       case 'pendiente':
+      case 'pending approval':
+      case 'pendiente de aprobación':
+      case 'verify & review':
+      case 'verification under review':
+      case 'under review':
+      case 'review':
       case 'in progress':
       case 'en progreso':
       case 'contacted':

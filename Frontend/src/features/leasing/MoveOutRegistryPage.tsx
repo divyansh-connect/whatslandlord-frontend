@@ -67,10 +67,10 @@ export const MoveOutRegistryPage: React.FC = () => {
       if (realLeaseId) {
         await api.leasing.updateLease(realLeaseId, { status: 'Ended' }).catch(() => {});
         if (unitId) {
-          await api.units.update(unitId, { status: 'Vacant' }).catch(() => {});
+          await api.unit.update(unitId, { status: 'Vacant' }).catch(() => {});
         }
         if (tenantId) {
-          await api.tenants.update(tenantId, { status: 'Inactive', unitId: null }).catch(() => {});
+          await api.tenant.update(tenantId, { status: 'Inactive', unitId: null }).catch(() => {});
         }
       }
       return res;
