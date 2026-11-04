@@ -2053,7 +2053,13 @@ export const api = {
         invoicesList.forEach((inv: any) => {
           const invPaid = Number(inv.paidAmount) || 0;
           if (invPaid > 0) {
-            const hasPayment = paymentsList.some((p: any) =>
+            const existingPayments = paymentsList.filter((p: any) =>
+              p.invoiceId === inv.id ||
+              (p.tenantId === (inv.tenant?.id || inv.tenantId) && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
+            );
+            const totalAlreadyPaid = existingPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+            const remainingUnrecordedPaid = Math.max(0, invPaid - totalAlreadyPaid);
+            const hasPayment = existingPayments.length > 0 || remainingUnrecordedPaid <= 0 || paymentsList.some((p: any) =>
               p.invoiceId === inv.id ||
               (p.tenantId === (inv.tenant?.id || inv.tenantId) && Math.abs(Number(p.amount) - invPaid) < 0.01 && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
             );
