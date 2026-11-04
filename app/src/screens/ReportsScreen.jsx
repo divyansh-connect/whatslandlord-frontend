@@ -15,6 +15,7 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
+  BackHandler,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
@@ -92,7 +93,7 @@ const sanitizeExportData = (data) => {
   });
 };
 
-export const ReportsScreen = ({ onNavigate }) => {
+export const ReportsScreen = ({ onNavigate, onBack }) => {
   const logout = useAuthStore((state) => state.logout);
   const refreshAccessToken = useAuthStore((state) => state.refreshAccessToken);
   const { colors, isDarkMode } = useThemeColors();
@@ -112,6 +113,20 @@ export const ReportsScreen = ({ onNavigate }) => {
 
   // Selected item for Detailed Modal view
   const [viewingItem, setViewingItem] = useState(null);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (selectedReportId !== null) {
+        setSelectedReportId(null);
+        setReportData([]);
+        setSummaryData(null);
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [selectedReportId]);
 
   // Dropdown options lists
   const [properties, setProperties] = useState([]);
@@ -1366,6 +1381,7 @@ export const ReportsScreen = ({ onNavigate }) => {
       return [
         { label: 'All Statuses', value: '' },
         { label: 'Active', value: 'Active' },
+        { label: 'Vacant', value: 'Vacant' },
         { label: 'Draft', value: 'Draft' },
         { label: 'Pending Move In', value: 'Pending_Move_In' },
         { label: 'Terminated', value: 'Terminated' },
@@ -1405,9 +1421,9 @@ export const ReportsScreen = ({ onNavigate }) => {
           {/* Header */}
           <View style={[styles.fixedHeader, { paddingTop: Platform.OS === 'ios' ? 48 : 16 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-              {!!onNavigate && (
+              {(!!onNavigate || !!onBack) && (
                 <TouchableOpacity
-                  onPress={() => onNavigate('dashboard')}
+                  onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)}
                   style={{ marginRight: 8, padding: 4 }}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   activeOpacity={0.7}
@@ -2103,6 +2119,8 @@ export const ReportsScreen = ({ onNavigate }) => {
                                     ? styles.statusActive
                                     : item.leaseStatus === 'Pending_Move_In'
                                     ? styles.statusPending
+                                    : item.leaseStatus === 'Vacant'
+                                    ? styles.statusVacant
                                     : styles.statusTerminated,
                                 ]}
                               >
@@ -2113,6 +2131,8 @@ export const ReportsScreen = ({ onNavigate }) => {
                                       ? styles.statusTextActive
                                       : item.leaseStatus === 'Pending_Move_In'
                                       ? styles.statusTextPending
+                                      : item.leaseStatus === 'Vacant'
+                                      ? styles.statusTextVacant
                                       : styles.statusTextTerminated,
                                   ]}
                                   allowFontScaling={false}
@@ -3119,6 +3139,15 @@ const getStyles = (colors, isDarkMode) =>
     },
     statusTextPending: {
       color: '#fbbf24',
+      fontSize: 10,
+      fontWeight: '800',
+    },
+    statusVacant: {
+      backgroundColor: 'rgba(245, 158, 11, 0.12)',
+      borderColor: 'rgba(245, 158, 11, 0.3)',
+    },
+    statusTextVacant: {
+      color: '#f59e0b',
       fontSize: 10,
       fontWeight: '800',
     },

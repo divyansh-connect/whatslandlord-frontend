@@ -363,7 +363,7 @@ export const NewUnitPage: React.FC = () => {
         errors[`rentAmount_${item.id}`] = `Rent Amount must be positive`;
         hasError = true;
       }
-      if (item.status === 'Occupied' && item.provideTenantInfo === 'now') {
+      if (item.status === 'Occupied') {
         if (!item.tenantFirstName.trim()) {
           errors[`tenantFirstName_${item.id}`] = 'First Name is required';
           hasError = true;
@@ -424,8 +424,8 @@ export const NewUnitPage: React.FC = () => {
           lateFeeGraceDays: item.isLateFeeEnabled ? Number(item.lateFeeGraceDays || 0) : null,
         });
 
-        // 2. If Occupied and Tenant details provided Now
-        if (item.status === 'Occupied' && item.provideTenantInfo === 'now' && item.tenantFirstName && item.tenantLastName) {
+        // 2. If Occupied, create Tenant & Lease details
+        if (item.status === 'Occupied' && item.tenantFirstName && item.tenantLastName) {
           let newTenant;
           try {
             // Create Active Tenant
@@ -568,8 +568,8 @@ export const NewUnitPage: React.FC = () => {
                       amount: paidAmt,
                       dueDate: monthItem.dueDate,
                       paidDate: monthItem.dueDate,
-                      status: isPartial ? 'Partially Paid' : 'Paid',
-                      paymentMethod: isPartial ? 'Offline (Partial)' : 'Offline',
+                      status: isPartial ? 'PartiallyPaid' : 'Paid',
+                      paymentMethod: isPartial ? 'Offline_Partial' : 'Offline',
                       referenceNumber: `RCP-OCCUPIED-${Math.floor(100000 + Math.random() * 900000)}`,
                       createdBy: 'Manager',
                     });
@@ -1141,36 +1141,8 @@ export const NewUnitPage: React.FC = () => {
                         </span>
                       </div>
 
-                      {/* Ask Prompt */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 bg-background p-3 rounded-xl border border-border">
-                        <p className="text-foreground text-xs font-bold">
-                          “Would you like to provide the tenant information now or later?”
-                        </p>
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={item.provideTenantInfo === 'now' ? 'default' : 'outline'}
-                            onClick={() => updateUnitItem(item.id, 'provideTenantInfo', 'now')}
-                            className="font-bold h-8 px-4 text-xs"
-                          >
-                            Now (Enter Details)
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={item.provideTenantInfo === 'later' ? 'default' : 'outline'}
-                            onClick={() => updateUnitItem(item.id, 'provideTenantInfo', 'later')}
-                            className="font-bold h-8 px-4 text-xs"
-                          >
-                            Later
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Tenant Details Form (If Now) */}
-                      {item.provideTenantInfo === 'now' && (
-                        <div className="space-y-4 pt-1 animate-fade-in">
+                      {/* Tenant Details Form */}
+                      <div className="space-y-4 pt-1 animate-fade-in">
                           
                           {/* Personal Information Group */}
                           <div className="space-y-2.5">
@@ -1803,9 +1775,8 @@ export const NewUnitPage: React.FC = () => {
                           </div>
 
                         </div>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    )}
                 </div>
               )}
             </div>
@@ -1856,7 +1827,7 @@ export const NewUnitPage: React.FC = () => {
               </>
             ) : unitItems.length > 1 ? (
               `Save ${unitItems.length} Units`
-            ) : unitItems[0]?.status === 'Occupied' && unitItems[0]?.provideTenantInfo === 'now' ? (
+            ) : unitItems[0]?.status === 'Occupied' ? (
               'Save Unit & Complete Onboarding'
             ) : (
               'Save Unit'

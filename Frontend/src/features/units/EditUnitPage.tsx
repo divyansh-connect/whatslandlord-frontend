@@ -143,7 +143,7 @@ export const EditUnitPage: React.FC = () => {
       });
 
       // 2. If Occupied and Tenant info is provided
-      if (values.status === 'Occupied' && values.provideTenantInfo === 'now' && values.tenantFirstName && values.tenantLastName) {
+      if (values.status === 'Occupied' && values.tenantFirstName && values.tenantLastName) {
         const existingTenantId = unit?.tenant?.id || (unit?.tenants && unit.tenants[0]?.id);
         const tenantData = {
           firstName: values.tenantFirstName,
@@ -261,8 +261,8 @@ export const EditUnitPage: React.FC = () => {
                     amount: pAmt,
                     dueDate: monthItem.dueDate,
                     paidDate: monthItem.dueDate,
-                    status: isPartial ? 'Partially Paid' : 'Paid',
-                    paymentMethod: isPartial ? 'Offline (Partial)' : 'Offline',
+                    status: isPartial ? 'PartiallyPaid' : 'Paid',
+                    paymentMethod: isPartial ? 'Offline_Partial' : 'Offline',
                     referenceNumber: `RCP-OCCUPIED-${Math.floor(100000 + Math.random() * 900000)}`,
                     createdBy: 'Manager',
                   });
@@ -332,8 +332,8 @@ export const EditUnitPage: React.FC = () => {
       showPassword: false,
       tenantDob: unit.tenant?.dob ? (unit.tenant.dob.includes('T') ? unit.tenant.dob.split('T')[0] : unit.tenant.dob) : '',
       tenantGender: unit.tenant?.gender || 'Male',
-      tenantMoveInDate: unit.tenant?.moveInDate ? (unit.tenant.moveInDate.includes('T') ? unit.tenant.moveInDate.split('T')[0] : unit.tenant.moveInDate) : new Date().toISOString().split('T')[0],
-      tenantInvoiceStartDate: (unit.tenant as any)?.invoiceStartDate ? ((unit.tenant as any).invoiceStartDate.includes('T') ? (unit.tenant as any).invoiceStartDate.split('T')[0] : (unit.tenant as any).invoiceStartDate) : (unit.tenant?.moveInDate ? (unit.tenant.moveInDate.includes('T') ? unit.tenant.moveInDate.split('T')[0] : unit.tenant.moveInDate) : new Date().toISOString().split('T')[0]),
+      tenantMoveInDate: unit.tenant?.moveInDate ? (unit.tenant.moveInDate.includes('T') ? unit.tenant.moveInDate.split('T')[0] : unit.tenant.moveInDate) : ((unit.leases && unit.leases[0]?.startDate) ? (String(unit.leases[0].startDate).includes('T') ? String(unit.leases[0].startDate).split('T')[0] : String(unit.leases[0].startDate)) : new Date().toISOString().split('T')[0]),
+      tenantInvoiceStartDate: (unit.tenant as any)?.invoiceStartDate ? ((unit.tenant as any).invoiceStartDate.includes('T') ? (unit.tenant as any).invoiceStartDate.split('T')[0] : (unit.tenant as any).invoiceStartDate) : (unit.tenant?.moveInDate ? (unit.tenant.moveInDate.includes('T') ? unit.tenant.moveInDate.split('T')[0] : unit.tenant.moveInDate) : ((unit.leases && unit.leases[0]?.startDate) ? (String(unit.leases[0].startDate).includes('T') ? String(unit.leases[0].startDate).split('T')[0] : String(unit.leases[0].startDate)) : new Date().toISOString().split('T')[0])),
       tenantPreviousBalance: unit.tenant?.previousBalance || unit.tenant?.openingBalance || 0,
       unpaidMonths: [],
       showTenantAdditionalDetails: false,
@@ -760,34 +760,8 @@ export const EditUnitPage: React.FC = () => {
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 bg-background p-3 rounded-xl border border-border">
-                <p className="text-foreground text-xs font-bold">
-                  “Would you like to provide the tenant information now or later?”
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={provideTenantInfo === 'now' ? 'default' : 'outline'}
-                    onClick={() => setValue('provideTenantInfo', 'now')}
-                    className="font-bold h-8 px-4 text-xs"
-                  >
-                    Now (Enter Details)
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={provideTenantInfo === 'later' ? 'default' : 'outline'}
-                    onClick={() => setValue('provideTenantInfo', 'later')}
-                    className="font-bold h-8 px-4 text-xs"
-                  >
-                    Later
-                  </Button>
-                </div>
-              </div>
-
-              {provideTenantInfo === 'now' && (
-                <div className="space-y-4 pt-1 animate-fade-in">
+              {/* Tenant Details Form */}
+              <div className="space-y-4 pt-1 animate-fade-in">
                   
                   {/* Personal Information Group */}
                   <div className="space-y-2.5">
@@ -1446,9 +1420,8 @@ export const EditUnitPage: React.FC = () => {
                   </div>
 
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
 
         </div>
 

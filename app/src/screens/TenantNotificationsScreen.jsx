@@ -17,7 +17,7 @@ import { useAuthStore, useThemeStore, useNotificationStore } from '../store/useS
 import { useThemeColors } from '../theme';
 import { isNoticeForTenant } from '../utils/tenantNoticeHelper';
 
-export const TenantNotificationsScreen = ({ onNavigate }) => {
+export const TenantNotificationsScreen = ({ onNavigate, onBack }) => {
   const { colors, isDarkMode } = useThemeColors();
   const { language } = useThemeStore();
   const { user, logout, refreshAccessToken } = useAuthStore();
@@ -179,10 +179,10 @@ export const TenantNotificationsScreen = ({ onNavigate }) => {
       <View style={styles.header}>
         <View style={styles.headerTopBar}>
           <View style={styles.headerLeftGroup}>
-            {onNavigate && (
+            {(onNavigate || onBack) && (
               <TouchableOpacity
                 style={styles.backBtn}
-                onPress={() => onNavigate('dashboard')}
+                onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
                 <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />

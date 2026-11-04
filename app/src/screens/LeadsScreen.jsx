@@ -18,6 +18,7 @@ import {
   Linking,
   StatusBar,
   Image,
+  BackHandler,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
@@ -139,19 +140,57 @@ const defaultStarterRooms = [
   },
 ];
 
-export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId }) => {
+export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLeaseId }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
 
   // Sub-tab selector: 'leads' | 'applications' | 'screening' | 'leases' | 'renewals' | 'movein' | 'moveout' | 'templates'
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [tabHistory, setTabHistory] = useState([]);
 
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  const switchTab = (tabName) => {
+    if (tabName !== activeTab) {
+      setTabHistory((prev) => [...prev, activeTab]);
+      setActiveTab(tabName);
+    }
+  };
+
+  const handleBackNavigation = () => {
+    if (tabHistory.length > 0) {
+      const prevTab = tabHistory[tabHistory.length - 1];
+      setTabHistory((prev) => prev.slice(0, -1));
+      setActiveTab(prevTab);
+      return;
+    }
+    if (activeTab !== 'leads' && initialTab !== activeTab) {
+      setActiveTab('leads');
+      return;
+    }
+    if (onBack) {
+      onBack();
+    } else if (onNavigate) {
+      onNavigate('back');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (tabHistory.length > 0 || (activeTab !== 'leads' && initialTab !== activeTab)) {
+        handleBackNavigation();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [tabHistory, activeTab, initialTab]);
 
   // Lists state
   const [leadsList, setLeadsList] = useState([]);
@@ -2479,9 +2518,9 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
       <View style={[styles.fixedHeader, { paddingTop: 16 }]}>
         <View style={styles.headerTextContainer}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-            {!!onNavigate && (
+            {(!!onNavigate || !!onBack) && (
               <TouchableOpacity
-                onPress={() => onNavigate('dashboard')}
+                onPress={handleBackNavigation}
                 style={{ marginRight: 8, padding: 4 }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 activeOpacity={0.7}
@@ -2521,28 +2560,28 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled={true}
           >
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'leads' && styles.tabItemActive]} onPress={() => setActiveTab('leads')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'leads' && styles.tabItemActive]} onPress={() => switchTab('leads')}>
               <Text style={[styles.tabItemText, activeTab === 'leads' && styles.tabItemTextActive]} allowFontScaling={false}>Leads</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'applications' && styles.tabItemActive]} onPress={() => setActiveTab('applications')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'applications' && styles.tabItemActive]} onPress={() => switchTab('applications')}>
               <Text style={[styles.tabItemText, activeTab === 'applications' && styles.tabItemTextActive]} allowFontScaling={false}>Applications</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'screening' && styles.tabItemActive]} onPress={() => setActiveTab('screening')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'screening' && styles.tabItemActive]} onPress={() => switchTab('screening')}>
               <Text style={[styles.tabItemText, activeTab === 'screening' && styles.tabItemTextActive]} allowFontScaling={false}>Tenant Screening</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'leases' && styles.tabItemActive]} onPress={() => setActiveTab('leases')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'leases' && styles.tabItemActive]} onPress={() => switchTab('leases')}>
               <Text style={[styles.tabItemText, activeTab === 'leases' && styles.tabItemTextActive]} allowFontScaling={false}>Leases</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'renewals' && styles.tabItemActive]} onPress={() => setActiveTab('renewals')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'renewals' && styles.tabItemActive]} onPress={() => switchTab('renewals')}>
               <Text style={[styles.tabItemText, activeTab === 'renewals' && styles.tabItemTextActive]} allowFontScaling={false}>Renewals</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'movein' && styles.tabItemActive]} onPress={() => setActiveTab('movein')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'movein' && styles.tabItemActive]} onPress={() => switchTab('movein')}>
               <Text style={[styles.tabItemText, activeTab === 'movein' && styles.tabItemTextActive]} allowFontScaling={false}>Move In</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'moveout' && styles.tabItemActive]} onPress={() => setActiveTab('moveout')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'moveout' && styles.tabItemActive]} onPress={() => switchTab('moveout')}>
               <Text style={[styles.tabItemText, activeTab === 'moveout' && styles.tabItemTextActive]} allowFontScaling={false}>Move Out</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, activeTab === 'templates' && styles.tabItemActive]} onPress={() => setActiveTab('templates')}>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'templates' && styles.tabItemActive]} onPress={() => switchTab('templates')}>
               <Text style={[styles.tabItemText, activeTab === 'templates' && styles.tabItemTextActive]} allowFontScaling={false}>Templates</Text>
             </TouchableOpacity>
           </ScrollView>

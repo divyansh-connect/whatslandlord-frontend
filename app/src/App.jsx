@@ -118,48 +118,49 @@ export default function App() {
   }, []);
 
   // System Edge Swipe & Hardware Back Button Handler: Prevents unexpected app exit
+  const handleGoBack = () => {
+    // 1. If navigation drawer is open, close it first
+    if (drawerVisible) {
+      setDrawerVisible(false);
+      return true;
+    }
+
+    // 2. If in inspection view, exit back to previous tab
+    if (currentInspectionId) {
+      setCurrentInspectionId(null);
+      return true;
+    }
+
+    // 3. If history stack exists, go back to previous screen
+    if (navHistory.length > 0) {
+      const last = navHistory[navHistory.length - 1];
+      setNavHistory((prev) => prev.slice(0, -1));
+      setActiveTab(last.tab || 'dashboard');
+      setActiveSubTab(last.subTab || null);
+      setNavParams(last.params || {});
+      if (last.inspectionId) setCurrentInspectionId(last.inspectionId);
+      return true;
+    }
+
+    // 4. If currently on a sub-tab, return to parent tab's main view
+    if (activeSubTab) {
+      setActiveSubTab(null);
+      return true;
+    }
+
+    // 5. If on any tab other than 'dashboard', go to 'dashboard'
+    if (activeTab !== 'dashboard') {
+      setActiveTab('dashboard');
+      setActiveSubTab(null);
+      return true;
+    }
+
+    // 6. If already on dashboard with no history, let default OS exit happen
+    return false;
+  };
+
   useEffect(() => {
-    const onBackPress = () => {
-      // 1. If navigation drawer is open, close it first
-      if (drawerVisible) {
-        setDrawerVisible(false);
-        return true;
-      }
-
-      // 2. If in inspection view, exit back to previous tab
-      if (currentInspectionId) {
-        setCurrentInspectionId(null);
-        return true;
-      }
-
-      // 3. If history stack exists, go back to previous screen
-      if (navHistory.length > 0) {
-        const last = navHistory[navHistory.length - 1];
-        setNavHistory((prev) => prev.slice(0, -1));
-        setActiveTab(last.tab || 'dashboard');
-        setActiveSubTab(last.subTab || null);
-        setNavParams(last.params || {});
-        if (last.inspectionId) setCurrentInspectionId(last.inspectionId);
-        return true;
-      }
-
-      // 4. If currently on a sub-tab, return to parent tab's main view
-      if (activeSubTab) {
-        setActiveSubTab(null);
-        return true;
-      }
-
-      // 5. If on any tab other than 'dashboard', go to 'dashboard'
-      if (activeTab !== 'dashboard') {
-        setActiveTab('dashboard');
-        setActiveSubTab(null);
-        return true;
-      }
-
-      // 6. If already on dashboard with no history, let default OS exit happen
-      return false;
-    };
-
+    const onBackPress = () => handleGoBack();
     const backSubscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => backSubscription.remove();
   }, [drawerVisible, currentInspectionId, navHistory, activeSubTab, activeTab, navParams]);
@@ -171,6 +172,18 @@ export default function App() {
       : 48;
 
   const handleNavigate = (tabId, paramsOrSubTab) => {
+    if (tabId === 'back' || tabId === 'goBack') {
+      return handleGoBack();
+    }
+
+    if (tabId === 'dashboard') {
+      setNavHistory([]);
+      setActiveTab('dashboard');
+      setActiveSubTab(null);
+      setNavParams({});
+      return;
+    }
+
     let subTab = typeof paramsOrSubTab === 'string' ? paramsOrSubTab : paramsOrSubTab?.tab || null;
     const params = typeof paramsOrSubTab === 'object' && paramsOrSubTab !== null ? paramsOrSubTab : {};
     setNavParams(params);
@@ -411,11 +424,11 @@ export default function App() {
 
   const renderScreen = () => {
     if (role === 'Maintenance Staff') {
-      if (activeTab === 'dashboard') return <MaintenanceStaffDashboard activeSubTab="dashboard" onNavigate={handleNavigate} />;
-      if (activeTab === 'mytasks') return <MaintenanceStaffDashboard activeSubTab="mytasks" onNavigate={handleNavigate} />;
-      if (activeTab === 'messages' || activeTab === 'communication') return <TenantMessagesScreen onNavigate={handleNavigate} />;
-      if (activeTab === 'history') return <MaintenanceStaffDashboard activeSubTab="history" onNavigate={handleNavigate} />;
-      if (activeTab === 'profile') return <ProfileScreen onNavigate={handleNavigate} />;
+      if (activeTab === 'dashboard') return <MaintenanceStaffDashboard activeSubTab="dashboard" onNavigate={handleNavigate} onBack={handleGoBack} />;
+      if (activeTab === 'mytasks') return <MaintenanceStaffDashboard activeSubTab="mytasks" onNavigate={handleNavigate} onBack={handleGoBack} />;
+      if (activeTab === 'messages' || activeTab === 'communication') return <TenantMessagesScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
+      if (activeTab === 'history') return <MaintenanceStaffDashboard activeSubTab="history" onNavigate={handleNavigate} onBack={handleGoBack} />;
+      if (activeTab === 'profile') return <ProfileScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
     }
 
     switch (activeTab) {
@@ -434,13 +447,13 @@ export default function App() {
       case 'roles-permissions':
         return <RolesPermissionsScreen />;
       case 'integrations':
-        return <CompanySettingsScreen initialTab="integrations" onNavigate={handleNavigate} />;
+        return <CompanySettingsScreen initialTab="integrations" onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'lease':
       case 'leasing':
-        return role === 'Tenant' ? <TenantLeaseScreen /> : <LeadsScreen initialTab={activeSubTab || 'leases'} onNavigate={handleNavigate} />;
+        return role === 'Tenant' ? <TenantLeaseScreen /> : <LeadsScreen initialTab={activeSubTab || 'leases'} onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'properties':
         return role === 'Owner' ? (
-          <OwnerPropertiesScreen onNavigate={handleNavigate} />
+          <OwnerPropertiesScreen onNavigate={handleNavigate} onBack={handleGoBack} />
         ) : (
           <PropertiesScreen
             initialTab={activeSubTab || 'properties'}
@@ -448,6 +461,7 @@ export default function App() {
             targetUnitId={navParams.unitId}
             targetPropertyId={navParams.propertyId}
             onNavigate={handleNavigate}
+            onBack={handleGoBack}
           />
         );
       case 'units':
@@ -458,10 +472,11 @@ export default function App() {
             targetUnitId={navParams.unitId || navParams.id}
             targetPropertyId={navParams.propertyId}
             onNavigate={handleNavigate}
+            onBack={handleGoBack}
           />
         );
       case 'drafts':
-        return <PropertiesScreen initialTab="drafts" onNavigate={handleNavigate} />;
+        return <PropertiesScreen initialTab="drafts" onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'leads':
       case 'applications':
       case 'screening':
@@ -474,10 +489,11 @@ export default function App() {
             initialTab={activeSubTab || activeTab}
             targetLeaseId={navParams.leaseId || navParams.id}
             onNavigate={handleNavigate}
+            onBack={handleGoBack}
           />
         );
       case 'inspection':
-        return <InspectionDetailsScreen inspectionId={currentInspectionId} onNavigate={handleNavigate} />;
+        return <InspectionDetailsScreen inspectionId={currentInspectionId} onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'tenants':
         return (
           <TenantsScreen
@@ -485,14 +501,15 @@ export default function App() {
             initialAdoptionFilter={navParams.filter || navParams.adoptionFilter || null}
             targetTenantId={navParams.tenantId || navParams.id}
             onNavigate={handleNavigate}
+            onBack={handleGoBack}
           />
         );
       case 'owners':
-        return <OwnersScreen onNavigate={handleNavigate} />;
+        return <OwnersScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'documents':
-        return <TenantDocumentsScreen initialTab={activeSubTab || 'tenant'} onNavigate={handleNavigate} />;
+        return <TenantDocumentsScreen initialTab={activeSubTab || 'tenant'} onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'restore-bin':
-        return <RestoreBinScreen onNavigate={handleNavigate} />;
+        return <RestoreBinScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'invoices':
         if (role === 'Property Manager' || role === 'Collection Manager') {
           return (
@@ -502,19 +519,20 @@ export default function App() {
               targetInvoiceId={navParams.invoiceId || navParams.id}
               targetPaymentId={navParams.paymentId}
               onNavigate={handleNavigate}
+              onBack={handleGoBack}
             />
           );
         }
         return <InvoicesScreen />;
       case 'communication':
       case 'messages':
-        return role === 'Property Manager' ? <ManagerCommunicationScreen onNavigate={handleNavigate} /> : <TenantMessagesScreen onNavigate={handleNavigate} />;
+        return role === 'Property Manager' ? <ManagerCommunicationScreen onNavigate={handleNavigate} onBack={handleGoBack} /> : <TenantMessagesScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'notifications':
-        return role === 'Tenant' ? <TenantNotificationsScreen onNavigate={handleNavigate} /> : <NotificationsScreen onNavigate={handleNavigate} />;
+        return role === 'Tenant' ? <TenantNotificationsScreen onNavigate={handleNavigate} onBack={handleGoBack} /> : <NotificationsScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'statements':
         return <StatementsScreen />;
       case 'reports':
-        return role === 'Owner' ? <OwnerReportsScreen onNavigate={handleNavigate} /> : <ReportsScreen onNavigate={handleNavigate} />;
+        return role === 'Owner' ? <OwnerReportsScreen onNavigate={handleNavigate} onBack={handleGoBack} /> : <ReportsScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'rent':
       case 'payments':
       case 'rent-dashboard':
@@ -527,6 +545,7 @@ export default function App() {
               targetPaymentId={navParams.paymentId || navParams.id}
               targetInvoiceId={navParams.invoiceId || navParams.id}
               onNavigate={handleNavigate}
+              onBack={handleGoBack}
             />
           );
         }
@@ -543,6 +562,7 @@ export default function App() {
               targetPaymentId={navParams.paymentId || navParams.id}
               targetInvoiceId={navParams.invoiceId || navParams.id}
               onNavigate={handleNavigate}
+              onBack={handleGoBack}
             />
           );
         }
@@ -553,7 +573,7 @@ export default function App() {
       case 'expenses':
         if (role === 'Owner') return <OwnerFinancialsScreen />;
         if (role === 'Property Manager' || role === 'Collection Manager') {
-          return <ManagerAccountingScreen initialTab={activeSubTab || 'dashboard'} onNavigate={handleNavigate} />;
+          return <ManagerAccountingScreen initialTab={activeSubTab || 'dashboard'} onNavigate={handleNavigate} onBack={handleGoBack} />;
         }
         return <TenantLedgerScreen />;
       case 'maintenance':
@@ -568,10 +588,10 @@ export default function App() {
           ? 'staff'
           : 'requests';
         if (role === 'Tenant') {
-          return <TenantMaintenanceScreen onNavigate={handleNavigate} />;
+          return <TenantMaintenanceScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
         }
         return role === 'Owner' ? (
-          <OwnerMaintenanceScreen onNavigate={handleNavigate} />
+          <OwnerMaintenanceScreen onNavigate={handleNavigate} onBack={handleGoBack} />
         ) : (
           <MaintenanceScreen
             initialTab={activeSubTab || defaultMaintenanceTab}
@@ -579,23 +599,24 @@ export default function App() {
             targetWorkOrderId={navParams.workOrderId || navParams.id}
             isInternalFilter={Boolean(navParams.isInternal)}
             onNavigate={handleNavigate}
+            onBack={handleGoBack}
           />
         );
       }
       case 'companies':
         return <CompaniesScreen />;
       case 'distributions':
-        return <DistributionsScreen onNavigate={handleNavigate} />;
+        return <DistributionsScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'ai':
-        return <AIAssistantScreen onNavigate={handleNavigate} />;
+        return <AIAssistantScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'company-settings':
       case 'admin':
-        return <CompanySettingsScreen initialTab={activeSubTab || 'menu'} onNavigate={handleNavigate} />;
+        return <CompanySettingsScreen initialTab={activeSubTab || 'menu'} onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'profile':
         if (role === 'Tenant') {
-          return <TenantProfileScreen onNavigate={handleNavigate} />;
+          return <TenantProfileScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
         }
-        return <ProfileScreen onNavigate={handleNavigate} />;
+        return <ProfileScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'more':
         if (role === 'Tenant') {
           return (

@@ -510,7 +510,28 @@ export const RentLedgerPage: React.FC = () => {
                   {selectedTenantLedger.map((entry, idx) => (
                     <tr key={idx} className="hover:bg-secondary/10">
                       <td className="py-2.5 font-semibold text-muted-foreground">{entry.date}</td>
-                      <td className="py-2.5 text-foreground font-extrabold">{entry.description}</td>
+                      <td className="py-2.5 text-foreground font-extrabold">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{entry.description}</span>
+                          {entry.invoiceStatus && (
+                            <span
+                              className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
+                                entry.invoiceStatus === 'Paid'
+                                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                  : entry.invoiceStatus === 'Partially Paid'
+                                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                                  : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+                              }`}
+                            >
+                              {entry.invoiceStatus === 'Partially Paid'
+                                ? `Partially Paid ($${Number(entry.invoicePaidAmount || 0).toLocaleString()} Paid)`
+                                : entry.invoiceStatus === 'Paid'
+                                ? 'Fully Paid'
+                                : 'Unpaid'}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="py-2.5 text-right text-rose-500 font-bold">
                         {entry.debit > 0 ? `$${entry.debit.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'}
                       </td>

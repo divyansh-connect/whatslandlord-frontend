@@ -11,6 +11,7 @@ import {
   Modal,
   Platform,
   KeyboardAvoidingView,
+  BackHandler,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,7 +20,7 @@ import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 
-export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
+export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack }) => {
   const resolveTab = (t) => {
     if (!t || t === 'company-settings' || t === 'admin' || t === 'menu') return 'menu';
     return t;
@@ -35,6 +36,18 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
   useEffect(() => {
     setActiveTab(resolveTab(initialTab));
   }, [initialTab]);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (activeTab !== 'menu') {
+        setActiveTab('menu');
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [activeTab]);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1219,7 +1232,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
           <View style={styles.headerTitleRowWithBack}>
             <TouchableOpacity
               style={styles.backButton}
-              onPress={() => onNavigate && onNavigate('dashboard')}
+              onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)}
               activeOpacity={0.7}
             >
               <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />

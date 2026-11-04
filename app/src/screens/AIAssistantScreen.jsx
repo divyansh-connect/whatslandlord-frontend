@@ -16,7 +16,7 @@ import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
-export const AIAssistantScreen = ({ onNavigate }) => {
+export const AIAssistantScreen = ({ onNavigate, onBack }) => {
   const { user } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
@@ -164,7 +164,7 @@ export const AIAssistantScreen = ({ onNavigate }) => {
     >
       {/* FIXED NAVIGATION HEADER */}
       <View style={styles.fixedHeader}>
-        <TouchableOpacity onPress={() => onNavigate && onNavigate('dashboard')} style={styles.backButton}>
+        <TouchableOpacity onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)} style={styles.backButton}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} style={{ marginRight: 6 }} />
           <View>
             <Text style={styles.title} allowFontScaling={false}>{getTitle()}</Text>

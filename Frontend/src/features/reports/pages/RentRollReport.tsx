@@ -142,7 +142,7 @@ export const RentRollReport: React.FC = () => {
         onChange={setFilterVal}
         onReset={resetFilters}
         showStatusFilter={true}
-        statusOptions={['Active', 'Draft', 'Expired', 'Terminated', 'Ended']}
+        statusOptions={['Active', 'Vacant', 'Draft', 'Expired', 'Terminated', 'Ended']}
       />
 
       {/* KPI Cards Header */}

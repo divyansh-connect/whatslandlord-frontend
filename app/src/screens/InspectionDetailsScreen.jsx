@@ -107,7 +107,7 @@ const signatureHtml = `
 </html>
 `;
 
-export const InspectionDetailsScreen = ({ inspectionId, onNavigate }) => {
+export const InspectionDetailsScreen = ({ inspectionId, onNavigate, onBack }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
@@ -361,7 +361,7 @@ export const InspectionDetailsScreen = ({ inspectionId, onNavigate }) => {
     <View style={styles.mainWrapper}>
       <View style={styles.fixedHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 46, marginTop: 4 }}>
-          <TouchableOpacity onPress={() => onNavigate && onNavigate('leads', { tab: 'moveout' })} style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          <TouchableOpacity onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('leads', { tab: 'moveout' }) : null)} style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
             <Ionicons name="arrow-back" size={22} color={colors.textPrimary} style={{ marginRight: 8 }} />
             <Text style={[styles.title, { fontSize: 18 }]} numberOfLines={1} allowFontScaling={false}>
               Checklist Execution: {inspectionNumber}
