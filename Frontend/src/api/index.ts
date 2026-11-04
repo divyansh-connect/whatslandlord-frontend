@@ -3211,6 +3211,48 @@ export const api = {
     },
   },
 
+  chat: {
+    getConversations: async () => {
+      try {
+        const res: any = await apiClient.get('/chat/conversations');
+        return res?.data !== undefined ? res.data : (res || []);
+      } catch (e) {
+        console.error('Chat conversations fetch failed:', e);
+        return [];
+      }
+    },
+    initConversation: async (data: { participantType: 'TENANT' | 'OWNER' | 'STAFF'; participantId: string }) => {
+      const res: any = await apiClient.post('/chat/conversations/init', data);
+      return res?.data !== undefined ? res.data : res;
+    },
+    getMessages: async (conversationId: string) => {
+      try {
+        const res: any = await apiClient.get(`/chat/conversations/${conversationId}/messages`);
+        return res?.data !== undefined ? res.data : (res || []);
+      } catch (e) {
+        console.error('Chat messages fetch failed:', e);
+        return [];
+      }
+    },
+    sendMessage: async (conversationId: string, body: string) => {
+      const res: any = await apiClient.post(`/chat/conversations/${conversationId}/messages`, { body });
+      return res?.data !== undefined ? res.data : res;
+    },
+    markAsRead: async (conversationId: string) => {
+      const res: any = await apiClient.post(`/chat/conversations/${conversationId}/read`, {});
+      return res?.data !== undefined ? res.data : res;
+    },
+    getContacts: async () => {
+      try {
+        const res: any = await apiClient.get('/chat/contacts');
+        return res?.data !== undefined ? res.data : (res || []);
+      } catch (e) {
+        console.error('Chat contacts fetch failed:', e);
+        return [];
+      }
+    },
+  },
+
   tenantNotifications: {
     getAll: async () => {
       let serverList: any[] = [];
