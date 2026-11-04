@@ -12,7 +12,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { StatusBadge } from '../../components/StatusBadge';
 import { VendorRating } from '../../components/MaintenanceComponents';
-import { Plus, Eye, Loader2, ShieldAlert } from 'lucide-react';
+import { Plus, Eye, Loader2, ShieldAlert, Pencil } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 
 export const VendorsPage: React.FC = () => {
@@ -24,6 +24,35 @@ export const VendorsPage: React.FC = () => {
   // Dialog states
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  // Edit states
+  const [editingVendor, setEditingVendor] = useState<any | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editCategory, setEditCategory] = useState('Plumber');
+  const [editPhone, setEditPhone] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editContact, setEditContact] = useState('');
+  const [editRating, setEditRating] = useState('5.0');
+  const [editStatus, setEditStatus] = useState('Active');
+
+  const handleStartEdit = (vendor: any) => {
+    setEditingVendor(vendor);
+    setEditName(vendor.name || vendor.companyName || '');
+    setEditCategory(vendor.category || vendor.serviceType || 'Plumber');
+    setEditPhone(vendor.phone || '');
+    setEditEmail(vendor.email || '');
+    setEditContact(vendor.primaryContact || vendor.contactName || '');
+    setEditRating(String(vendor.rating || '5.0'));
+    setEditStatus(vendor.status || 'Active');
+  };
+
+  const editMutation = useMutation({
+    mutationFn: (data: any) => api.vendors.update(editingVendor!.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendors-list'] });
+      setEditingVendor(null);
+    },
+  });
 
   // Form states
   const [name, setName] = useState('');
@@ -88,9 +117,20 @@ export const VendorsPage: React.FC = () => {
       id: 'actions',
       header: t('maintenanceRequests.actions'),
       cell: ({ row }) => (
-        <Button variant="ghost" size="icon" onClick={() => setSelectedVendor(row.original)} title="View Profile">
-          <Eye className="w-4 h-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={() => setSelectedVendor(row.original)} title="View Profile">
+            <Eye className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => handleStartEdit(row.original)}
+            title="Edit Vendor"
+            className="text-primary hover:text-primary/80"
+          >
+            <Pencil className="w-4 h-4" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -266,6 +306,114 @@ export const VendorsPage: React.FC = () => {
 
             <div className="flex justify-end pt-4 border-t">
               <Button variant="outline" onClick={() => setSelectedVendor(null)}>Close</Button>
+            </div>
+          </div>
+        )}
+      </FormDialog>
+
+      {/* EDIT VENDOR DIALOG */}
+      <FormDialog open={!!editingVendor} onOpenChange={(open) => !open && setEditingVendor(null)} title="Edit Vendor Details">
+        {editingVendor && (
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-muted-foreground uppercase">Company / Firm Name</label>
+              <Input
+                placeholder="Vendor / Trade Firm Name..."
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Specialty Trade</label>
+                <Select value={editCategory} onChange={(e) => setEditCategory(e.target.value)}>
+                  <option value="Plumber">Plumber Specialty</option>
+                  <option value="Electrician">Electrician Specialty</option>
+                  <option value="HVAC">HVAC Maintenance</option>
+                  <option value="General Contractor">General Contractor</option>
+                  <option value="Cleaning">Cleaning & Turnovers</option>
+                  <option value="Landscaping">Landscaping & Pools</option>
+                  <option value="Pest Control">Pest Control</option>
+                  <option value="Security">Security & Fire</option>
+                  <option value="Roofing">Roofing & Guttering</option>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Primary Contact</label>
+                <Input
+                  placeholder="Primary Agent Name..."
+                  value={editContact}
+                  onChange={(e) => setEditContact(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Business Phone</label>
+                <Input
+                  placeholder="(512) 555-0199"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Email Address</label>
+                <Input
+                  type="email"
+                  placeholder="contact@firm.com"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Rating (1.0 - 5.0)</label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="1"
+                  max="5"
+                  value={editRating}
+                  onChange={(e) => setEditRating(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-muted-foreground uppercase">Status</label>
+                <Select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                  <option value="Pending Verification">Pending Verification</option>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-4 border-t">
+              <Button variant="outline" onClick={() => setEditingVendor(null)}>Cancel</Button>
+              <Button
+                onClick={() =>
+                  editMutation.mutate({
+                    name: editName,
+                    companyName: editName,
+                    category: editCategory,
+                    serviceType: editCategory,
+                    phone: editPhone,
+                    email: editEmail,
+                    primaryContact: editContact,
+                    contactName: editContact,
+                    rating: parseFloat(editRating) || 5.0,
+                    status: editStatus,
+                  })
+                }
+                disabled={!editName || !editPhone || !editEmail || editMutation.isPending}
+              >
+                {editMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                Save Changes
+              </Button>
             </div>
           </div>
         )}
