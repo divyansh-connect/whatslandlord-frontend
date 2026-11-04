@@ -336,6 +336,17 @@ export const api = {
           if (!res.data.tenant && Array.isArray(res.data.tenants) && res.data.tenants.length > 0) {
             res.data.tenant = res.data.tenants[0];
           }
+          if (res.data.tenant) {
+            if (!res.data.tenant.moveInDate && Array.isArray(res.data.leases) && res.data.leases.length > 0) {
+              const activeLease = res.data.leases[0];
+              if (activeLease?.startDate) {
+                res.data.tenant.moveInDate = String(activeLease.startDate).split('T')[0];
+              }
+            }
+            if (!res.data.tenant.invoiceStartDate && res.data.tenant.moveInDate) {
+              res.data.tenant.invoiceStartDate = res.data.tenant.moveInDate;
+            }
+          }
         }
         return res.data;
       } catch (e) {
@@ -527,6 +538,8 @@ export const api = {
           email: t.email,
           phone: t.phone,
           unitId: t.unitId,
+          preferredName: t.preferredName || '',
+          altPhone: t.altPhone || '',
           unitNumber: t.unit?.unitNumber || 'Unassigned',
           unitName: t.unit?.unitNumber || 'Unassigned',
           propertyId: t.unit?.propertyId,
@@ -538,6 +551,7 @@ export const api = {
           previousBalance: Number(t.previousBalance || t.openingBalance || 0),
           openingBalance: Number(t.openingBalance || t.previousBalance || 0),
           moveInDate: t.moveInDate ? (t.moveInDate.includes('T') ? t.moveInDate.split('T')[0] : t.moveInDate) : '',
+          invoiceStartDate: t.invoiceStartDate ? (t.invoiceStartDate.includes('T') ? t.invoiceStartDate.split('T')[0] : t.invoiceStartDate) : '',
         }));
       } catch (e) {
         console.error('Tenants fetch failed:', e);
@@ -586,6 +600,7 @@ export const api = {
           previousBalance: Number(t.previousBalance || t.openingBalance || 0),
           openingBalance: Number(t.openingBalance || t.previousBalance || 0),
           moveInDate: t.moveInDate ? (t.moveInDate.includes('T') ? t.moveInDate.split('T')[0] : t.moveInDate) : '',
+          invoiceStartDate: t.invoiceStartDate ? (t.invoiceStartDate.includes('T') ? t.invoiceStartDate.split('T')[0] : t.invoiceStartDate) : '',
         };
       } catch (e) {
         console.error(`Tenant fetch by id failed for ${id}:`, e);
