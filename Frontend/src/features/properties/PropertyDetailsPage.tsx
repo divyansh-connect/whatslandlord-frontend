@@ -14,8 +14,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/Ta
 import { ColumnDef } from '@tanstack/react-table';
 import { 
   Building2, Home, UserCheck, AlertCircle, Wrench, FileText, 
-  MapPin, Landmark, DollarSign, Calendar, Plus, Upload, Loader2, ArrowLeft, CreditCard, ShieldCheck 
+  MapPin, Landmark, DollarSign, Calendar, Plus, Upload, Loader2, ArrowLeft, CreditCard, ShieldCheck,
+  MessageSquare
 } from 'lucide-react';
+import { QuickChatDrawer } from '../../components/chat/QuickChatDrawer';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 export const PropertyDetailsPage: React.FC = () => {
@@ -23,6 +25,7 @@ export const PropertyDetailsPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isDocUploadOpen, setIsDocUploadOpen] = useState(false);
+  const [selectedChatTenant, setSelectedChatTenant] = useState<any | null>(null);
 
   // Fetch Property
   const { data: property, isLoading: loadingProp } = useQuery({
@@ -117,6 +120,20 @@ export const PropertyDetailsPage: React.FC = () => {
     { accessorKey: 'phone', header: 'Phone', id: 'phone' },
     { accessorKey: 'unitNumber', header: 'Unit #', id: 'unit' },
     { accessorKey: 'status', header: 'Status', id: 'status', cell: ({ row }) => <StatusBadge status={row.original.status} /> },
+    {
+      id: 'chat',
+      header: 'Direct Chat',
+      cell: ({ row }) => (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setSelectedChatTenant(row.original)}
+          className="h-8 text-xs font-bold flex items-center gap-1.5"
+        >
+          <MessageSquare className="w-3.5 h-3.5" /> Chat
+        </Button>
+      ),
+    },
   ];
 
   const maintColumns: ColumnDef<any>[] = [
@@ -414,6 +431,17 @@ export const PropertyDetailsPage: React.FC = () => {
           </FormDialog>
         </TabsContent>
       </Tabs>
+
+      {selectedChatTenant && (
+        <QuickChatDrawer
+          isOpen={!!selectedChatTenant}
+          onClose={() => setSelectedChatTenant(null)}
+          participantType="TENANT"
+          participantId={selectedChatTenant.id}
+          participantName={`${selectedChatTenant.firstName} ${selectedChatTenant.lastName}`}
+          subtitle={selectedChatTenant.unitNumber ? `Unit ${selectedChatTenant.unitNumber}` : 'Tenant'}
+        />
+      )}
     </div>
   );
 };

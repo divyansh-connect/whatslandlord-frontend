@@ -214,6 +214,7 @@ import { TenantSettingsPage } from '../features/tenant/TenantSettingsPage';
 import { TenantSupportPage } from '../features/tenant/TenantSupportPage';
 import { TenantNotificationsPage } from '../features/tenant/TenantNotificationsPage';
 import { UserProfilePage } from '../features/dashboard/UserProfilePage';
+import { UnifiedChatHub } from '../features/communication/UnifiedChatHub';
 import { CommDashboardPage } from '../features/communication/CommDashboardPage';
 import { CommInboxPage } from '../features/communication/CommInboxPage';
 import { CommConversationsPage } from '../features/communication/CommConversationsPage';
@@ -1761,7 +1762,7 @@ const commDashboardRoute = createRoute({
   path: '/communication',
   component: () => (
     <ProtectedWrapper>
-      <CommDashboardPage />
+      <UnifiedChatHub />
     </ProtectedWrapper>
   ),
 });
@@ -1771,7 +1772,7 @@ const commInboxRoute = createRoute({
   path: '/communication/inbox',
   component: () => (
     <ProtectedWrapper>
-      <CommInboxPage />
+      <UnifiedChatHub />
     </ProtectedWrapper>
   ),
 });

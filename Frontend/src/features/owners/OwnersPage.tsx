@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as zod from 'zod';
-import { Plus, X, Loader2, Edit2, Trash2, Eye } from 'lucide-react';
+import { Plus, X, Loader2, Edit2, Trash2, Eye, MessageSquare } from 'lucide-react';
+import { QuickChatDrawer } from '../../components/chat/QuickChatDrawer';
 import api from '../../api';
 import { Owner } from '../../types';
 import { PageHeader } from '../../components/PageHeader';
@@ -36,6 +37,7 @@ export const OwnersPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingOwner, setEditingOwner] = useState<Owner | null>(null);
   const [viewingOwner, setViewingOwner] = useState<Owner | null>(null);
+  const [chatOwner, setChatOwner] = useState<Owner | null>(null);
   const [selectedProperties, setSelectedProperties] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [payoutFilter, setPayoutFilter] = useState('');
@@ -483,10 +485,31 @@ export const OwnersPage: React.FC = () => {
             </div>
 
             <div className="flex justify-end pt-4 border-t border-border/80">
-              <Button onClick={() => setViewingOwner(null)}>Close</Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {
+                  setChatOwner(viewingOwner);
+                  setViewingOwner(null);
+                }}
+                className="flex items-center gap-1.5 font-bold"
+              >
+                <MessageSquare className="w-4 h-4" /> Direct Chat with Owner
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setViewingOwner(null)}>Close</Button>
             </div>
           </div>
         </div>
+      )}
+      {chatOwner && (
+        <QuickChatDrawer
+          isOpen={!!chatOwner}
+          onClose={() => setChatOwner(null)}
+          participantType="OWNER"
+          participantId={chatOwner.id}
+          participantName={chatOwner.name || 'Property Owner'}
+          subtitle="Property Owner"
+        />
       )}
       <ConfirmDialog
         open={deleteOwnerId !== null}

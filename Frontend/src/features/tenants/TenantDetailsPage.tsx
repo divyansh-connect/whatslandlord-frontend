@@ -8,6 +8,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { TenantAvatar } from '../../components/TenantAvatar';
 import { DocumentUploader } from '../../components/DocumentUploader';
 import { CommunicationPanel } from '../../components/CommunicationPanel';
+import { QuickChatDrawer } from '../../components/chat/QuickChatDrawer';
 import { Timeline, TimelineEvent } from '../../components/Timeline';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -15,13 +16,14 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/Ta
 import { ColumnDef } from '@tanstack/react-table';
 import { 
   User, Building, ShieldCheck, Mail, Phone, Calendar, Landmark,
-  DollarSign, Wrench, CreditCard, Sparkles, FileText, ArrowLeft, Loader2, Check, Printer 
+  DollarSign, Wrench, CreditCard, Sparkles, FileText, ArrowLeft, Loader2, Check, Printer, MessageSquare 
 } from 'lucide-react';
 
 export const TenantDetailsPage: React.FC = () => {
   const { id } = useParams({ from: '/tenants/$id' });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   // Queries
   const { data: tenant, isLoading: loadingTenant } = useQuery({
@@ -193,6 +195,9 @@ export const TenantDetailsPage: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-2">
+          <Button size="sm" onClick={() => setIsChatOpen(true)} className="flex items-center gap-1.5 font-bold">
+            <MessageSquare className="w-4 h-4" /> Direct Chat
+          </Button>
           <Button variant="outline" size="sm" onClick={() => navigate({ to: `/tenants/${tenant.id}/edit` })}>
             Edit Profile
           </Button>
@@ -491,14 +496,33 @@ export const TenantDetailsPage: React.FC = () => {
 
             {/* COMMUNICATION TAB */}
             <TabsContent value="communication">
-              <CommunicationPanel
-                entityName={`${tenant.firstName} ${tenant.lastName}`}
-                initialLogs={[
-                  { id: '1', type: 'Email', message: 'Move in check sheet document sent for signing.', recipientOrAuthor: 'To: Resident', timestamp: '2 days ago' },
-                  { id: '2', type: 'SMS', message: 'Welcome to your new home! Let us know if you need help.', recipientOrAuthor: 'To: Resident', timestamp: '3 days ago' },
-                ]}
-              />
-            </TabsContent>
+              {/* LIVE COMMUNICATION CARD */}
+              <Card className="p-6 border-border bg-card">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b pb-4 mb-4 gap-3">
+                  <div>
+                    <h3 className="font-bold text-base text-foreground">Live Discussion Channel</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">Real-time direct chat with {tenant.firstName} {tenant.lastName}</p>
+                  </div>
+                  <Button onClick={() => setIsChatOpen(true)} className="flex items-center gap-1.5 font-bold text-xs">
+                    <MessageSquare className="w-4 h-4" /> Open Live Chat Drawer
+                  </Button>
+                </div>
+                <div className="p-8 text-center bg-muted/15 border border-dashed rounded-xl flex flex-col items-center justify-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                    <MessageSquare className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-foreground">Real-Time Resident Chat</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5 max-w-sm">
+                      Send messages directly to the tenant portal. Real-time delivery and read receipts (✓✓) are tracked automatically.
+                    </p>
+                  </div>
+                  <Button onClick={() => setIsChatOpen(true)} className="font-bold text-xs">
+                    Start Direct Discussion
+                  </Button>
+                </div>
+              </Card>
+              </TabsContent>
           </Tabs>
         </div>
 
@@ -511,7 +535,18 @@ export const TenantDetailsPage: React.FC = () => {
         </div>
 
       </div>
+      {tenant && (
+        <QuickChatDrawer
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
+          participantType="TENANT"
+          participantId={tenant.id}
+          participantName={`${tenant.firstName} ${tenant.lastName}`}
+          subtitle={tenant.unitNumber ? `Unit ${tenant.unitNumber}` : 'Resident'}
+        />
+      )}
     </div>
   );
 };
+
 export default TenantDetailsPage;
