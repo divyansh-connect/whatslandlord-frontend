@@ -655,10 +655,10 @@ export const TenantMaintenanceScreen = ({ onNavigate }) => {
                   ))}
                 </View>
                 <TextInput
-                  style={[styles.formInput, { marginTop: 6 }]}
+                  style={[styles.formInput, { marginTop: 8 }]}
                   placeholder={es ? 'O ingrese horario personalizado...' : 'Or enter custom day/time...'}
                   placeholderTextColor={colors.textSecondary}
-                  value={preferredTime}
+                  value={PREFERRED_OPTIONS.includes(preferredTime) ? '' : preferredTime}
                   onChangeText={setPreferredTime}
                   allowFontScaling={false}
                 />
@@ -708,19 +708,22 @@ export const TenantMaintenanceScreen = ({ onNavigate }) => {
               {aiTips && (
                 <View style={styles.aiTipsContainer}>
                   <View style={styles.aiTipsHeader}>
-                    <Text style={styles.aiTipsTitle} allowFontScaling={false}>
-                      🤖 {aiTips.suggestionTitle || 'AI DIY Troubleshooting Tips'}
-                    </Text>
+                    <View style={styles.aiTipsTitleWrap}>
+                      <Text style={{ fontSize: 16, marginRight: 6 }}>🤖</Text>
+                      <Text style={styles.aiTipsTitle} allowFontScaling={false} numberOfLines={2}>
+                        {aiTips.suggestionTitle || (es ? 'Consejos de Reparación IA' : 'Instant DIY Troubleshooting Tips')}
+                      </Text>
+                    </View>
                     <View style={styles.aiTipsBadge}>
                       <Text style={styles.aiTipsBadgeText} allowFontScaling={false}>
-                        Try Before Submitting
+                        {es ? 'Pruebe Antes de Enviar' : 'Try Before Submitting'}
                       </Text>
                     </View>
                   </View>
 
                   <Text style={styles.aiTipsSub} allowFontScaling={false}>
                     {es
-                      ? 'Pruebe estos 3 pasos simples. ¡Si resuelven el problema, puede cancelar el ticket!'
+                      ? 'Pruebe estos 3 pasos simples. Si resuelven el problema, puede cancelar esta solicitud.'
                       : 'Try these simple troubleshooting steps. If these fix your issue, you can cancel this ticket!'}
                   </Text>
 
@@ -738,6 +741,7 @@ export const TenantMaintenanceScreen = ({ onNavigate }) => {
 
                   <View style={styles.aiTipsFooter}>
                     <TouchableOpacity
+                      style={styles.aiTipsFixedBtn}
                       onPress={() => {
                         Alert.alert(
                           es ? '¡Excelente!' : 'Great!',
@@ -746,14 +750,15 @@ export const TenantMaintenanceScreen = ({ onNavigate }) => {
                         setIsCreateModalOpen(false);
                         setAiTips(null);
                       }}
-                      activeOpacity={0.7}
+                      activeOpacity={0.8}
                     >
-                      <Text style={styles.aiTipsCancelLink} allowFontScaling={false}>
-                        ✓ {es ? '¡Problema Resuelto! Cancelar' : 'Issue Fixed! Cancel Ticket'}
+                      <Ionicons name="checkmark-circle" size={17} color="#10b981" style={{ marginRight: 6 }} />
+                      <Text style={styles.aiTipsFixedBtnText} allowFontScaling={false}>
+                        {es ? '¡Problema Resuelto! Cancelar Solicitud' : 'Issue Fixed! Cancel Request'}
                       </Text>
                     </TouchableOpacity>
                     <Text style={styles.aiTipsHint} allowFontScaling={false}>
-                      {es ? 'O presione enviar abajo si persiste' : 'Or click Submit below if still broken'}
+                      {es ? 'O presione "Enviar Solicitud" abajo si persiste' : 'Or click Submit Request below if still broken'}
                     </Text>
                   </View>
                 </View>
@@ -1443,43 +1448,56 @@ const getStyles = (colors, isDarkMode) =>
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 4,
+      marginBottom: 8,
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    aiTipsTitleWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      minWidth: 160,
     },
     aiTipsTitle: {
-      fontSize: 12,
+      fontSize: 12.5,
       fontWeight: '800',
-      color: '#f59e0b',
+      color: '#d97706',
+      flexShrink: 1,
     },
     aiTipsBadge: {
-      backgroundColor: 'rgba(245, 158, 11, 0.2)',
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-      borderRadius: 4,
+      backgroundColor: 'rgba(245, 158, 11, 0.18)',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: 'rgba(245, 158, 11, 0.35)',
+      alignSelf: 'flex-start',
     },
     aiTipsBadgeText: {
-      fontSize: 9.5,
-      fontWeight: '700',
-      color: '#f59e0b',
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#d97706',
     },
     aiTipsSub: {
       fontSize: 11,
       color: colors.textSecondary,
-      marginBottom: 8,
+      marginBottom: 10,
+      lineHeight: 16,
     },
     aiTipItem: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       backgroundColor: colors.surface || colors.card,
-      padding: 8,
+      padding: 10,
       borderRadius: 8,
       borderWidth: 1,
       borderColor: 'rgba(148, 163, 184, 0.15)',
       marginBottom: 6,
     },
     aiTipNumBadge: {
-      width: 18,
-      height: 18,
-      borderRadius: 9,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
       backgroundColor: 'rgba(56, 189, 248, 0.2)',
       alignItems: 'center',
       justifyContent: 'center',
@@ -1487,7 +1505,7 @@ const getStyles = (colors, isDarkMode) =>
       marginTop: 1,
     },
     aiTipNumText: {
-      fontSize: 10,
+      fontSize: 10.5,
       fontWeight: '800',
       color: '#38bdf8',
     },
@@ -1499,24 +1517,34 @@ const getStyles = (colors, isDarkMode) =>
       lineHeight: 16,
     },
     aiTipsFooter: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
       borderTopWidth: 1,
-      borderTopColor: 'rgba(245, 158, 11, 0.2)',
-      paddingTop: 8,
-      marginTop: 4,
+      borderTopColor: 'rgba(245, 158, 11, 0.25)',
+      paddingTop: 10,
+      marginTop: 6,
+      alignItems: 'center',
     },
-    aiTipsCancelLink: {
-      fontSize: 11.5,
+    aiTipsFixedBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(16, 185, 129, 0.12)',
+      borderWidth: 1,
+      borderColor: 'rgba(16, 185, 129, 0.35)',
+      borderRadius: 8,
+      paddingVertical: 9,
+      paddingHorizontal: 16,
+      width: '100%',
+    },
+    aiTipsFixedBtnText: {
+      fontSize: 12,
       fontWeight: '800',
       color: '#10b981',
-      textDecorationLine: 'underline',
     },
     aiTipsHint: {
-      fontSize: 9.5,
+      fontSize: 10,
       color: colors.textSecondary,
-      fontStyle: 'italic',
+      marginTop: 6,
+      textAlign: 'center',
     },
     modalActions: {
       flexDirection: 'row',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,13 +11,14 @@ import {
   Alert,
   Platform,
   KeyboardAvoidingView,
+  Animated,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore, safeStorage } from '../store/useStore';
 import { useThemeColors } from '../theme';
-import { propertySchema, unitSchema } from '../validations/mobile.validation';
+import { propertySchema, propertyDraftSchema, unitSchema } from '../validations/mobile.validation';
 import { CustomDatePicker } from '../components/CustomDatePicker';
 
 const PROPERTY_TYPES = [
@@ -144,6 +145,87 @@ const generateMonthListFromMoveIn = (dateStr) => {
   return months;
 };
 
+// In-Memory cache for 0ms instantaneous tab switching
+let memoryPropertiesCache = null;
+
+// Shimmer Skeleton Loader for Properties & Units
+const SkeletonItem = ({ width: w, height: h, borderRadius = 8, style, isDarkMode }) => {
+  const animatedValue = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(animatedValue, { toValue: 0.85, duration: 750, useNativeDriver: true }),
+        Animated.timing(animatedValue, { toValue: 0.3, duration: 750, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [animatedValue]);
+  const baseColor = isDarkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.07)';
+  return (
+    <Animated.View
+      style={[
+        { width: w || '100%', height: h || 20, borderRadius, backgroundColor: baseColor, opacity: animatedValue },
+        style,
+      ]}
+    />
+  );
+};
+
+const PropertiesSkeleton = ({ isDarkMode }) => {
+  const cardBg = isDarkMode ? '#1e293b' : '#ffffff';
+  const cardBorder = isDarkMode ? '#334155' : '#e2e8f0';
+
+  return (
+    <View style={{ paddingTop: 4 }}>
+      {[1, 2, 3, 4].map((i) => (
+        <View
+          key={i}
+          style={{
+            backgroundColor: cardBg,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: cardBorder,
+            padding: 14,
+            marginBottom: 12,
+          }}
+        >
+          {/* Header Row: Title & Badge */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <SkeletonItem width="55%" height={18} borderRadius={6} isDarkMode={isDarkMode} />
+            <SkeletonItem width={70} height={22} borderRadius={11} isDarkMode={isDarkMode} />
+          </View>
+
+          {/* Subtitle / Address */}
+          <SkeletonItem width="80%" height={12} borderRadius={4} style={{ marginBottom: 12 }} isDarkMode={isDarkMode} />
+
+          {/* 3 Metric Pills */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, gap: 8 }}>
+            <View style={{ flex: 1, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', padding: 8, borderRadius: 8 }}>
+              <SkeletonItem width="60%" height={10} borderRadius={4} style={{ marginBottom: 4 }} isDarkMode={isDarkMode} />
+              <SkeletonItem width="40%" height={14} borderRadius={4} isDarkMode={isDarkMode} />
+            </View>
+            <View style={{ flex: 1, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', padding: 8, borderRadius: 8 }}>
+              <SkeletonItem width="60%" height={10} borderRadius={4} style={{ marginBottom: 4 }} isDarkMode={isDarkMode} />
+              <SkeletonItem width="40%" height={14} borderRadius={4} isDarkMode={isDarkMode} />
+            </View>
+            <View style={{ flex: 1, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', padding: 8, borderRadius: 8 }}>
+              <SkeletonItem width="60%" height={10} borderRadius={4} style={{ marginBottom: 4 }} isDarkMode={isDarkMode} />
+              <SkeletonItem width="50%" height={14} borderRadius={4} isDarkMode={isDarkMode} />
+            </View>
+          </View>
+
+          {/* Bottom Actions Row */}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+            <SkeletonItem width={70} height={26} borderRadius={6} isDarkMode={isDarkMode} />
+            <SkeletonItem width={70} height={26} borderRadius={6} isDarkMode={isDarkMode} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+};
+
 export const PropertiesScreen = ({
   initialTab = 'properties',
   initialUnitStatusFilter = 'All',
@@ -185,6 +267,25 @@ export const PropertiesScreen = ({
   const [statusChangeUnit, setStatusChangeUnit] = useState(null);
   const [newStatusValue, setNewStatusValue] = useState('Vacant');
 
+  // Quick Add Tenant from Assign Modal
+  const [assignMode, setAssignMode] = useState('select'); // 'select' | 'create'
+  const [qaFirstName, setQaFirstName] = useState('');
+  const [qaLastName, setQaLastName] = useState('');
+  const [qaEmail, setQaEmail] = useState('');
+  const [qaPhone, setQaPhone] = useState('');
+  const [qaDob, setQaDob] = useState('');
+  const [showQaDobPicker, setShowQaDobPicker] = useState(false);
+  const [qaGender, setQaGender] = useState('Male');
+  const [qaNationality, setQaNationality] = useState('American');
+  const [qaPassword, setQaPassword] = useState('');
+  const [qaExtraDetails, setQaExtraDetails] = useState(false);
+  const [qaIdType, setQaIdType] = useState('Driver License');
+  const [qaIdNumber, setQaIdNumber] = useState('');
+  const [qaEmergencyName, setQaEmergencyName] = useState('');
+  const [qaEmergencyPhone, setQaEmergencyPhone] = useState('');
+  const [qaEmpName, setQaEmpName] = useState('');
+  const [qaEmpPosition, setQaEmpPosition] = useState('');
+
   // Form Modals (Add / Edit)
   const [isPropModalOpen, setIsPropModalOpen] = useState(false);
   const [editingPropId, setEditingPropId] = useState(null);
@@ -225,7 +326,6 @@ export const PropertiesScreen = ({
   const [pPurchasePrice, setPPurchasePrice] = useState('');
   const [pCurrentValue, setPCurrentValue] = useState('');
   const [pExpenses, setPExpenses] = useState('');
-  const [pPhotoUrl, setPPhotoUrl] = useState('');
   const [pNotes, setPNotes] = useState('');
 
   // Dropdown Picker Modal state for Property Form
@@ -314,10 +414,11 @@ export const PropertiesScreen = ({
     }
   }, [initialTab]);
 
-  // Live Data Fetch (Exact Web APIs)
-  const fetchAllData = async () => {
+  // Live Data Fetch (Exact Web APIs) with Silent Background Sync
+  const fetchAllData = async (options = {}) => {
+    const isSilent = options.silent || properties.length > 0;
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const [propsRes, unitsRes, ownersRes, tenantsRes] = await Promise.all([
         apiClient.get('/properties', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/units', logout, refreshAccessToken).catch(() => null),
@@ -325,10 +426,25 @@ export const PropertiesScreen = ({
         apiClient.get('/tenants', logout, refreshAccessToken).catch(() => null),
       ]);
 
-      setProperties(Array.isArray(propsRes) ? propsRes : (propsRes?.data || []));
-      setUnits(Array.isArray(unitsRes) ? unitsRes : (unitsRes?.data || []));
-      setOwners(Array.isArray(ownersRes) ? ownersRes : (ownersRes?.data || []));
-      setTenants(Array.isArray(tenantsRes) ? tenantsRes : (tenantsRes?.data || []));
+      const fetchedProps = Array.isArray(propsRes) ? propsRes : (propsRes?.data || []);
+      const fetchedUnits = Array.isArray(unitsRes) ? unitsRes : (unitsRes?.data || []);
+      const fetchedOwners = Array.isArray(ownersRes) ? ownersRes : (ownersRes?.data || []);
+      const fetchedTenants = Array.isArray(tenantsRes) ? tenantsRes : (tenantsRes?.data || []);
+
+      setProperties(fetchedProps);
+      setUnits(fetchedUnits);
+      setOwners(fetchedOwners);
+      setTenants(fetchedTenants);
+
+      const cacheObj = {
+        properties: fetchedProps,
+        units: fetchedUnits,
+        owners: fetchedOwners,
+        tenants: fetchedTenants,
+        timestamp: Date.now(),
+      };
+      memoryPropertiesCache = cacheObj;
+      safeStorage.setItem('cache_properties_screen', JSON.stringify(cacheObj)).catch(() => {});
     } catch (e) {
       console.log('Error fetching properties data:', e.message);
     } finally {
@@ -338,7 +454,37 @@ export const PropertiesScreen = ({
   };
 
   useEffect(() => {
-    fetchAllData();
+    let isMounted = true;
+    const initProperties = async () => {
+      // 1. Instant RAM Cache (0 ms)
+      if (memoryPropertiesCache) {
+        setProperties(memoryPropertiesCache.properties || []);
+        setUnits(memoryPropertiesCache.units || []);
+        setOwners(memoryPropertiesCache.owners || []);
+        setTenants(memoryPropertiesCache.tenants || []);
+        setLoading(false);
+      } else {
+        // 2. Last Session Disk Cache (0.01s)
+        try {
+          const diskSaved = await safeStorage.getItem('cache_properties_screen');
+          if (diskSaved && isMounted) {
+            const parsed = JSON.parse(diskSaved);
+            memoryPropertiesCache = parsed;
+            setProperties(parsed.properties || []);
+            setUnits(parsed.units || []);
+            setOwners(parsed.owners || []);
+            setTenants(parsed.tenants || []);
+            setLoading(false);
+          }
+        } catch (_) {}
+      }
+
+      // 3. Silent background sync
+      fetchAllData({ silent: true });
+    };
+
+    initProperties();
+    return () => { isMounted = false; };
   }, []);
 
   useEffect(() => {
@@ -363,13 +509,13 @@ export const PropertiesScreen = ({
   }, [targetUnitId, units]);
 
   useEffect(() => {
-    if (targetPropertyId && properties.length > 0) {
+    if (!targetUnitId && targetPropertyId && properties.length > 0) {
       const found = properties.find((p) => String(p.id) === String(targetPropertyId));
       if (found) {
         setSelectedProperty(found);
       }
     }
-  }, [targetPropertyId, properties]);
+  }, [targetPropertyId, targetUnitId, properties]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -548,7 +694,6 @@ export const PropertiesScreen = ({
     setPPurchasePrice('');
     setPCurrentValue('');
     setPExpenses('');
-    setPPhotoUrl('');
     setPNotes('');
     setFormErrors({});
     setIsPropModalOpen(true);
@@ -568,8 +713,8 @@ export const PropertiesScreen = ({
     setPOwnerId(prop.ownerId || (typeof prop.owner === 'object' ? prop.owner?.id : prop.owner) || '');
     setPShare(String(prop.ownershipPercentage ?? 100));
     setPManagementCompany(prop.managementCompany || '');
-    setPFloors(String(prop.totalFloors || prop.floors || 1));
-    setPUnitsCount(String(prop.totalUnits || prop.unitsCount || 1));
+    setPFloors(String(prop.buildings?.[0]?.floors || prop.totalFloors || prop.floors || 1));
+    setPUnitsCount(String(prop.buildings?.[0]?.unitsCount || prop.totalUnits || prop.unitsCount || (prop.units?.length || 1)));
 
     const isCompanyDefault = !prop.paymentProvider || prop.paymentProvider === 'COMPANY_DEFAULT';
     setPPaymentAccountSetup(isCompanyDefault ? 'COMPANY_DEFAULT' : 'OTHER');
@@ -585,7 +730,6 @@ export const PropertiesScreen = ({
     setPPurchasePrice(prop.purchasePrice ? String(prop.purchasePrice) : '');
     setPCurrentValue(prop.currentValue ? String(prop.currentValue) : '');
     setPExpenses(prop.monthlyExpenses ? String(prop.monthlyExpenses) : '');
-    setPPhotoUrl(prop.photoUrl || prop.photo || '');
     setPNotes(prop.notes || prop.description || '');
     setFormErrors({});
     setIsPropModalOpen(true);
@@ -650,30 +794,26 @@ export const PropertiesScreen = ({
     const targetStatus = saveAsDraft ? 'Draft' : (pStatus || 'Active');
     const finalPaymentProvider = pPaymentAccountSetup === 'COMPANY_DEFAULT' ? 'COMPANY_DEFAULT' : pCustomGateway;
 
-    // Resolve ownerId: user selection -> or first available owner
+    // Resolve ownerId: user selection -> only fallback to first owner if saving as draft
     let effectiveOwnerId = pOwnerId.trim();
-    if (!effectiveOwnerId && owners.length > 0) {
+    if (saveAsDraft && !effectiveOwnerId && owners.length > 0) {
       effectiveOwnerId = owners[0].id;
-    }
-
-    if (!effectiveOwnerId) {
-      Alert.alert('Owner Required', 'Please select a Property Owner or add a new owner first.');
-      setFormErrors({ owner: 'Property Owner is required' });
-      return;
     }
 
     const street = pStreet.trim();
     const city = pCity.trim();
     const state = pState.trim();
-    const country = pCountry.trim() || 'USA';
+    const country = pCountry.trim();
     const zip = pZip.trim();
 
     // Backend requires address with min length 1
     const constructedAddress = street
-      ? `${street}, ${city || 'Metropolis'}, ${state || 'NY'}, ${country}`
+      ? `${street}, ${city || 'Metropolis'}, ${state || 'NY'}, ${country || 'USA'}`
       : city
-      ? `${city}, ${state || 'NY'}, ${country}`
-      : `${pName.trim() || 'Main Property'}, ${country}`;
+      ? `${city}, ${state || 'NY'}, ${country || 'USA'}`
+      : `${pName.trim() || 'Main Property'}, ${country || 'USA'}`;
+
+    const parsedShare = pShare.trim() !== '' ? Number(pShare) : (saveAsDraft ? 100 : undefined);
 
     const payload = {
       name: pName.trim(),
@@ -682,12 +822,12 @@ export const PropertiesScreen = ({
       streetAddress: street || undefined,
       city: city || undefined,
       state: state || undefined,
-      country: country,
+      country: country || (saveAsDraft ? 'USA' : undefined),
       zip: zip || undefined,
       nycBin: pNycBin.trim() || undefined,
       address: constructedAddress,
-      ownerId: effectiveOwnerId,
-      ownershipPercentage: pShare.trim() ? Number(pShare) : 100,
+      ownerId: effectiveOwnerId || undefined,
+      ownershipPercentage: parsedShare,
       managementCompany: pManagementCompany.trim() || 'Apex Property Management',
       yearBuilt: pYearBuilt.trim() ? Number(pYearBuilt) : 2020,
       totalFloors: pFloors.trim() ? Number(pFloors) : 1,
@@ -701,17 +841,21 @@ export const PropertiesScreen = ({
       paymentAccountId: pPaymentAccountSetup === 'COMPANY_DEFAULT' ? undefined : (pPaymentAccountId.trim() || undefined),
       paymentAuthToken: pPaymentAccountSetup === 'COMPANY_DEFAULT' ? undefined : (pPaymentAuthToken.trim() || undefined),
       paymentStatus: pPaymentAccountSetup === 'COMPANY_DEFAULT' ? 'Active' : pPaymentStatus,
-      photoUrl: pPhotoUrl.trim() || undefined,
       notes: pNotes.trim() || undefined,
     };
 
-    const valResult = propertySchema.safeParse(payload);
+    const targetSchema = saveAsDraft ? propertyDraftSchema : propertySchema;
+    const valResult = targetSchema.safeParse(payload);
     if (!valResult.success) {
       const errMap = {};
       valResult.error.issues.forEach((issue) => {
         errMap[issue.path[0]] = issue.message;
       });
       setFormErrors(errMap);
+      Alert.alert(
+        'Required Fields Missing',
+        'Please fill in all required fields marked with * before creating the property.'
+      );
       return;
     }
 
@@ -1161,6 +1305,74 @@ export const PropertiesScreen = ({
     }
   };
 
+  const handleQuickCreateTenant = async () => {
+    if (!qaFirstName.trim() || !qaLastName.trim() || !qaEmail.trim() || !qaPhone.trim()) {
+      Alert.alert('Required Fields', 'Please enter First Name, Last Name, Email, and Mobile Phone.');
+      return;
+    }
+    if (!qaPassword.trim() || qaPassword.trim().length < 6) {
+      Alert.alert('Invalid Password', 'Password must be at least 6 characters.');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const payload = {
+        firstName: qaFirstName.trim(),
+        lastName: qaLastName.trim(),
+        email: qaEmail.trim().toLowerCase(),
+        phone: qaPhone.trim(),
+        password: qaPassword.trim(),
+        dob: qaDob.trim() || undefined,
+        gender: qaGender,
+        nationality: qaNationality.trim() || 'American',
+        unitId: assignTenantUnit?.id || undefined,
+        role: 'Tenant',
+        idType: qaIdType,
+        idNumber: qaIdNumber.trim() || undefined,
+        emergencyName: qaEmergencyName.trim() || undefined,
+        emergencyPhone: qaEmergencyPhone.trim() || undefined,
+        employer: qaEmpName.trim() || undefined,
+        position: qaEmpPosition.trim() || undefined,
+      };
+
+      const res = await apiClient.post('/tenants', payload, logout, refreshAccessToken);
+      const createdTenant = res?.data || res;
+      const newTenantId = createdTenant?.id;
+
+      if (assignTenantUnit?.id && newTenantId) {
+        try {
+          await apiClient.post(`/units/${assignTenantUnit.id}/assign-tenant`, { tenantId: newTenantId }, logout, refreshAccessToken);
+        } catch (assignErr) {
+          console.warn('Assign tenant after create warn:', assignErr);
+        }
+      }
+
+      Alert.alert('Success', `Tenant ${qaFirstName} ${qaLastName} registered & assigned to Unit ${assignTenantUnit?.unitNumber || ''}!`);
+      setAssignMode('select');
+      setAssignTenantUnit(null);
+      setSelectedTenantId('');
+
+      setQaFirstName('');
+      setQaLastName('');
+      setQaEmail('');
+      setQaPhone('');
+      setQaDob('');
+      setQaPassword('');
+      setQaIdNumber('');
+      setQaEmergencyName('');
+      setQaEmergencyPhone('');
+      setQaEmpName('');
+      setQaEmpPosition('');
+
+      fetchAllData();
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to register tenant');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleUpdateUnitStatus = async () => {
     if (!statusChangeUnit) return;
     try {
@@ -1195,18 +1407,6 @@ export const PropertiesScreen = ({
       },
     ]);
   };
-
-  // --------------------------------------------------------------------------
-  // RENDER LOADING
-  // --------------------------------------------------------------------------
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.mutedText} allowFontScaling={false}>Loading data...</Text>
-      </View>
-    );
-  }
 
   return (
     <View style={styles.safeArea}>
@@ -1393,7 +1593,9 @@ export const PropertiesScreen = ({
           {/* TAB 1: PROPERTIES */}
           {activeTab === 'properties' && (
             <>
-              {filteredProperties.length === 0 ? (
+              {loading && !refreshing && properties.length === 0 ? (
+                <PropertiesSkeleton isDarkMode={isDarkMode} />
+              ) : filteredProperties.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyText} allowFontScaling={false}>No properties found</Text>
                 </View>
@@ -1486,7 +1688,9 @@ export const PropertiesScreen = ({
                   );
                 })}
               </View>
-              {filteredUnits.length === 0 ? (
+              {loading && !refreshing && units.length === 0 ? (
+                <PropertiesSkeleton isDarkMode={isDarkMode} />
+              ) : filteredUnits.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyText} allowFontScaling={false}>No units found</Text>
                 </View>
@@ -1789,7 +1993,9 @@ export const PropertiesScreen = ({
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailKey} allowFontScaling={false}>Total Units</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{selectedProperty?.totalUnits || selectedProperty?.unitsCount || 0}</Text>
+                  <Text style={styles.detailVal} allowFontScaling={false}>
+                    {selectedProperty?.totalUnits || selectedProperty?.unitsCount || selectedProperty?.buildings?.[0]?.unitsCount || selectedProperty?.units?.length || 0}
+                  </Text>
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailKey} allowFontScaling={false}>Occupancy</Text>
@@ -1889,37 +2095,241 @@ export const PropertiesScreen = ({
         </Modal>
 
         {/* -------------------------------------------------------------------------- */}
-        {/* ASSIGN TENANT MODAL */}
+        {/* ASSIGN TENANT MODAL (Unified Select or Quick Register & Assign) */}
         {/* -------------------------------------------------------------------------- */}
         <Modal visible={!!assignTenantUnit} animationType="fade" transparent>
-          <View style={styles.modalBackdrop}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle} allowFontScaling={false}>Assign Tenant to Unit {assignTenantUnit?.unitNumber}</Text>
-              <Text style={[styles.cardAddress, { marginTop: 4 }]} allowFontScaling={false}>Select tenant:</Text>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBackdrop}>
+            <View style={[styles.modalCard, assignMode === 'create' && { maxHeight: '90%', padding: 18 }]}>
+              {assignMode === 'select' ? (
+                <>
+                  <Text style={styles.modalTitle} allowFontScaling={false}>
+                    Assign Tenant to Unit {assignTenantUnit?.unitNumber}
+                  </Text>
+                  <Text style={[styles.cardAddress, { marginTop: 4 }]} allowFontScaling={false}>
+                    Select an existing tenant or register a new one:
+                  </Text>
 
-              <ScrollView style={{ maxHeight: 200, marginVertical: 10 }}>
-                {tenants.map((t) => (
+                  <ScrollView style={{ maxHeight: 200, marginVertical: 10 }}>
+                    {tenants.map((t) => (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={[styles.pickerRow, selectedTenantId === t.id && styles.pickerRowSelected]}
+                        onPress={() => setSelectedTenantId(t.id)}
+                      >
+                        <Text style={styles.detailVal} allowFontScaling={false}>{t.firstName} {t.lastName}</Text>
+                        {selectedTenantId === t.id && <Ionicons name="checkmark" size={16} color={colors.primary} />}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {/* Quick Add New Tenant Trigger */}
                   <TouchableOpacity
-                    key={t.id}
-                    style={[styles.pickerRow, selectedTenantId === t.id && styles.pickerRowSelected]}
-                    onPress={() => setSelectedTenantId(t.id)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      paddingVertical: 11,
+                      backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.12)' : '#f0f9ff',
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.3)' : '#bae6fd',
+                      marginBottom: 12,
+                    }}
+                    onPress={() => setAssignMode('create')}
                   >
-                    <Text style={styles.detailVal} allowFontScaling={false}>{t.firstName} {t.lastName}</Text>
-                    {selectedTenantId === t.id && <Ionicons name="checkmark" size={16} color={colors.primary} />}
+                    <Ionicons name="person-add-outline" size={16} color="#0284c7" />
+                    <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#0284c7' }} allowFontScaling={false}>
+                      + Register & Add New Tenant
+                    </Text>
                   </TouchableOpacity>
-                ))}
-              </ScrollView>
 
-              <View style={styles.modalBtnRow}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => setAssignTenantUnit(null)}>
-                  <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.submitBtn} onPress={handleAssignTenant} disabled={submitting}>
-                  <Text style={styles.submitBtnText} allowFontScaling={false}>Assign</Text>
-                </TouchableOpacity>
-              </View>
+                  <View style={styles.modalBtnRow}>
+                    <TouchableOpacity
+                      style={styles.cancelBtn}
+                      onPress={() => {
+                        setAssignTenantUnit(null);
+                        setSelectedTenantId('');
+                        setAssignMode('select');
+                      }}
+                    >
+                      <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.submitBtn} onPress={handleAssignTenant} disabled={submitting}>
+                      <Text style={styles.submitBtnText} allowFontScaling={false}>Assign</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <>
+                  {/* CREATE TENANT INLINE VIEW */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.cardBorder, paddingBottom: 10, marginBottom: 12 }}>
+                    <View>
+                      <Text style={[styles.modalTitle, { fontSize: 16 }]} allowFontScaling={false}>Register & Add Tenant</Text>
+                      <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
+                        Assigning directly to Unit {assignTenantUnit?.unitNumber}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setAssignMode('select')}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6 }}
+                    >
+                      <Ionicons name="arrow-back" size={14} color={colors.textSecondary} />
+                      <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>List</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
+                    {/* PERSONAL INFO */}
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, textTransform: 'uppercase', marginBottom: 8 }} allowFontScaling={false}>
+                      Personal Information
+                    </Text>
+                    <View style={{ gap: 8, marginBottom: 14 }}>
+                      <View>
+                        <Text style={styles.inputLabel} allowFontScaling={false}>FIRST NAME *</Text>
+                        <TextInput style={styles.input} placeholder="John" placeholderTextColor="#64748b" value={qaFirstName} onChangeText={setQaFirstName} />
+                      </View>
+                      <View>
+                        <Text style={styles.inputLabel} allowFontScaling={false}>LAST NAME *</Text>
+                        <TextInput style={styles.input} placeholder="Doe" placeholderTextColor="#64748b" value={qaLastName} onChangeText={setQaLastName} />
+                      </View>
+                      <View>
+                        <Text style={styles.inputLabel} allowFontScaling={false}>DATE OF BIRTH *</Text>
+                        <TouchableOpacity
+                          style={styles.cleanDatePickerBtn}
+                          onPress={() => setShowQaDobPicker(true)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.cleanDatePickerText, !qaDob && { color: colors.placeholder || '#94a3b8' }]} allowFontScaling={false}>
+                            {qaDob || 'Select Date of Birth'}
+                          </Text>
+                          <Ionicons name="calendar-outline" size={16} color={colors.primary} />
+                        </TouchableOpacity>
+                        <CustomDatePicker
+                          visible={showQaDobPicker}
+                          value={qaDob || '2000-01-01'}
+                          onSelect={(date) => {
+                            setQaDob(date);
+                            setShowQaDobPicker(false);
+                          }}
+                          onClose={() => setShowQaDobPicker(false)}
+                        />
+                      </View>
+                      <View>
+                        <Text style={styles.inputLabel} allowFontScaling={false}>GENDER *</Text>
+                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
+                          {['Male', 'Female', 'Other'].map((g) => (
+                            <TouchableOpacity
+                              key={g}
+                              style={{
+                                flex: 1,
+                                paddingVertical: 8,
+                                paddingHorizontal: 10,
+                                borderRadius: 7,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: qaGender === g ? (isDarkMode ? 'rgba(56, 189, 248, 0.18)' : '#e0f2fe') : (isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'),
+                                borderWidth: 1,
+                                borderColor: qaGender === g ? '#0284c7' : colors.cardBorder,
+                              }}
+                              onPress={() => setQaGender(g)}
+                            >
+                              <Text style={{ fontSize: 12, fontWeight: qaGender === g ? '800' : '600', color: qaGender === g ? '#0284c7' : colors.textPrimary }} allowFontScaling={false}>
+                                {g}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                      <View>
+                        <Text style={styles.inputLabel} allowFontScaling={false}>NATIONALITY *</Text>
+                        <TextInput style={styles.input} placeholder="American" placeholderTextColor="#64748b" value={qaNationality} onChangeText={setQaNationality} />
+                      </View>
+                    </View>
+
+                    {/* CONTACT DETAILS */}
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, textTransform: 'uppercase', marginBottom: 8 }} allowFontScaling={false}>
+                      Contact Details
+                    </Text>
+                    <View style={{ gap: 8, marginBottom: 14 }}>
+                      <View>
+                        <Text style={styles.inputLabel} allowFontScaling={false}>EMAIL ADDRESS *</Text>
+                        <TextInput style={styles.input} placeholder="john.doe@example.com" placeholderTextColor="#64748b" keyboardType="email-address" autoCapitalize="none" value={qaEmail} onChangeText={setQaEmail} />
+                      </View>
+                      <View>
+                        <Text style={styles.inputLabel} allowFontScaling={false}>MOBILE PHONE *</Text>
+                        <TextInput style={styles.input} placeholder="(512) 555-0199" placeholderTextColor="#64748b" keyboardType="phone-pad" value={qaPhone} onChangeText={setQaPhone} />
+                      </View>
+                      <View>
+                        <Text style={styles.inputLabel} allowFontScaling={false}>ACCOUNT PASSWORD * (MIN 6 CHARS)</Text>
+                        <TextInput style={styles.input} placeholder="••••••••" placeholderTextColor="#64748b" secureTextEntry value={qaPassword} onChangeText={setQaPassword} />
+                      </View>
+                    </View>
+
+                    {/* ADDITIONAL DETAILS (COLLAPSIBLE) */}
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: 10,
+                        backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: colors.cardBorder,
+                        marginBottom: 10,
+                      }}
+                      onPress={() => setQaExtraDetails(!qaExtraDetails)}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>
+                        Additional Details (Optional)
+                      </Text>
+                      <Ionicons name={qaExtraDetails ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textSecondary} />
+                    </TouchableOpacity>
+
+                    {qaExtraDetails && (
+                      <View style={{ gap: 8, marginBottom: 14 }}>
+                        <View>
+                          <Text style={styles.inputLabel} allowFontScaling={false}>ID NUMBER</Text>
+                          <TextInput style={styles.input} placeholder="Driver License or SSN" placeholderTextColor="#64748b" value={qaIdNumber} onChangeText={setQaIdNumber} />
+                        </View>
+                        <View>
+                          <Text style={styles.inputLabel} allowFontScaling={false}>EMERGENCY CONTACT NAME</Text>
+                          <TextInput style={styles.input} placeholder="Jane Doe" placeholderTextColor="#64748b" value={qaEmergencyName} onChangeText={setQaEmergencyName} />
+                        </View>
+                        <View>
+                          <Text style={styles.inputLabel} allowFontScaling={false}>EMERGENCY PHONE</Text>
+                          <TextInput style={styles.input} placeholder="(512) 555-9999" placeholderTextColor="#64748b" keyboardType="phone-pad" value={qaEmergencyPhone} onChangeText={setQaEmergencyPhone} />
+                        </View>
+                        <View>
+                          <Text style={styles.inputLabel} allowFontScaling={false}>EMPLOYER</Text>
+                          <TextInput style={styles.input} placeholder="Company / Business" placeholderTextColor="#64748b" value={qaEmpName} onChangeText={setQaEmpName} />
+                        </View>
+                      </View>
+                    )}
+
+                    <View style={[styles.modalBtnRow, { marginTop: 10 }]}>
+                      <TouchableOpacity
+                        style={styles.cancelBtn}
+                        onPress={() => setAssignMode('select')}
+                        disabled={submitting}
+                      >
+                        <Text style={styles.cancelBtnText} allowFontScaling={false}>Back to List</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleQuickCreateTenant} disabled={submitting}>
+                        {submitting ? (
+                          <ActivityIndicator size="small" color="#0f172a" />
+                        ) : (
+                          <Text style={styles.submitBtnText} allowFontScaling={false}>Register & Assign</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </ScrollView>
+                </>
+              )}
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* -------------------------------------------------------------------------- */}
@@ -2050,13 +2460,14 @@ export const PropertiesScreen = ({
                     STREET ADDRESS <Text style={styles.requiredStar}>*</Text>
                   </Text>
                   <TextInput
-                    style={styles.propInput}
+                    style={[styles.propInput, formErrors.streetAddress && styles.propInputError]}
                     placeholder="124 Oakridge Blvd"
                     placeholderTextColor={colors.placeholder}
                     value={pStreet}
                     onChangeText={setPStreet}
                     allowFontScaling={false}
                   />
+                  {formErrors.streetAddress && <Text style={styles.errorText}>{formErrors.streetAddress}</Text>}
                 </View>
 
                 {/* CITY & STATE (2 Columns) */}
@@ -2066,26 +2477,28 @@ export const PropertiesScreen = ({
                       CITY <Text style={styles.requiredStar}>*</Text>
                     </Text>
                     <TextInput
-                      style={styles.propInput}
+                      style={[styles.propInput, formErrors.city && styles.propInputError]}
                       placeholder="Austin"
                       placeholderTextColor={colors.placeholder}
                       value={pCity}
                       onChangeText={setPCity}
                       allowFontScaling={false}
                     />
+                    {formErrors.city && <Text style={styles.errorText}>{formErrors.city}</Text>}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.fieldLabel} allowFontScaling={false}>
                       STATE <Text style={styles.requiredStar}>*</Text>
                     </Text>
                     <TextInput
-                      style={styles.propInput}
+                      style={[styles.propInput, formErrors.state && styles.propInputError]}
                       placeholder="TX"
                       placeholderTextColor={colors.placeholder}
                       value={pState}
                       onChangeText={setPState}
                       allowFontScaling={false}
                     />
+                    {formErrors.state && <Text style={styles.errorText}>{formErrors.state}</Text>}
                   </View>
                 </View>
 
@@ -2096,26 +2509,28 @@ export const PropertiesScreen = ({
                       COUNTRY <Text style={styles.requiredStar}>*</Text>
                     </Text>
                     <TextInput
-                      style={styles.propInput}
+                      style={[styles.propInput, formErrors.country && styles.propInputError]}
                       placeholder="USA"
                       placeholderTextColor={colors.placeholder}
                       value={pCountry}
                       onChangeText={setPCountry}
                       allowFontScaling={false}
                     />
+                    {formErrors.country && <Text style={styles.errorText}>{formErrors.country}</Text>}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.fieldLabel} allowFontScaling={false}>
                       ZIP CODE <Text style={styles.requiredStar}>*</Text>
                     </Text>
                     <TextInput
-                      style={styles.propInput}
+                      style={[styles.propInput, formErrors.zip && styles.propInputError]}
                       placeholder="78701"
                       placeholderTextColor={colors.placeholder}
                       value={pZip}
                       onChangeText={setPZip}
                       allowFontScaling={false}
                     />
+                    {formErrors.zip && <Text style={styles.errorText}>{formErrors.zip}</Text>}
                   </View>
                 </View>
 
@@ -2178,7 +2593,7 @@ export const PropertiesScreen = ({
                     </TouchableOpacity>
                   </View>
                   <TouchableOpacity
-                    style={styles.propSelectTrigger}
+                    style={[styles.propSelectTrigger, formErrors.ownerId && styles.propInputError]}
                     onPress={() => setActivePropDropdown('owner')}
                     activeOpacity={0.7}
                   >
@@ -2191,6 +2606,7 @@ export const PropertiesScreen = ({
                     </Text>
                     <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
                   </TouchableOpacity>
+                  {formErrors.ownerId && <Text style={styles.errorText}>{formErrors.ownerId}</Text>}
                 </View>
 
                 {/* OWNERSHIP PERCENTAGE (%) & MANAGEMENT COMPANY (2 Columns) */}
@@ -2200,7 +2616,7 @@ export const PropertiesScreen = ({
                       OWNERSHIP % <Text style={styles.requiredStar}>*</Text>
                     </Text>
                     <TextInput
-                      style={styles.propInput}
+                      style={[styles.propInput, formErrors.ownershipPercentage && styles.propInputError]}
                       keyboardType="numeric"
                       placeholder="100"
                       placeholderTextColor={colors.placeholder}
@@ -2208,6 +2624,7 @@ export const PropertiesScreen = ({
                       onChangeText={setPShare}
                       allowFontScaling={false}
                     />
+                    {formErrors.ownershipPercentage && <Text style={styles.errorText}>{formErrors.ownershipPercentage}</Text>}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.fieldLabel} numberOfLines={1} allowFontScaling={false}>MANAGEMENT CO.</Text>
@@ -2527,7 +2944,7 @@ export const PropertiesScreen = ({
                         ADDITIONAL DETAILS <Text style={styles.optionalTag}>(OPTIONAL)</Text>
                       </Text>
                       <Text style={styles.propAccordionSub} allowFontScaling={false} numberOfLines={1}>
-                        Financial Valuation, Property Photo & Documents
+                        Financial Valuation & Notes
                       </Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -2582,19 +2999,6 @@ export const PropertiesScreen = ({
                           placeholderTextColor={colors.placeholder}
                           value={pExpenses}
                           onChangeText={setPExpenses}
-                          allowFontScaling={false}
-                        />
-                      </View>
-
-                      {/* PROPERTY PHOTO URL */}
-                      <View style={styles.formGroup}>
-                        <Text style={styles.fieldLabel} allowFontScaling={false}>PROPERTY PHOTO URL</Text>
-                        <TextInput
-                          style={styles.propInput}
-                          placeholder="https://images.unsplash.com/photo-..."
-                          placeholderTextColor={colors.placeholder}
-                          value={pPhotoUrl}
-                          onChangeText={setPPhotoUrl}
                           allowFontScaling={false}
                         />
                       </View>

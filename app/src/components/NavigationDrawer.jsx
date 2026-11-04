@@ -8,16 +8,11 @@ import {
   ScrollView,
   Platform,
   LayoutAnimation,
-  UIManager,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, onSelectScreen }) => {
   const { user, logout } = useAuthStore();
@@ -146,6 +141,12 @@ export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, on
       screen: 'documents',
     },
     {
+      id: 'restore-bin',
+      title: 'Restore Bin',
+      icon: 'refresh-circle-outline',
+      screen: 'restore-bin',
+    },
+    {
       id: 'reports',
       title: 'Reports',
       icon: 'bar-chart-outline',
@@ -163,6 +164,7 @@ export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, on
       { id: 'platform-users', title: 'Platform Users', icon: 'people-outline', screen: 'platform-users' },
       { id: 'properties', title: 'Properties', icon: 'home-outline', screen: 'properties' },
       { id: 'maintenance', title: 'Maintenance', icon: 'checkbox-outline', screen: 'maintenance' },
+      { id: 'restore-bin', title: 'Restore Bin', icon: 'refresh-circle-outline', screen: 'restore-bin' },
       { id: 'admin', title: 'Platform Settings', icon: 'settings-outline', screen: 'platform-settings' },
     ];
   } else if (isOwner) {
@@ -171,6 +173,7 @@ export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, on
       { id: 'properties', title: 'Properties', icon: 'business-outline', screen: 'properties' },
       { id: 'financials', title: 'Financials', icon: 'card-outline', screen: 'financials' },
       { id: 'statements', title: 'Statements', icon: 'document-text-outline', screen: 'statements' },
+      { id: 'distributions', title: 'Distributions', icon: 'cash-outline', screen: 'distributions' },
       { id: 'maintenance', title: 'Maintenance', icon: 'checkbox-outline', screen: 'maintenance' },
       { id: 'documents', title: 'Documents', icon: 'folder-outline', screen: 'documents' },
       { id: 'reports', title: 'Reports', icon: 'bar-chart-outline', screen: 'reports' },
@@ -353,16 +356,18 @@ export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, on
                 </View>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => handleSelect('company-settings')}
-                activeOpacity={0.7}
-              >
-                <View style={styles.menuItemLeft}>
-                  <Ionicons name="settings-outline" size={19} color={colors.textPrimary} style={{ marginRight: 12 }} />
-                  <Text style={styles.menuItemText} allowFontScaling={false}>Settings</Text>
-                </View>
-              </TouchableOpacity>
+              {!isTenant && !isOwner && !isStaff && (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => handleSelect('company-settings')}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.menuItemLeft}>
+                    <Ionicons name="settings-outline" size={19} color={colors.textPrimary} style={{ marginRight: 12 }} />
+                    <Text style={styles.menuItemText} allowFontScaling={false}>Settings</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
                 style={styles.menuItem}

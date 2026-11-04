@@ -144,6 +144,10 @@ export const useAuthStore = create((set, get) => ({
     apiClient.setAuthToken(null);
     await safeStorage.removeItem('user');
     await safeStorage.removeItem('theme'); // Reset theme on logout so next login starts in default light mode
+    try {
+      await safeStorage.removeItem('cache_manager_dashboard');
+      await safeStorage.removeItem('cache_properties_screen');
+    } catch (_) {}
     useThemeStore.getState().setTheme('light');
     set({ user: null, isAuthenticated: false });
   },

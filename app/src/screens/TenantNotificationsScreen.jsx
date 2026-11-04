@@ -8,6 +8,8 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  Platform,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import apiClient from '../api/client';
@@ -173,35 +175,44 @@ export const TenantNotificationsScreen = ({ onNavigate }) => {
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#38bdf8" />}
     >
-      {/* Header matching Web */}
+      {/* Responsive Header */}
       <View style={styles.header}>
-        <View style={styles.titleRow}>
-          {onNavigate && (
-            <TouchableOpacity
-              style={{ marginRight: 10, alignSelf: 'flex-start', marginTop: 4, padding: 4 }}
-              onPress={() => onNavigate('dashboard')}
-            >
-              <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
-            </TouchableOpacity>
-          )}
-          <View style={{ flex: 1, paddingRight: 8 }}>
-            <Text style={styles.title} allowFontScaling={false}>
-              {es ? 'Centro de Notificaciones' : 'Tenant Notifications Center'}
+        <View style={styles.headerTopBar}>
+          <View style={styles.headerLeftGroup}>
+            {onNavigate && (
+              <TouchableOpacity
+                style={styles.backBtn}
+                onPress={() => onNavigate('dashboard')}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <Text style={styles.title} numberOfLines={1} allowFontScaling={false}>
+              {es ? 'Notificaciones' : 'Notifications'}
             </Text>
-            <Text style={styles.headerDesc} allowFontScaling={false}>
-              {es
-                ? 'Verifique actualizaciones recientes sobre su contrato, pagos y mantenimiento.'
-                : 'Verify recent updates regarding your lease, payments, maintenance orders, and announcements.'}
-            </Text>
+            {notifications.filter((n) => !(n.read || n.isRead)).length > 0 && (
+              <View style={styles.unreadCountBadge}>
+                <Text style={styles.unreadCountBadgeText} allowFontScaling={false}>
+                  {notifications.filter((n) => !(n.read || n.isRead)).length}
+                </Text>
+              </View>
+            )}
           </View>
 
           <TouchableOpacity style={styles.markAllBtn} onPress={handleMarkAllRead} activeOpacity={0.8}>
-            <Ionicons name="checkmark-done-outline" size={15} color="#ffffff" style={{ marginRight: 5 }} />
+            <Ionicons name="checkmark-done" size={14} color="#ffffff" style={{ marginRight: 4 }} />
             <Text style={styles.markAllBtnText} allowFontScaling={false}>
-              {es ? 'Marcar Leído' : 'Mark All as Read'}
+              {es ? 'Marcar Leído' : 'Mark All Read'}
             </Text>
           </TouchableOpacity>
         </View>
+
+        <Text style={styles.headerDesc} allowFontScaling={false}>
+          {es
+            ? 'Verifique actualizaciones recientes sobre su contrato, pagos y mantenimiento.'
+            : 'Verify recent updates regarding your lease, payments, maintenance orders, and announcements.'}
+        </Text>
       </View>
 
       {/* Section Subheader matching Web */}
@@ -321,23 +332,54 @@ export const TenantNotificationsScreen = ({ onNavigate }) => {
 const getStyles = (colors, isDarkMode) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    contentContainer: { padding: 16, paddingBottom: 60 },
+    contentContainer: {
+      paddingHorizontal: 16,
+      paddingTop: Platform.OS === 'ios' ? 56 : (StatusBar.currentHeight || 20) + 12,
+      paddingBottom: 60,
+    },
 
-    header: { marginBottom: 18 },
-    titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-    title: { fontSize: 22, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.3 },
-    headerDesc: { fontSize: 12, color: colors.textSecondary, marginTop: 4, lineHeight: 17 },
+    header: { marginBottom: 16 },
+    headerTopBar: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 6,
+    },
+    headerLeftGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      marginRight: 8,
+    },
+    backBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 10,
+    },
+    title: { fontSize: 20, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.3 },
+    unreadCountBadge: {
+      backgroundColor: '#0284c7',
+      borderRadius: 10,
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      marginLeft: 8,
+    },
+    unreadCountBadgeText: { color: '#ffffff', fontSize: 11, fontWeight: '800' },
+    headerDesc: { fontSize: 12.5, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
 
     markAllBtn: {
       backgroundColor: '#0284c7',
-      paddingHorizontal: 12,
-      paddingVertical: 8,
+      paddingHorizontal: 11,
+      paddingVertical: 7,
       borderRadius: 8,
       flexDirection: 'row',
       alignItems: 'center',
-      marginTop: 2,
     },
-    markAllBtnText: { color: '#ffffff', fontSize: 11, fontWeight: '800' },
+    markAllBtnText: { color: '#ffffff', fontSize: 11.5, fontWeight: '700' },
 
     sectionHeader: {
       flexDirection: 'row',

@@ -254,148 +254,65 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
         if (dStr) deletedCoaIds = JSON.parse(dStr);
       } catch {}
 
-      // If NOT demo manager, new managers/companies must see clean empty CoA until they create accounts (Matching Web Frontend)
-      const filteredDbAccounts = rawAccounts.filter((a) => {
+      // Filter out dummy developer test records
+      const isDummyTestAccount = (a) => {
+        const name = String(a.accountName || a.name || '').toLowerCase();
+        const code = String(a.accountCode || a.accountNumber || '').trim();
+        if (name.includes('divyansh') || name.includes('vikas') || name.includes('dsd') || name.includes('test')) return true;
+        if (code.includes(',') || code === '101010' || code.includes('3030')) return true;
+        return false;
+      };
+
+      const cleanDbAccounts = rawAccounts.filter((a) => {
         if (deletedCoaIds.includes(a.id)) return false;
-        if (userCreatedIds.includes(a.id)) return true;
-        if (!isDemo && DEMO_COA_NAMES.includes(a.accountName)) return false;
+        if (isDummyTestAccount(a)) return false;
         if (userCompanyId && a.companyId && a.companyId !== userCompanyId) return false;
         return true;
       });
 
-      const mappedDbAccounts = filteredDbAccounts.map((a) => ({
-        id: a.id,
-        companyId: a.companyId,
-        accountNumber: a.accountCode || a.accountNumber || '',
-        accountName: a.accountName || '',
-        accountType: a.type === 'Asset' ? 'Assets' : a.type === 'Revenue' ? 'Income' : a.type === 'Expense' ? 'Expenses' : (a.type || a.accountType || 'Assets'),
-        balance: Number(a.balance) || 0,
-        status: a.isActive !== false ? 'Active' : 'Inactive',
-      }));
+      // Real live balances
+      const realCash = 0;
+      const realRentIncome = (paymentsList || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const realExpenses = (expenseList || []).reduce((s, e) => s + (Number(e.amountPaid || e.amount) || 0), 0);
 
-      // Standard category mappings to CoA codes and descriptive titles (matching Web App 1-to-1)
-      const INCOME_MAPPINGS = {
-        'Rent': { code: '4010', name: 'Rental Revenue Income' },
-        'Late Fees': { code: '4020', name: 'Late Fees & Penalty Income' },
-        'Parking': { code: '4030', name: 'Parking Space Income' },
-        'Utilities': { code: '4040', name: 'Utilities Reimbursement' },
-        'Storage': { code: '4050', name: 'Storage Lockers Income' },
-        'Pet Fees': { code: '4060', name: 'Pet Rent Fee Income' },
-      };
+      // Standard Professional Property Management Chart of Accounts
+      const STANDARD_COA = [
+        { id: 'coa-std-1010', accountNumber: '1010', accountName: 'Operating Checking Account', accountType: 'Assets', balance: realCash, status: 'Active' },
+        { id: 'coa-std-1020', accountNumber: '1020', accountName: 'Security Deposit Escrow Account', accountType: 'Assets', balance: 0, status: 'Active' },
+        { id: 'coa-std-2010', accountNumber: '2010', accountName: 'Accounts Payable (AP)', accountType: 'Liabilities', balance: 0, status: 'Active' },
+        { id: 'coa-std-2020', accountNumber: '2020', accountName: 'Tenant Security Deposit Liability', accountType: 'Liabilities', balance: 0, status: 'Active' },
+        { id: 'coa-std-3010', accountNumber: '3010', accountName: "Owner's Equity Capital", accountType: 'Equity', balance: 0, status: 'Active' },
+        { id: 'coa-std-4010', accountNumber: '4010', accountName: 'Rental Revenue Income', accountType: 'Income', balance: realRentIncome, status: 'Active' },
+        { id: 'coa-std-4020', accountNumber: '4020', accountName: 'Late Fee & Penalty Income', accountType: 'Income', balance: 0, status: 'Active' },
+        { id: 'coa-std-5010', accountNumber: '5010', accountName: 'Maintenance & Repair Expense', accountType: 'Expenses', balance: realExpenses, status: 'Active' },
+        { id: 'coa-std-5020', accountNumber: '5020', accountName: 'Property Insurance Expense', accountType: 'Expenses', balance: 0, status: 'Active' },
+        { id: 'coa-std-5030', accountNumber: '5030', accountName: 'Management & Administrative Fee', accountType: 'Expenses', balance: 0, status: 'Active' },
+      ];
 
-      const EXPENSE_MAPPINGS = {
-        'Maintenance': { code: '5010', name: 'General Maintenance Expense' },
-        'Repairs': { code: '5020', name: 'Repairs & Diagnostics Expense' },
-        'Utilities': { code: '5030', name: 'Public Utilities Expense' },
-        'Insurance': { code: '5040', name: 'Property Insurance Expense' },
-        'Property Taxes': { code: '5050', name: 'Property Taxes Expense' },
-        'Payroll': { code: '5060', name: 'Staff Payroll Expense' },
-        'Landscaping': { code: '5070', name: 'Landscaping Expense' },
-        'Office': { code: '5080', name: 'Office Supplies Expense' },
-      };
-
-      // Filter live income transactions by company and demo properties
-      const scopedIncome = liveIncome.filter((i) => {
-        let parsed = {};
-        try { parsed = typeof i.description === 'string' ? JSON.parse(i.description) : (i.description || {}); } catch { parsed = {}; }
-        if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
-        if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(parsed.propertyName) && !parsed.propertyId) return false;
-        return true;
+      const finalAccountsMap = new Map();
+      STANDARD_COA.forEach((std) => {
+        if (!deletedCoaIds.includes(std.id) && !deletedCoaIds.includes(std.accountNumber)) {
+          finalAccountsMap.set(std.accountNumber, { ...std });
+        }
       });
 
-      // Filter live payments
-      const scopedPayments = livePayments.filter((p) => {
-        if (userCompanyId && p.companyId && p.companyId !== userCompanyId) return false;
-        return true;
-      });
-
-      // Filter live expenses by company and demo properties
-      const scopedExpenses = liveExpenses.filter((e) => {
-        let parsed = {};
-        try { parsed = typeof e.description === 'string' ? JSON.parse(e.description) : (e.description || {}); } catch { parsed = {}; }
-        if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
-        if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(parsed.propertyName) && !parsed.propertyId) return false;
-        return true;
-      });
-
-      const incomeTotalsByCategory = {};
-      for (const inc of scopedIncome) {
-        const cat = inc.category || 'Rent';
-        incomeTotalsByCategory[cat] = (incomeTotalsByCategory[cat] || 0) + (Number(inc.amount) || 0);
-      }
-      for (const pay of scopedPayments) {
-        incomeTotalsByCategory['Rent'] = (incomeTotalsByCategory['Rent'] || 0) + (Number(pay.amount) || 0);
-      }
-
-      const expenseTotalsByCategory = {};
-      for (const exp of scopedExpenses) {
-        const cat = exp.category || 'Maintenance';
-        expenseTotalsByCategory[cat] = (expenseTotalsByCategory[cat] || 0) + (Number(exp.amount) || 0);
-      }
-
-      let dynamicIncomeCodeIdx = 100;
-      const derivedIncomeAccounts = [];
-      for (const [cat, totalAmount] of Object.entries(incomeTotalsByCategory)) {
-        if (totalAmount <= 0) continue;
-        const mapping = INCOME_MAPPINGS[cat];
-        const accNumber = mapping ? mapping.code : `4${dynamicIncomeCodeIdx++}`;
-        const accName = mapping ? mapping.name : (cat.toLowerCase().includes('income') ? cat : `${cat} Income`);
-        const accountId = `coa-income-${cat.toLowerCase().replace(/\s+/g, '-')}`;
-
-        if (deletedCoaIds.includes(accountId)) continue;
-
-        const existing = mappedDbAccounts.find((a) =>
-          a.accountNumber === accNumber ||
-          a.accountName.toLowerCase() === accName.toLowerCase() ||
-          a.accountName.toLowerCase() === cat.toLowerCase()
-        );
-
-        if (existing) {
-          existing.balance = (existing.balance || 0) + totalAmount;
-        } else {
-          derivedIncomeAccounts.push({
-            id: accountId,
-            accountNumber: accNumber,
-            accountName: accName,
-            accountType: 'Income',
-            balance: totalAmount,
-            status: 'Active',
+      cleanDbAccounts.forEach((a) => {
+        const accNum = a.accountCode || a.accountNumber || '';
+        const accType = a.type === 'Asset' ? 'Assets' : a.type === 'Revenue' ? 'Income' : a.type === 'Expense' ? 'Expenses' : (a.type || a.accountType || 'Assets');
+        if (accNum) {
+          finalAccountsMap.set(accNum, {
+            id: a.id,
+            companyId: a.companyId,
+            accountNumber: accNum,
+            accountName: a.accountName || 'Custom Ledger Account',
+            accountType: accType,
+            balance: Number(a.balance) || 0,
+            status: a.isActive !== false ? 'Active' : 'Inactive',
           });
         }
-      }
+      });
 
-      let dynamicExpenseCodeIdx = 100;
-      const derivedExpenseAccounts = [];
-      for (const [cat, totalAmount] of Object.entries(expenseTotalsByCategory)) {
-        if (totalAmount <= 0) continue;
-        const mapping = EXPENSE_MAPPINGS[cat];
-        const accNumber = mapping ? mapping.code : `5${dynamicExpenseCodeIdx++}`;
-        const accName = mapping ? mapping.name : (cat.toLowerCase().includes('expense') ? cat : `${cat} Expense`);
-        const accountId = `coa-expense-${cat.toLowerCase().replace(/\s+/g, '-')}`;
-
-        if (deletedCoaIds.includes(accountId)) continue;
-
-        const existing = mappedDbAccounts.find((a) =>
-          a.accountNumber === accNumber ||
-          a.accountName.toLowerCase() === accName.toLowerCase() ||
-          a.accountName.toLowerCase() === cat.toLowerCase()
-        );
-
-        if (existing) {
-          existing.balance = (existing.balance || 0) + totalAmount;
-        } else {
-          derivedExpenseAccounts.push({
-            id: accountId,
-            accountNumber: accNumber,
-            accountName: accName,
-            accountType: 'Expenses',
-            balance: totalAmount,
-            status: 'Active',
-          });
-        }
-      }
-
-      const combinedAccounts = [...mappedDbAccounts, ...derivedIncomeAccounts, ...derivedExpenseAccounts];
+      const combinedAccounts = Array.from(finalAccountsMap.values());
       combinedAccounts.sort((a, b) => (a.accountNumber || '').localeCompare(b.accountNumber || ''));
 
       setCoaList(combinedAccounts);
@@ -425,7 +342,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
         } catch {
           parsed = {};
         }
-        if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
+        if (userCompanyId && parsed.companyId !== userCompanyId) return false;
         if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(parsed.propertyName) && !parsed.propertyId) return false;
         return true;
       });
@@ -474,7 +391,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
         } catch {
           parsed = {};
         }
-        if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
+        if (userCompanyId && parsed.companyId !== userCompanyId) return false;
         if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(parsed.propertyName) && !parsed.propertyId) return false;
         return true;
       });
@@ -586,25 +503,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
           type: 'income',
           raw: i,
         }));
-        const topPayments = (paymentsList || []).map((p, idx) => ({
-          id: `pay-${p.id || idx}`,
-          title: p.tenantName ? `Rent Collection - ${p.tenantName}` : `Rent Payment #${p.referenceNumber || idx + 1}`,
-          subtitle: `${p.paidDate || p.createdAt || 'Recent'} · Rent Income (${p.propertyName || 'Portfolio'})`,
-          badge: `+$${Number(p.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-          badgeColor: '#10b981',
-          type: 'payment',
-          raw: p,
-        }));
-        const topExpenses = expenseList.map((e) => ({
-          id: `exp-${e.id}`,
-          title: e.vendorPartner || 'Operating Expense',
-          subtitle: `${e.expenseDate || 'Recent'} · ${e.category || 'Maintenance'} (${e.propertyLocation || 'Portfolio'})`,
-          badge: `-$${Number(e.amountPaid || e.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-          badgeColor: '#f43f5e',
-          type: 'expense',
-          raw: e,
-        }));
-        let combined = [...topIncomes, ...topPayments, ...topExpenses];
+        let combined = [...topIncomes, ...topExpenses];
         if (combined.length === 0 && coaList.length > 0) {
           combined = coaList.map((a) => ({
             id: a.id,
@@ -653,58 +552,65 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
       }
 
       case 'totalRevenue': {
-        const incomeAccounts = coaList.filter((a) => String(a.accountType || '').toLowerCase().includes('income') || String(a.accountType || '').toLowerCase().includes('revenue'));
         const recordedIncome = incomeList.map((i) => ({
           id: `inc-${i.id}`,
-          title: i.residentName || i.category || 'Operating Revenue',
-          subtitle: `${i.clearingDate || 'Recent'} · ${i.category || 'Revenue'} (${i.propertyLocation || 'Portfolio'})`,
+          title: i.residentName ? `${i.category || 'Income'} - ${i.residentName}` : (i.category || 'Operating Revenue'),
+          subtitle: `${i.clearingDate || 'Recent'} · ${i.propertyLocation || 'Portfolio'}`,
           classification: 'Recorded Revenue',
           badge: `+$${Number(i.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
           badgeColor: '#10b981',
           type: 'income',
           raw: i,
         }));
-        const tenantPaymentRows = (paymentsList || []).map((p, idx) => ({
-          id: `pay-${p.id || idx}`,
-          title: p.tenantName ? `Rent Collection - ${p.tenantName}` : `Rent Payment #${p.referenceNumber || idx + 1}`,
-          subtitle: `${p.paidDate || p.createdAt || 'Recent'} · Rent Collection (${p.propertyName || 'Portfolio'})`,
-          classification: 'Tenant Payment',
-          badge: `+$${Number(p.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-          badgeColor: '#10b981',
-          type: 'payment',
-          raw: p,
-        }));
-        const coaRows = incomeAccounts.map((a) => ({
-          id: `coa-${a.id}`,
-          title: a.accountName || 'Operating Revenue',
-          subtitle: `Account #${a.accountNumber || '—'} · ${a.accountType || 'Revenue'}`,
-          classification: 'Ledger Revenue',
-          badge: `+$${Number(a.balance !== undefined ? a.balance : (a.currentBalance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-          badgeColor: '#10b981',
-          type: 'coa',
-          raw: a,
-        }));
+        if (recordedIncome.length > 0) {
+          return recordedIncome.filter(
+            (i) => !q || (i.title)?.toLowerCase().includes(q) || (i.subtitle)?.toLowerCase().includes(q) || (i.classification)?.toLowerCase().includes(q)
+          );
+        }
 
-        const combinedRevenue = [...coaRows, ...recordedIncome, ...tenantPaymentRows];
-        const sourceIncome = combinedRevenue.length > 0 ? combinedRevenue : recordedIncome;
-        return sourceIncome
-          .filter((i) => !q || (i.title || i.accountName)?.toLowerCase().includes(q) || (i.subtitle || i.accountNumber)?.toLowerCase().includes(q) || (i.classification || i.accountType)?.toLowerCase().includes(q));
+        const incomeAccounts = coaList.filter((a) => String(a.accountType || '').toLowerCase().includes('income') || String(a.accountType || '').toLowerCase().includes('revenue'));
+        return incomeAccounts
+          .filter((a) => !q || a.accountName?.toLowerCase().includes(q) || a.accountNumber?.toLowerCase().includes(q))
+          .map((a) => ({
+            id: `coa-${a.id}`,
+            title: a.accountName || 'Operating Revenue',
+            subtitle: `Account #${a.accountNumber || '—'} · ${a.accountType || 'Revenue'}`,
+            classification: 'Ledger Revenue',
+            badge: `+$${Number(a.balance !== undefined ? a.balance : (a.currentBalance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+            badgeColor: '#10b981',
+            type: 'coa',
+            raw: a,
+          }));
       }
 
       case 'operatingExpenses': {
+        if (expenseList.length > 0) {
+          return expenseList
+            .filter((e) => !q || (e.vendorPartner)?.toLowerCase().includes(q) || (e.propertyLocation)?.toLowerCase().includes(q) || (e.category)?.toLowerCase().includes(q))
+            .map((e) => ({
+              id: e.id,
+              title: e.vendorPartner ? `${e.category || 'Expense'} - ${e.vendorPartner}` : (e.category || 'Operating Expense'),
+              subtitle: `${e.expenseDate || 'Recent'} · ${e.propertyLocation || 'Portfolio'}`,
+              classification: 'Disbursement',
+              badge: `-$${Number(e.amountPaid || e.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+              badgeColor: '#f43f5e',
+              type: 'expense',
+              raw: e,
+            }));
+        }
+
         const expenseAccounts = coaList.filter((a) => String(a.accountType || '').toLowerCase().includes('expense'));
-        const sourceExpenses = expenseAccounts.length > 0 ? expenseAccounts : expenseList;
-        return sourceExpenses
-          .filter((e) => !q || (e.vendorPartner || e.accountName)?.toLowerCase().includes(q) || (e.propertyLocation || e.accountNumber)?.toLowerCase().includes(q) || (e.category || e.accountType)?.toLowerCase().includes(q))
-          .map((e) => ({
+        return expenseAccounts
+          .filter((a) => !q || a.accountName?.toLowerCase().includes(q) || a.accountNumber?.toLowerCase().includes(q))
+          .map((a) => ({
             id: e.id,
-            title: e.accountName || e.vendorPartner || 'Operating Expense',
-            subtitle: e.accountNumber ? `Account #${e.accountNumber} · ${e.accountType || 'Expense'}` : `${e.expenseDate || 'Recent'} · ${e.category || 'General'}`,
+            title: a.accountName || 'Operating Expense',
+            subtitle: `Account #${a.accountNumber || '—'} · ${a.accountType || 'Expense'}`,
             classification: 'Operating Disbursement',
-            badge: `-$${Number(e.balance !== undefined ? e.balance : (e.amountPaid || e.amount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+            badge: `-$${Number(a.balance !== undefined ? a.balance : 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
             badgeColor: '#f43f5e',
             type: 'expense',
-            raw: e,
+            raw: a,
           }));
       }
 
@@ -748,7 +654,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
     }
 
     // When no dedicated Asset accounts exist in CoA, liquid cash is derived from actual net operating cashflow
-    const totalInc = incomeList.reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
+    const totalInc = (paymentsList || []).concat(incomeList).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
     const totalExp = expenseList.reduce((acc, e) => acc + (Number(e.amountPaid || e.amount) || 0), 0);
     const computedCash = totalInc > totalExp ? totalInc - totalExp : (totalInc > 0 ? totalInc : 0);
     operatingTotal = computedCash;
@@ -893,9 +799,9 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
       case 'totalCash':
         return { name: 'Operating Bank & Cash Reserves', count: `${getAccountingModalItems().length} Accounts`, destTab: 'coa', destLabel: 'View Chart of Accounts' };
       case 'totalRevenue':
-        return { name: 'Total Revenue Stream', count: `${incomeList.length} Income Records`, destTab: 'income', destLabel: 'View Income Ledger' };
+        return { name: 'Total Income YTD Breakdown', count: `${getAccountingModalItems().length} Transactions`, destTab: 'income', destLabel: 'View Income Ledger' };
       case 'operatingExpenses':
-        return { name: 'Operating Disbursements & Bills', count: `${expenseList.length} Expenses`, destTab: 'expenses', destLabel: 'View Expenses' };
+        return { name: 'Total Expenses YTD Breakdown', count: `${expenseList.length} Expenses`, destTab: 'expenses', destLabel: 'View Expenses' };
       default:
         return { name: 'Metric Details', count: '', destTab: 'dashboard', destLabel: 'View Tab' };
     }
@@ -1330,7 +1236,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
       case 'unit': return 'Select Rentable Unit';
       case 'tenant': return 'Select Resident / Tenant Payee';
       case 'owner': return 'Select Property Owner';
-      case 'vendor': return 'Select Payee (Staff / Vendor)';
+      case 'vendor': return 'Select Payee (Staff)';
       case 'coaType': return 'Select Account Type';
       case 'incomeCat': return 'Select Income Category';
       case 'expenseCat': return 'Select Expense Category';
@@ -1432,22 +1338,35 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
       }
 
       case 'vendor': {
-        const staffOpts = staff.map(s => ({
-          value: `staff-${s.id}`,
-          label: `Staff: ${(`${s.firstName || ''} ${s.lastName || ''}`).trim() || s.name || 'Staff'}`
-        }));
-        const vendorOpts = vendors.map(v => ({
-          value: `vendor-${v.id}`,
-          label: `Vendor: ${v.name || v.companyName || 'Vendor'}`
-        }));
+        const staffOpts = staff.map(s => {
+          const name = (`${s.firstName || ''} ${s.lastName || ''}`).trim() || s.name || 'Maintenance Staff';
+          return {
+            value: `staff-${s.id}`,
+            label: name,
+          };
+        });
+
+        // Exact Web parity: deduplicate so maintenance staff who also exist as vendors don't appear twice
+        const staffNames = new Set(staffOpts.map(s => s.label.toLowerCase()));
+        const staffEmails = new Set(staff.map(s => (s.email || '').toLowerCase()).filter(Boolean));
+
+        const vendorOpts = vendors
+          .filter(v => {
+            const vName = (v.name || v.companyName || v.contactName || '').trim().toLowerCase();
+            const vEmail = (v.email || '').toLowerCase();
+            if (vEmail && staffEmails.has(vEmail)) return false;
+            if (vName && staffNames.has(vName)) return false;
+            return true;
+          })
+          .map(v => ({
+            value: `vendor-${v.id}`,
+            label: v.name || v.companyName || v.contactName || 'Vendor',
+          }));
+
         const combined = [...staffOpts, ...vendorOpts];
         if (combined.length > 0) return combined;
         return [
-          { value: 'staff-maint-1', label: 'Staff: General Maintenance Team' },
-          { value: 'vendor-pro-fix', label: 'Vendor: ProFix Solutions' },
-          { value: 'vendor-apex-plumbing', label: 'Vendor: Apex Pro Plumbing & Maintenance Co.' },
-          { value: 'vendor-pro-electric', label: 'Vendor: Pro Electrician Services Inc' },
-          { value: 'vendor-metro-hvac', label: 'Vendor: Metro HVAC & Cooling Specialists' },
+          { value: 'staff-maint-1', label: 'David' },
         ];
       }
 
@@ -1789,7 +1708,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
         </View>
         <Text style={styles.subtitle} allowFontScaling={false}>
           {activeTab === 'dashboard'
-            ? (language === 'es' ? 'Beneficio neto, efectivo total, ingresos y gastos acumulados' : language === 'hi' ? 'शुद्ध लाभ, कुल नकदी, कुल राजस्व और परिचालन व्यय' : 'Net profit, total cash, total revenue & operating expenses')
+            ? (language === 'es' ? 'Beneficio neto, ingresos totales y gastos operativos' : language === 'hi' ? 'शुद्ध लाभ, कुल आय और परिचालन व्यय' : 'Net profit, total income & operating expenses')
             : activeTab === 'coa'
             ? (language === 'es' ? 'Verifique categorías de activos, reservas de pasivos y libro mayor' : language === 'hi' ? 'संपत्ति श्रेणियां, देनदारी और बहीखाता शेष' : 'Verify asset categories, liability reserves, and ledger balances')
             : activeTab === 'income'
@@ -1943,34 +1862,16 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
                 .reduce((acc, a) => acc + (Number(a.balance || a.currentBalance) || 0), 0);
               const incomeSum = incomeList.reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
               const expensesSum = expenseList.reduce((acc, e) => acc + (Number(e.amountPaid || e.amount) || 0), 0);
-              const paymentsSum = (paymentsList || []).reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
 
-              const combinedDirectIncome = incomeSum + paymentsSum;
-              const contractedMonthlyRev = Number(dashboardMetrics?.monthlyRevenue || 0);
-
-              // Accurately capture total revenue: combine chart-of-accounts revenue with tenant payments or contracted monthly portfolio revenue
-              let totalIncome = accountsIncomeSum;
-              if (combinedDirectIncome > 0 && combinedDirectIncome > accountsIncomeSum) {
-                totalIncome = combinedDirectIncome;
-              } else if (accountsIncomeSum === 0 && combinedDirectIncome === 0 && contractedMonthlyRev > 0) {
-                totalIncome = contractedMonthlyRev;
-              } else if (accountsIncomeSum > 0 && paymentsSum > 0 && !coaList.some(a => (a.accountName || '').toLowerCase().includes('rental revenue') && a.balance >= paymentsSum)) {
-                totalIncome = accountsIncomeSum + paymentsSum;
-              }
-
-              const totalExpenses = accountsExpenseSum > 0 ? accountsExpenseSum : expensesSum;
+              // Accurately capture isolated total income and expenses (strictly manager income and expenses)
+              const totalIncome = incomeSum;
+              const totalExpenses = expensesSum;
               const netProfit = totalIncome - totalExpenses;
-              const accountsAssetSum = coaList
-                .filter((a) => String(a.accountType || a.type || a.category || '').toLowerCase().includes('asset'))
-                .reduce((acc, a) => acc + (Number(a.currentBalance || a.balance) || 0), 0);
-              const totalCash = accountsAssetSum > 0
-                ? accountsAssetSum
-                : (totalIncome > totalExpenses ? totalIncome - totalExpenses : (totalIncome > 0 ? totalIncome : 0));
               return (
                 <View>
                   <View style={styles.metricsGrid}>
                     <TouchableOpacity
-                      style={styles.metricCard}
+                      style={[styles.metricCard, { width: '100%' }]}
                       onPress={() => setSelectedAccountingMetric('netProfit')}
                       activeOpacity={0.7}
                     >
@@ -1988,26 +1889,11 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
 
                     <TouchableOpacity
                       style={styles.metricCard}
-                      onPress={() => setSelectedAccountingMetric('totalCash')}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.metricCardTop}>
-                        <Text style={styles.metricCardLabel}>TOTAL CASH</Text>
-                        <Ionicons name="wallet-outline" size={14} color="#38bdf8" />
-                      </View>
-                      <Text style={[styles.metricCardValue, { color: '#38bdf8' }]}>
-                        ${totalCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                      <Text style={styles.metricCardSub}>Operating Bank Reserves →</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.metricCard}
                       onPress={() => setSelectedAccountingMetric('totalRevenue')}
                       activeOpacity={0.7}
                     >
                       <View style={styles.metricCardTop}>
-                        <Text style={styles.metricCardLabel}>TOTAL REVENUE</Text>
+                        <Text style={styles.metricCardLabel}>TOTAL INCOME YTD</Text>
                         <Ionicons name="arrow-down-circle-outline" size={14} color="#10b981" />
                       </View>
                       <Text style={[styles.metricCardValue, { color: '#10b981' }]}>
@@ -2022,7 +1908,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
                       activeOpacity={0.7}
                     >
                       <View style={styles.metricCardTop}>
-                        <Text style={styles.metricCardLabel}>TOTAL EXPENSES</Text>
+                        <Text style={styles.metricCardLabel}>TOTAL EXPENSES YTD</Text>
                         <Ionicons name="arrow-up-circle-outline" size={14} color="#ef4444" />
                       </View>
                       <Text style={[styles.metricCardValue, { color: '#ef4444' }]}>
@@ -2059,7 +1945,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
                           const month = d.getMonth();
                           const mLabel = monthNames[month];
 
-                          let inc = (incomeList || []).concat(paymentsList || []).reduce((sum, item) => {
+                          let inc = (incomeList || []).reduce((sum, item) => {
                             const rawDate = item.paidDate || item.paymentDate || item.date || item.createdAt;
                             if (!rawDate) return sum;
                             const itemDate = new Date(rawDate);
@@ -2078,25 +1964,6 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
                             }
                             return sum;
                           }, 0);
-
-                          if (i === 0) {
-                            if (inc === 0 && totalIncome > 0) inc = totalIncome;
-                            if (exp === 0 && totalExpenses > 0) exp = totalExpenses;
-                          } else {
-                            // Historical months: check dashboard charts or synthesize realistic continuous trend
-                            const backendMonth = Array.isArray(dashboardCharts?.incomeVsExpenses)
-                              ? dashboardCharts.incomeVsExpenses.find(c => c.month === mLabel)
-                              : null;
-                            if (backendMonth && backendMonth.income > 0) {
-                              const scale = totalIncome > 0 ? totalIncome / Math.max(1, backendMonth.income) : 1;
-                              inc = scale < 0.1 ? Math.round(totalIncome * (0.86 + ((5 - i) % 3) * 0.05)) : backendMonth.income;
-                              exp = scale < 0.1 ? Math.round(totalExpenses * (0.82 + ((i + 1) % 3) * 0.06)) : backendMonth.expenses;
-                            } else if (inc === 0 && totalIncome > 0) {
-                              const varianceFactor = 0.86 + ((5 - i) % 3) * 0.06;
-                              inc = Math.round(totalIncome * varianceFactor);
-                              exp = Math.round(totalExpenses * (0.80 + ((i + 2) % 3) * 0.06));
-                            }
-                          }
 
                           chartData.push({ m: mLabel, inc, exp });
                         }
@@ -2466,8 +2333,8 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
                 </TouchableOpacity>
               </View>
             </View>
-            {renderPickerOverlay()}
           </TouchableWithoutFeedback>
+          {renderPickerOverlay()}
         </KeyboardAvoidingView>
       </Modal>
 
@@ -2691,8 +2558,8 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
                 </TouchableOpacity>
               </View>
             </View>
-            {renderPickerOverlay()}
           </TouchableWithoutFeedback>
+          {renderPickerOverlay()}
         </KeyboardAvoidingView>
       </Modal>
 
@@ -2933,8 +2800,8 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate }) => {
                 </TouchableOpacity>
               </View>
             </View>
-            {renderPickerOverlay()}
           </TouchableWithoutFeedback>
+          {renderPickerOverlay()}
         </KeyboardAvoidingView>
       </Modal>
 

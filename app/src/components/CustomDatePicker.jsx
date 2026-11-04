@@ -11,7 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../theme';
 
-export const CustomDatePicker = ({ visible, value, onSelect, onClose }) => {
+export const CustomDatePicker = ({ visible, value, onSelect, onClose, inline = false }) => {
   const { colors } = useThemeColors();
   const styles = getStyles(colors);
 
@@ -150,10 +150,11 @@ export const CustomDatePicker = ({ visible, value, onSelect, onClose }) => {
     setViewMode('calendar');
   };
 
-  return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.card}>
+  if (!visible) return null;
+
+  const datePickerContent = (
+    <View style={[styles.overlay, inline && styles.inlineOverlay]}>
+      <View style={styles.card}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -412,6 +413,15 @@ export const CustomDatePicker = ({ visible, value, onSelect, onClose }) => {
           </View>
         </View>
       </View>
+  );
+
+  if (inline) {
+    return datePickerContent;
+  }
+
+  return (
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+      {datePickerContent}
     </Modal>
   );
 };
@@ -424,6 +434,15 @@ const getStyles = (colors) =>
       justifyContent: 'center',
       alignItems: 'center',
       padding: 16,
+    },
+    inlineOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 999999,
+      elevation: 999999,
     },
     card: {
       width: '100%',

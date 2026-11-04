@@ -15,8 +15,8 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
-  SafeAreaView,
   StatusBar,
+  Linking,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
@@ -381,6 +381,40 @@ export const MaintenanceScreen = ({
   const [showCPriorityDropdown, setShowCPriorityDropdown] = useState(false);
   const [showCTenantDropdown, setShowCTenantDropdown] = useState(false);
 
+  // AI DIY Troubleshooting State for Manager Create Ticket (Web parity 1:1)
+  const [cAiTips, setCAiTips] = useState(null);
+  const [loadingCAiTips, setLoadingCAiTips] = useState(false);
+
+  const fetchCAiTroubleshooting = async () => {
+    if (!cDesc.trim()) {
+      Alert.alert('Notice', 'Please enter a description of the issue first.');
+      return;
+    }
+    setLoadingCAiTips(true);
+    try {
+      const res = await apiClient.post(
+        '/service-requests/troubleshoot',
+        { description: cDesc.trim(), category: cCategory },
+        logout,
+        refreshAccessToken
+      );
+      const data = res?.data || res;
+      setCAiTips(data);
+    } catch (e) {
+      console.warn('AI Troubleshooting error:', e.message);
+      setCAiTips({
+        suggestionTitle: 'AI DIY Troubleshooting Tips',
+        tips: [
+          'Verify if the main shutoff valve or breaker switch is active.',
+          'Clear visible debris or filters and check for obvious surface blockages.',
+          'Note down specific error codes or equipment model numbers for dispatch.',
+        ],
+      });
+    } finally {
+      setLoadingCAiTips(false);
+    }
+  };
+
   const handleOpenCreateTicket = () => {
     setCTitle('');
     setCDesc('');
@@ -400,6 +434,7 @@ export const MaintenanceScreen = ({
     setCPreferredTime('Morning 8 AM - 12 PM');
     setCPermissionToEnter(true);
     setCNotes('');
+    setCAiTips(null);
     setIsCreateOpen(true);
   };
 
@@ -422,6 +457,16 @@ export const MaintenanceScreen = ({
   const [dCost, setDCost] = useState('');
   const [dSchedDate, setDSchedDate] = useState('');
   const [dNotes, setDNotes] = useState('');
+
+  const getCostBenchmark = (cat) => {
+    const c = (cat || '').toLowerCase();
+    if (c.includes('plumb')) return '$150 – $350';
+    if (c.includes('elect')) return '$180 – $400';
+    if (c.includes('hvac') || c.includes('heat') || c.includes('cool') || c.includes('air')) return '$200 – $600';
+    if (c.includes('appliance')) return '$120 – $300';
+    if (c.includes('roof') || c.includes('leak')) return '$250 – $750';
+    return '$100 – $250';
+  };
 
   // Message thread text input
   const [chatMessage, setChatMessage] = useState('');
@@ -459,6 +504,18 @@ export const MaintenanceScreen = ({
   const [vEditStatus, setVEditStatus] = useState('Active');
   const [showVCatDropdown, setShowVCatDropdown] = useState(false);
   const [showVStatusDropdown, setShowVStatusDropdown] = useState(false);
+
+  // --- Quick Provision Maintenance Staff Modal State (from Ticket) ---
+  const [showQuickAddStaffModal, setShowQuickAddStaffModal] = useState(false);
+  const [quickStaffName, setQuickStaffName] = useState('');
+  const [quickStaffEmail, setQuickStaffEmail] = useState('');
+  const [quickStaffPhone, setQuickStaffPhone] = useState('');
+  const [quickStaffPassword, setQuickStaffPassword] = useState('');
+  const [showQuickStaffPassword, setShowQuickStaffPassword] = useState(false);
+  const [quickStaffStatus, setQuickStaffStatus] = useState('Active');
+  const [quickStaffSpecialty, setQuickStaffSpecialty] = useState('Plumber');
+  const [showQuickSpecialtyDropdown, setShowQuickSpecialtyDropdown] = useState(false);
+  const [quickStaffSubmitting, setQuickStaffSubmitting] = useState(false);
 
   const runEntryAnimation = () => {
     fadeAnim.setValue(0);
@@ -1048,8 +1105,8 @@ export const MaintenanceScreen = ({
 
   // Submit new ticket creation
   const handleCreateRequest = async () => {
-    if (!cTitle.trim() || !cDesc.trim()) {
-      Alert.alert('Validation Error', 'Please enter a ticket title and issue description.');
+    if (!cDesc.trim()) {
+      Alert.alert('Validation Error', 'Please enter an issue description.');
       return;
     }
 
@@ -1061,8 +1118,11 @@ export const MaintenanceScreen = ({
       const autoBuilding = buildings.find(b => b.propertyId === cPropId) || buildings[0];
       const buildingId = cBuildingId || autoBuilding?.id || undefined;
 
+      const firstLine = cDesc.trim().split('\n')[0];
+      const autoTitle = firstLine.length > 40 ? firstLine.slice(0, 40) + '...' : firstLine;
+
       const payload = {
-        title: cTitle.trim(),
+        title: cTitle.trim() || autoTitle || `${cCategory} Request`,
         description: cDesc.trim(),
         propertyId: cPropId || undefined,
         buildingId: buildingId,
@@ -1163,6 +1223,13 @@ export const MaintenanceScreen = ({
       Alert.alert('Select Staff', 'Please select a maintenance staff member first.');
       return;
     }
+    const curStatus = (selectedTicket.status || '').toLowerCase();
+    const isLocked = curStatus.includes('accept') || curStatus.includes('progress') || curStatus.includes('complete') || curStatus.includes('close');
+    if (isLocked) {
+      Alert.alert('Action Not Allowed', 'You cannot change the maintenance staff as the task has already been accepted or started.');
+      setIsReassigningStaff(false);
+      return;
+    }
     try {
       setSubmitting(true);
       const staffMember = staff.find(s => s.id === dAssignedVendorId);
@@ -1171,6 +1238,7 @@ export const MaintenanceScreen = ({
         status: 'Assigned',
         assignedVendorId: dAssignedVendorId,
         assignedVendorName: staffMember?.companyName || staffMember?.name || 'Assigned Staff',
+        assignedTechnician: staffMember?.name || staffMember?.companyName || 'Assigned Staff',
         cost: val,
       };
       await apiClient.put(`/service-requests/${selectedTicket.id}`, payload, logout, refreshAccessToken);
@@ -1405,6 +1473,68 @@ export const MaintenanceScreen = ({
       Alert.alert('Error', err.message || 'Failed to create vendor.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleQuickCreateStaff = async () => {
+    if (!quickStaffName.trim() || !quickStaffEmail.trim()) {
+      Alert.alert('Validation Error', 'Please enter full name and email address.');
+      return;
+    }
+    if (!quickStaffPassword.trim()) {
+      Alert.alert('Validation Error', 'Please enter a password for this staff member.');
+      return;
+    }
+    try {
+      setQuickStaffSubmitting(true);
+      const payload = {
+        name: quickStaffName.trim(),
+        email: quickStaffEmail.trim(),
+        phone: quickStaffPhone.trim() || undefined,
+        role: 'Maintenance',
+        status: quickStaffStatus,
+        serviceType: quickStaffSpecialty,
+        password: quickStaffPassword.trim(),
+      };
+
+      const res = await apiClient.post('/superadmin/company-users', payload, logout, refreshAccessToken).catch(async () => {
+        return apiClient.post('/users', payload, logout, refreshAccessToken);
+      });
+      const createdUser = res?.data || { id: `usr-${Date.now()}`, ...payload };
+
+      const newStaffMember = {
+        id: createdUser.id,
+        name: createdUser.name || quickStaffName.trim(),
+        companyName: createdUser.name || quickStaffName.trim(),
+        contactName: createdUser.name || quickStaffName.trim(),
+        email: createdUser.email || quickStaffEmail.trim(),
+        phone: createdUser.phone || quickStaffPhone.trim(),
+        category: createdUser.serviceType || quickStaffSpecialty,
+        serviceType: createdUser.serviceType || quickStaffSpecialty,
+        rating: 5.0,
+        activeJobs: 0,
+        completedJobs: 0,
+        status: createdUser.status || quickStaffStatus,
+      };
+
+      setStaff((prev) => [newStaffMember, ...prev]);
+      setDAssignedVendorId(newStaffMember.id);
+      setIsReassigningStaff(true);
+      setShowQuickAddStaffModal(false);
+
+      // Reset form fields
+      setQuickStaffName('');
+      setQuickStaffEmail('');
+      setQuickStaffPhone('');
+      setQuickStaffPassword('');
+      setQuickStaffStatus('Active');
+      setQuickStaffSpecialty('Plumber');
+
+      Alert.alert('Staff Created', `Technician "${newStaffMember.name}" has been created and auto-selected! Tap Dispatch Staff to assign.`);
+    } catch (err) {
+      Alert.alert('Creation Failed', err.message || 'Unable to create maintenance staff account.');
+    } finally {
+      setQuickStaffSubmitting(false);
     }
   };
 
@@ -2238,13 +2368,11 @@ export const MaintenanceScreen = ({
                               {sBadge.label}
                             </Text>
                           </View>
-                          {(w.estimatedCost > 0 || w.actualCost > 0) && (
-                            <View style={[styles.priorityBadge, { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }]}>
-                              <Text style={[styles.priorityBadgeText, { color: '#10b981' }]} allowFontScaling={false}>
-                                ${w.actualCost > 0 ? w.actualCost : w.estimatedCost}
-                              </Text>
-                            </View>
-                          )}
+                          <View style={[styles.priorityBadge, { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }]}>
+                            <Text style={[styles.priorityBadgeText, { color: '#10b981' }]} allowFontScaling={false}>
+                              ${((Number(w.actualCost) || 0) + (Number(w.extraExpenses) || 0)) > 0 ? ((Number(w.actualCost) || 0) + (Number(w.extraExpenses) || 0)) : (w.estimatedCost || 0)}
+                            </Text>
+                          </View>
                         </View>
 
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -2718,12 +2846,27 @@ export const MaintenanceScreen = ({
                 </View>
 
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>SUBJECT / TITLE</Text>
-                  <TextInput style={styles.formInput} placeholder="E.g., HVAC Fan Failure" placeholderTextColor="#64748b" value={cTitle} onChangeText={setCTitle} />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>DESCRIPTION OF ISSUE</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>DESCRIPTION OF ISSUE</Text>
+                    {cDesc.trim().length > 0 && (
+                      <TouchableOpacity
+                        onPress={fetchCAiTroubleshooting}
+                        disabled={loadingCAiTips}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        {loadingCAiTips ? (
+                          <ActivityIndicator size="small" color="#38bdf8" />
+                        ) : (
+                          <>
+                            <Ionicons name="sparkles" size={12} color="#38bdf8" />
+                            <Text style={{ fontSize: 11, color: '#38bdf8', fontWeight: '800' }} allowFontScaling={false}>
+                              Get AI DIY Tips
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   <TextInput 
                     style={[styles.formInput, { height: 80, textAlignVertical: 'top', paddingTop: 10 }]} 
                     placeholder="Describe the issue, leak rates, or equipment behaviors..." 
@@ -2734,22 +2877,56 @@ export const MaintenanceScreen = ({
                   />
                 </View>
 
-                <View style={styles.formRow}>
-                  <View style={[styles.formGroup, { flex: 1 }]}>
-                    <Text style={styles.formLabel} allowFontScaling={false}>PREFERRED VISIT TIME</Text>
-                    <TextInput style={styles.formInput} placeholder="E.g., Morning 8 AM - 12 PM" placeholderTextColor="#64748b" value={cPreferredTime} onChangeText={setCPreferredTime} />
-                  </View>
-                  <TouchableOpacity 
-                    style={[styles.checkboxContainer, { flex: 1 }]} 
-                    onPress={() => setCPermissionToEnter(!cPermissionToEnter)}
-                    activeOpacity={0.8}
-                  >
-                    <View style={[styles.checkbox, cPermissionToEnter && styles.checkboxChecked]}>
-                      {cPermissionToEnter && <Ionicons name="checkmark" size={12} color="#0f172a" />}
+                {/* AI Troubleshooting Card matching Web */}
+                {cAiTips && (
+                  <View style={{
+                    backgroundColor: isDarkMode ? 'rgba(245, 158, 11, 0.08)' : '#fffbeb',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: 'rgba(245, 158, 11, 0.3)',
+                    padding: 12,
+                    marginBottom: 14,
+                  }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="sparkles" size={14} color="#f59e0b" />
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: '#f59e0b' }} allowFontScaling={false}>
+                          {cAiTips.suggestionTitle || 'AI Troubleshooting Tips'}
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setCAiTips(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Ionicons name="close-circle" size={18} color="#94a3b8" />
+                      </TouchableOpacity>
                     </View>
-                    <Text style={styles.checkboxLabel} allowFontScaling={false}>PERMISSION TO ENTER UNIT</Text>
-                  </TouchableOpacity>
+                    <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 8 }} allowFontScaling={false}>
+                      Review these standard diagnostic checkpoints before dispatch:
+                    </Text>
+                    {(cAiTips.tips || []).map((tip, idx) => (
+                      <View key={idx} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                        <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: 'rgba(56, 189, 248, 0.2)', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                          <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#38bdf8' }}>{idx + 1}</Text>
+                        </View>
+                        <Text style={{ flex: 1, fontSize: 11.5, color: colors.textPrimary, lineHeight: 16 }} allowFontScaling={false}>{tip}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>PREFERRED VISIT TIME</Text>
+                  <TextInput style={styles.formInput} placeholder="E.g., Morning 8 AM - 12 PM" placeholderTextColor="#64748b" value={cPreferredTime} onChangeText={setCPreferredTime} />
                 </View>
+
+                <TouchableOpacity 
+                  style={[styles.checkboxContainer, { marginBottom: 14 }]} 
+                  onPress={() => setCPermissionToEnter(!cPermissionToEnter)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.checkbox, cPermissionToEnter && styles.checkboxChecked]}>
+                    {cPermissionToEnter && <Ionicons name="checkmark" size={12} color="#0f172a" />}
+                  </View>
+                  <Text style={styles.checkboxLabel} allowFontScaling={false}>PERMISSION TO ENTER UNIT</Text>
+                </TouchableOpacity>
 
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel} allowFontScaling={false}>DIAGNOSTIC NOTES (INTERNAL ONLY)</Text>
@@ -2779,7 +2956,7 @@ export const MaintenanceScreen = ({
 
       {/* --- SERVICE TICKET DETAILS SCREEN (Full Web-Aligned Layout) --- */}
       <Modal visible={!!selectedTicket} animationType="slide" onRequestClose={() => setSelectedTicket(null)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc' }}>
+        <View style={{ flex: 1, backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc' }}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
             {/* Top Navigation Header Bar */}
             <View style={{
@@ -2787,7 +2964,7 @@ export const MaintenanceScreen = ({
               alignItems: 'center',
               justifyContent: 'space-between',
               paddingHorizontal: 16,
-              paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 14 : 14,
+              paddingTop: Platform.OS === 'ios' ? 54 : (StatusBar.currentHeight || 24) + 14,
               paddingBottom: 14,
               borderBottomWidth: 1,
               borderColor: colors.cardBorder,
@@ -2892,16 +3069,6 @@ export const MaintenanceScreen = ({
                             >
                               <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 11 }} allowFontScaling={false}>
                                 Approve Ticket
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-                          {dStatus !== 'Completed' && (
-                            <TouchableOpacity
-                              style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', borderWidth: 1, borderColor: '#10b981', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}
-                              onPress={() => setDStatus('Completed')}
-                            >
-                              <Text style={{ color: '#10b981', fontWeight: '800', fontSize: 11 }} allowFontScaling={false}>
-                                Mark Completed
                               </Text>
                             </TouchableOpacity>
                           )}
@@ -3038,7 +3205,7 @@ export const MaintenanceScreen = ({
                         <View style={{ flex: 1, alignItems: 'flex-end' }}>
                           <Text style={styles.metaLabel} allowFontScaling={false}>RESIDENT / AUDITOR</Text>
                           <Text style={[styles.metaValText, { textAlign: 'right' }]} allowFontScaling={false}>
-                            {selectedTicket.tenantName}
+                            {selectedTicket.tenantName || 'Resident'}
                           </Text>
                         </View>
                       </View>
@@ -3102,48 +3269,124 @@ export const MaintenanceScreen = ({
 
                     {/* CARD 4: CONTRACTOR & COST MANAGEMENT */}
                     <View style={styles.detailContainer}>
-                      <Text style={styles.modalSectionTitle} allowFontScaling={false}>CONTRACTOR & COST MANAGEMENT</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <Text style={[styles.modalSectionTitle, { marginBottom: 0 }]} allowFontScaling={false}>
+                          CONTRACTOR & COST MANAGEMENT
+                        </Text>
+                        {Boolean((selectedTicket.assignedVendorName && selectedTicket.assignedVendorName !== 'Unassigned') || selectedTicket.assignedVendorId || dAssignedVendorId) && (
+                          (() => {
+                            const sLower = (selectedTicket.status || '').toLowerCase();
+                            const isLocked = sLower.includes('accept') || sLower.includes('progress') || sLower.includes('complete') || sLower.includes('close');
+                            if (isLocked) {
+                              return (
+                                <TouchableOpacity
+                                  onPress={() => Alert.alert('Action Not Allowed', 'You cannot change the maintenance staff as the task has already been accepted or started.')}
+                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 4 }}
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons name="lock-closed" size={13} color="#f59e0b" />
+                                  <Text style={{ fontSize: 12, fontWeight: '800', color: '#f59e0b', textDecorationLine: 'underline' }} allowFontScaling={false}>
+                                    Reassign (Locked)
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            }
+                            return (
+                              <TouchableOpacity
+                                onPress={() => {
+                                  if (isReassigningStaff) {
+                                    setIsReassigningStaff(false);
+                                  } else {
+                                    setDAssignedVendorId(selectedTicket.assignedVendorId || '');
+                                    setIsReassigningStaff(true);
+                                  }
+                                }}
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 4 }}
+                                activeOpacity={0.7}
+                              >
+                                <Ionicons name="swap-horizontal" size={14} color="#0284c7" />
+                                <Text style={{ fontSize: 12, fontWeight: '800', color: '#0284c7', textDecorationLine: 'underline' }} allowFontScaling={false}>
+                                  {isReassigningStaff ? 'Cancel' : 'Reassign Staff'}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })()
+                        )}
+                      </View>
 
-                      {/* If Assigned and not in reassign mode: show Assigned Contractor Card (Web Parity) */}
-                      {Boolean((selectedTicket.assignedVendorName && selectedTicket.assignedVendorName !== 'Unassigned') || selectedTicket.assignedVendorId || (dAssignedVendorId && !isReassigningStaff)) ? (
+                      {/* If Assigned and not in reassign mode: show Clean Assigned Staff Card (Web Parity) */}
+                      {Boolean((selectedTicket.assignedVendorName && selectedTicket.assignedVendorName !== 'Unassigned') || selectedTicket.assignedVendorId || dAssignedVendorId) && !isReassigningStaff ? (
                         <View style={{
                           backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#f1f5f9',
                           borderRadius: 12,
-                          padding: 12,
+                          padding: 14,
                           borderWidth: 1,
                           borderColor: colors.cardBorder,
                           marginBottom: 14,
                         }}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <View style={{ flex: 1, marginRight: 8 }}>
-                              <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
+                              <Text style={{ fontSize: 10, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }} allowFontScaling={false}>
+                                ASSIGNED MAINTENANCE STAFF
+                              </Text>
+                              <Text style={{ fontSize: 14, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
                                 {selectedTicket.assignedVendorName || staff.find(s => s.id === dAssignedVendorId)?.companyName || staff.find(s => s.id === dAssignedVendorId)?.name || 'Assigned Staff'}
                               </Text>
-                              <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
-                                {dTechnician ? `${dTechnician} (Lead Technician)` : 'Assigned Technician'}
-                              </Text>
                             </View>
-                            <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                            <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.3)' }}>
                               <Text style={{ fontSize: 11, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>
                                 ✓ Assigned
                               </Text>
                             </View>
                           </View>
-                          <TouchableOpacity
-                            style={{ marginTop: 10, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                            onPress={() => setIsReassigningStaff(true)}
-                          >
-                            <Ionicons name="swap-horizontal" size={14} color="#38bdf8" />
-                            <Text style={{ fontSize: 11, color: '#38bdf8', fontWeight: '700' }} allowFontScaling={false}>
-                              Change / Reassign Staff
+
+                          {/* Reassign Link Button / Action Row */}
+                          <View style={{ borderTopWidth: 1, borderTopColor: colors.cardBorder, marginTop: 12, paddingTop: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>
+                              Need to switch technician?
                             </Text>
-                          </TouchableOpacity>
+                            {(() => {
+                              const sLower = (selectedTicket.status || '').toLowerCase();
+                              const isLocked = sLower.includes('accept') || sLower.includes('progress') || sLower.includes('complete') || sLower.includes('close');
+                              if (isLocked) {
+                                return (
+                                  <TouchableOpacity
+                                    onPress={() => Alert.alert('Action Not Allowed', 'You cannot change the maintenance staff as the task has already been accepted or started.')}
+                                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(245, 158, 11, 0.12)', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.3)' }}
+                                    activeOpacity={0.7}
+                                  >
+                                    <Ionicons name="lock-closed" size={13} color="#f59e0b" style={{ marginRight: 4 }} />
+                                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#f59e0b' }} allowFontScaling={false}>
+                                      Locked
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              }
+                              return (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    setDAssignedVendorId(selectedTicket.assignedVendorId || '');
+                                    setIsReassigningStaff(true);
+                                  }}
+                                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#0284c718', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: '#0284c740' }}
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons name="swap-horizontal" size={14} color="#0284c7" style={{ marginRight: 5 }} />
+                                  <Text style={{ fontSize: 12, fontWeight: '800', color: '#0284c7' }} allowFontScaling={false}>
+                                    Reassign Staff
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })()}
+                          </View>
                         </View>
                       ) : (
                         /* When Unassigned or Reassigning: show Vendor Selector + AI Auto-Assign + Dispatch Staff */
                         <View style={[styles.formGroup, showDVendorDropdown && { zIndex: 9999, position: 'relative' }]}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                            <Text style={styles.formLabel} allowFontScaling={false}>ASSIGN MAINTENANCE STAFF</Text>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <Text style={styles.formLabel} allowFontScaling={false}>
+                              {isReassigningStaff ? 'REASSIGN MAINTENANCE STAFF' : 'ASSIGN MAINTENANCE STAFF'}
+                            </Text>
                             <TouchableOpacity
                               style={styles.aiAutoAssignBtn}
                               onPress={handleAiAutoAssign}
@@ -3161,15 +3404,29 @@ export const MaintenanceScreen = ({
                             </TouchableOpacity>
                           </View>
 
-                          <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowDVendorDropdown(!showDVendorDropdown)} activeOpacity={0.7}>
+                        <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowDVendorDropdown(!showDVendorDropdown)} activeOpacity={0.7}>
                             <Text style={styles.dropdownTriggerText} allowFontScaling={false}>
                               {staff.find(s => s.id === dAssignedVendorId)?.companyName || staff.find(s => s.id === dAssignedVendorId)?.name || 'Select Maintenance Staff...'}
                             </Text>
                             <Ionicons name={showDVendorDropdown ? "chevron-up" : "chevron-down"} size={14} color="#cbd5e1" />
                           </TouchableOpacity>
                           {showDVendorDropdown && (
-                            <View style={[styles.dropdownContainer, { maxHeight: 180 }]}>
-                              <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 175 }} keyboardShouldPersistTaps="handled">
+                            <View style={[styles.dropdownContainer, { maxHeight: 200 }]}>
+                              <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 195 }} keyboardShouldPersistTaps="handled">
+                                <TouchableOpacity
+                                  style={[styles.dropdownItem, { backgroundColor: isDarkMode ? 'rgba(2, 132, 199, 0.15)' : '#f0f9ff', borderBottomWidth: 1, borderBottomColor: colors.cardBorder }]}
+                                  onPress={() => {
+                                    setShowDVendorDropdown(false);
+                                    setShowQuickAddStaffModal(true);
+                                  }}
+                                >
+                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <Ionicons name="person-add" size={13} color="#0284c7" style={{ marginRight: 6 }} />
+                                    <Text style={[styles.dropdownItemText, { color: '#0284c7', fontWeight: '800' }]} allowFontScaling={false}>
+                                      + Add New Maintenance Staff...
+                                    </Text>
+                                  </View>
+                                </TouchableOpacity>
                                 <TouchableOpacity style={styles.dropdownItem} onPress={() => { setDAssignedVendorId(''); setShowDVendorDropdown(false); }}>
                                   <Text style={styles.dropdownItemText} allowFontScaling={false}>Unassigned</Text>
                                 </TouchableOpacity>
@@ -3183,138 +3440,102 @@ export const MaintenanceScreen = ({
                             </View>
                           )}
 
-                          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                          <View style={{ marginTop: 10 }}>
                             <TouchableOpacity
                               style={{
-                                flex: 1,
-                                backgroundColor: '#10b981',
-                                paddingVertical: 8,
+                                backgroundColor: '#0284c7',
+                                paddingVertical: 10,
                                 borderRadius: 8,
                                 alignItems: 'center',
                                 justifyContent: 'center',
+                                flexDirection: 'row',
+                                marginBottom: 8,
+                              }}
+                              onPress={() => setShowQuickAddStaffModal(true)}
+                              activeOpacity={0.8}
+                            >
+                              <Ionicons name="person-add-outline" size={14} color="#ffffff" style={{ marginRight: 6 }} />
+                              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 12 }} allowFontScaling={false}>
+                                + Add New Maintenance Staff
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={{
+                                backgroundColor: '#10b981',
+                                paddingVertical: 10,
+                                borderRadius: 8,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                opacity: (!dAssignedVendorId || submitting) ? 0.7 : 1,
                               }}
                               onPress={handleDispatchStaff}
                               disabled={submitting || !dAssignedVendorId}
+                              activeOpacity={0.8}
                             >
                               <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 12 }} allowFontScaling={false}>
-                                Dispatch Staff
+                                {isReassigningStaff ? 'Confirm New Staff' : 'Dispatch Staff'}
                               </Text>
                             </TouchableOpacity>
-                            {isReassigningStaff && (
-                              <TouchableOpacity
-                                style={{
-                                  paddingHorizontal: 12,
-                                  paddingVertical: 8,
-                                  borderRadius: 8,
-                                  backgroundColor: colors.surface,
-                                  borderWidth: 1,
-                                  borderColor: colors.cardBorder,
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                }}
-                                onPress={() => setIsReassigningStaff(false)}
-                              >
-                                <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 12 }} allowFontScaling={false}>
-                                  Cancel
-                                </Text>
-                              </TouchableOpacity>
-                            )}
                           </View>
                         </View>
                       )}
 
-                      <View style={styles.formGroup}>
-                        <Text style={styles.formLabel} allowFontScaling={false}>ASSIGNED TECHNICIAN</Text>
-                        <TextInput style={styles.formInput} placeholder="Lead Technician Name" placeholderTextColor="#64748b" value={dTechnician} onChangeText={setDTechnician} />
-                      </View>
-
-                      <View style={styles.formRow}>
-                        <View style={[styles.formGroup, { flex: 1 }]}>
-                          <Text style={styles.formLabel} allowFontScaling={false}>ESTIMATED COST ($)</Text>
-                          <TextInput style={styles.formInput} placeholder="Estimated Cost" keyboardType="numeric" placeholderTextColor="#64748b" value={dEstCost} onChangeText={setDEstCost} />
-                        </View>
-                        <View style={[styles.formGroup, { flex: 1 }]}>
-                          <Text style={styles.formLabel} allowFontScaling={false}>FINAL ACTUAL COST ($)</Text>
-                          <TextInput style={styles.formInput} placeholder="Actual Cost" keyboardType="numeric" placeholderTextColor="#64748b" value={dCost} onChangeText={setDCost} />
-                        </View>
-                      </View>
-
-                      <View style={styles.formGroup}>
-                        <Text style={styles.formLabel} allowFontScaling={false}>SCHEDULED DATE (YYYY-MM-DD)</Text>
-                        <TextInput style={styles.formInput} placeholder="YYYY-MM-DD" placeholderTextColor="#64748b" value={dSchedDate} onChangeText={setDSchedDate} />
-                      </View>
-
-                      <View style={styles.formRow}>
-                        {/* Status dropdown */}
-                        <View style={[styles.formGroup, { flex: 1 }, showDStatusDropdown && { zIndex: 9998, position: 'relative' }]}>
-                          <Text style={styles.formLabel} allowFontScaling={false}>STATUS</Text>
-                          <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowDStatusDropdown(!showDStatusDropdown)} activeOpacity={0.7}>
-                            <Text style={styles.dropdownTriggerText} allowFontScaling={false}>{dStatus}</Text>
-                            <Ionicons name={showDStatusDropdown ? "chevron-up" : "chevron-down"} size={14} color="#cbd5e1" />
-                          </TouchableOpacity>
-                          {showDStatusDropdown && (
-                            <View style={styles.dropdownContainer}>
-                              {statusOptions.map((opt) => (
-                                <TouchableOpacity key={opt} style={styles.dropdownItem} onPress={() => { setDStatus(opt); setShowDStatusDropdown(false); }}>
-                                  <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt}</Text>
-                                  {dStatus === opt && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                                </TouchableOpacity>
-                              ))}
-                            </View>
-                          )}
-                        </View>
-
-                        {/* Priority dropdown */}
-                        <View style={[styles.formGroup, { flex: 1 }, showDPriorityDropdown && { zIndex: 9998, position: 'relative' }]}>
-                          <Text style={styles.formLabel} allowFontScaling={false}>PRIORITY</Text>
-                          <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowDPriorityDropdown(!showDPriorityDropdown)} activeOpacity={0.7}>
-                            <Text style={styles.dropdownTriggerText} allowFontScaling={false}>{dPriority}</Text>
-                            <Ionicons name={showDPriorityDropdown ? "chevron-up" : "chevron-down"} size={14} color="#cbd5e1" />
-                          </TouchableOpacity>
-                          {showDPriorityDropdown && (
-                            <View style={styles.dropdownContainer}>
-                              {priorityBrackets.map((opt) => (
-                                <TouchableOpacity key={opt} style={styles.dropdownItem} onPress={() => { setDPriority(opt); setShowDPriorityDropdown(false); }}>
-                                  <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt}</Text>
-                                  {dPriority === opt && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                                </TouchableOpacity>
-                              ))}
-                            </View>
-                          )}
+                      {/* AI Cost Benchmark Guide (Web Parity) */}
+                      <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.12)' : '#eef2ff',
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: isDarkMode ? 'rgba(99, 102, 241, 0.3)' : '#c7d2fe',
+                        marginBottom: 12,
+                        gap: 10,
+                      }}>
+                        <Ionicons name="sparkles" size={16} color="#6366f1" />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: isDarkMode ? '#a5b4fc' : '#4338ca' }} allowFontScaling={false}>
+                            AI COST BENCHMARK ({selectedTicket.category || 'General Repair'})
+                          </Text>
+                          <Text style={{ fontSize: 11, color: isDarkMode ? '#cbd5e1' : '#475569', marginTop: 2, fontWeight: '500' }} allowFontScaling={false}>
+                            {getCostBenchmark(selectedTicket.category)} standard based on NYC market rates
+                          </Text>
                         </View>
                       </View>
 
-                      <View style={styles.formGroup}>
-                        <Text style={styles.formLabel} allowFontScaling={false}>INTERNAL DIAGNOSTIC NOTES</Text>
-                        <TextInput 
-                          style={[styles.formInput, { height: 60, textAlignVertical: 'top', paddingTop: 8 }]} 
-                          placeholder="Diagnostic contractor notes..." 
-                          placeholderTextColor="#64748b" 
-                          multiline 
-                          value={dNotes} 
-                          onChangeText={setDNotes} 
-                        />
+                      {/* Read-Only Cost & Schedule Specs (Web Parity) */}
+                      <View style={{
+                        marginTop: 4,
+                        paddingTop: 12,
+                        borderTopWidth: 1,
+                        borderTopColor: colors.cardBorder,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                      }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase' }} allowFontScaling={false}>
+                            CURRENT COST
+                          </Text>
+                          <Text style={{ fontSize: 15, fontWeight: '900', color: '#10b981', marginTop: 2 }} allowFontScaling={false}>
+                            ${dCost || selectedTicket.cost || '0.00'}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase' }} allowFontScaling={false}>
+                            SCHEDULED DATE
+                          </Text>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary, marginTop: 2 }} allowFontScaling={false}>
+                            {dSchedDate || (selectedTicket.scheduledDate ? selectedTicket.scheduledDate.split('T')[0] : 'Flexible / Anytime')}
+                          </Text>
+                        </View>
                       </View>
                     </View>
-                  </ScrollView>
 
-                  {/* Sticky Bottom Actions Bar */}
-                  <View style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    backgroundColor: colors.cardBg,
-                    borderTopWidth: 1,
-                    borderColor: colors.cardBorder,
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    flexDirection: 'row',
-                    gap: 12,
-                  }}>
+                    {/* Back to List Button matching Web */}
                     <TouchableOpacity
                       style={{
-                        flex: 1,
                         height: 46,
                         justifyContent: 'center',
                         alignItems: 'center',
@@ -3322,42 +3543,21 @@ export const MaintenanceScreen = ({
                         backgroundColor: colors.surface,
                         borderWidth: 1,
                         borderColor: colors.cardBorder,
+                        marginTop: 14,
+                        marginBottom: 30,
                       }}
                       onPress={() => setSelectedTicket(null)}
-                      disabled={submitting}
                     >
-                      <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>
-                        Close
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
+                        Back to List
                       </Text>
                     </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={{
-                        flex: 2,
-                        height: 46,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        borderRadius: 12,
-                        backgroundColor: '#38bdf8',
-                        opacity: submitting ? 0.6 : 1,
-                      }}
-                      onPress={handleSaveTicketDetails}
-                      disabled={submitting}
-                    >
-                      {submitting ? (
-                        <ActivityIndicator size="small" color="#0f172a" />
-                      ) : (
-                        <Text style={{ fontSize: 13, fontWeight: '900', color: '#0f172a' }} allowFontScaling={false}>
-                          Save Updates
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
+                  </ScrollView>
                 </View>
               )
             )}
           </KeyboardAvoidingView>
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* --- SYNC NYC DOB VIOLATIONS MODAL (Matching Web Image 5) --- */}
@@ -3643,94 +3843,192 @@ export const MaintenanceScreen = ({
                       </View>
                     </View>
 
-                    {/* Work Order Spec Editor */}
-                    <View style={styles.detailContainer}>
-                      <Text style={styles.modalSectionTitle} allowFontScaling={false}>CONTRACTOR SPECS & STATUS</Text>
-
-                      {/* Status Dropdown */}
-                      <View style={[styles.formGroup, showWoStatusDropdown && { zIndex: 9999, position: 'relative' }]}>
-                        <Text style={styles.formLabel} allowFontScaling={false}>WORK ORDER STATUS</Text>
-                        <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowWoStatusDropdown(!showWoStatusDropdown)} activeOpacity={0.7}>
-                          <Text style={styles.dropdownTriggerText} allowFontScaling={false}>{woStatus}</Text>
-                          <Ionicons name={showWoStatusDropdown ? "chevron-up" : "chevron-down"} size={14} color="#cbd5e1" />
-                        </TouchableOpacity>
-                        {showWoStatusDropdown && (
-                          <View style={styles.dropdownContainer}>
-                            {['Open', 'Assigned', 'In Progress', 'Completed', 'Closed'].map((opt) => (
-                              <TouchableOpacity key={opt} style={styles.dropdownItem} onPress={() => { setWoStatus(opt); setShowWoStatusDropdown(false); }}>
-                                <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt}</Text>
-                                {woStatus === opt && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Vendor Selector */}
-                      <View style={[styles.formGroup, showWoVendorDropdown && { zIndex: 9998, position: 'relative' }]}>
-                        <Text style={styles.formLabel} allowFontScaling={false}>ASSIGNED VENDOR / CONTRACTOR</Text>
-                        <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowWoVendorDropdown(!showWoVendorDropdown)} activeOpacity={0.7}>
-                          <Text style={styles.dropdownTriggerText} allowFontScaling={false}>
-                            {staff.find(s => s.id === woVendorId)?.companyName || staff.find(s => s.id === woVendorId)?.name || 'Select Vendor...'}
+                    {/* Action buttons matching Web (Mark Complete for Assigned, Close Work Order for Completed, Back) */}
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 12, marginBottom: 14 }}>
+                      {selectedWorkOrder.status === 'Assigned' && (
+                        <TouchableOpacity
+                          style={{
+                            flex: 1,
+                            backgroundColor: '#2563eb',
+                            paddingVertical: 10,
+                            borderRadius: 10,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onPress={async () => {
+                            try {
+                              setSubmitting(true);
+                              const autoCost = Number(selectedWorkOrder.actualCost || selectedWorkOrder.cost || selectedWorkOrder.estimatedCost || 200);
+                              await apiClient.put(`/work-orders/${selectedWorkOrder.id}`, { status: 'Completed', actualCost: autoCost }, logout, refreshAccessToken);
+                              Alert.alert('Success', 'Work Order marked as completed.');
+                              setSelectedWorkOrder(prev => prev ? { ...prev, status: 'Completed', actualCost: autoCost } : null);
+                              setWorkOrders(prev => prev.map(item => item.id === selectedWorkOrder.id ? { ...item, status: 'Completed', actualCost: autoCost } : item));
+                            } catch (err) {
+                              Alert.alert('Error', err.message || 'Failed to update work order');
+                            } finally {
+                              setSubmitting(false);
+                            }
+                          }}
+                          disabled={submitting}
+                        >
+                          <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 12 }} allowFontScaling={false}>
+                            ✓ Mark Complete
                           </Text>
-                          <Ionicons name={showWoVendorDropdown ? "chevron-up" : "chevron-down"} size={14} color="#cbd5e1" />
                         </TouchableOpacity>
-                        {showWoVendorDropdown && (
-                          <View style={styles.dropdownContainer}>
-                            <TouchableOpacity style={styles.dropdownItem} onPress={() => { setWoVendorId(''); setShowWoVendorDropdown(false); }}>
-                              <Text style={styles.dropdownItemText} allowFontScaling={false}>Unassigned</Text>
-                            </TouchableOpacity>
-                            {staff.map((opt) => (
-                              <TouchableOpacity key={opt.id} style={styles.dropdownItem} onPress={() => { setWoVendorId(opt.id); setShowWoVendorDropdown(false); }}>
-                                <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt.companyName || opt.name} ({opt.category || opt.serviceType || 'General'})</Text>
-                                {woVendorId === opt.id && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        )}
-                      </View>
+                      )}
 
-                      <View style={styles.formGroup}>
-                        <Text style={styles.formLabel} allowFontScaling={false}>ASSIGNED TECHNICIAN</Text>
-                        <TextInput style={styles.formInput} placeholder="Lead Specialist Name" placeholderTextColor="#64748b" value={woTechnician} onChangeText={setWoTechnician} />
-                      </View>
+                      {selectedWorkOrder.status === 'Completed' && (
+                        <TouchableOpacity
+                          style={{
+                            flex: 1,
+                            backgroundColor: '#10b981',
+                            paddingVertical: 10,
+                            borderRadius: 10,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onPress={async () => {
+                            try {
+                              setSubmitting(true);
+                              await apiClient.put(`/work-orders/${selectedWorkOrder.id}`, { status: 'Closed' }, logout, refreshAccessToken);
+                              Alert.alert('Success', 'Work Order closed.');
+                              setSelectedWorkOrder(prev => prev ? { ...prev, status: 'Closed' } : null);
+                              setWorkOrders(prev => prev.map(item => item.id === selectedWorkOrder.id ? { ...item, status: 'Closed' } : item));
+                            } catch (err) {
+                              Alert.alert('Error', err.message || 'Failed to close work order');
+                            } finally {
+                              setSubmitting(false);
+                            }
+                          }}
+                          disabled={submitting}
+                        >
+                          <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 12 }} allowFontScaling={false}>
+                            ✓ Close Work Order
+                          </Text>
+                        </TouchableOpacity>
+                      )}
 
-                      <View style={styles.formRow}>
-                        <View style={[styles.formGroup, { flex: 1 }]}>
-                          <Text style={styles.formLabel} allowFontScaling={false}>ESTIMATED COST ($)</Text>
-                          <TextInput style={styles.formInput} placeholder="Estimated Cost" keyboardType="numeric" placeholderTextColor="#64748b" value={woEstCost} onChangeText={setWoEstCost} />
+                      <TouchableOpacity
+                        style={{
+                          flex: 1,
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.cardBorder,
+                          paddingVertical: 10,
+                          borderRadius: 10,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onPress={() => setSelectedWorkOrder(null)}
+                      >
+                        <Text style={{ color: colors.textPrimary, fontWeight: '800', fontSize: 12 }} allowFontScaling={false}>
+                          Back
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* CARD 1: ASSIGNED LOGISTICS & PROPERTY (Web Parity) */}
+                    <View style={styles.detailContainer}>
+                      <Text style={styles.modalSectionTitle} allowFontScaling={false}>ASSIGNED LOGISTICS & PROPERTY</Text>
+                      
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 8 }}>
+                        <View style={{ flex: 1, backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.cardBorder }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase' }} allowFontScaling={false}>
+                            PROPERTY LOCATION
+                          </Text>
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary, marginTop: 4 }} allowFontScaling={false}>
+                            {selectedWorkOrder.propertyName || 'Property'}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '600', marginTop: 2 }} allowFontScaling={false}>
+                            {selectedWorkOrder.unitNumber || 'Unit 101'}
+                          </Text>
                         </View>
-                        <View style={[styles.formGroup, { flex: 1 }]}>
-                          <Text style={styles.formLabel} allowFontScaling={false}>FINAL ACTUAL COST ($)</Text>
-                          <TextInput style={styles.formInput} placeholder="Actual Cost" keyboardType="numeric" placeholderTextColor="#64748b" value={woActualCost} onChangeText={setWoActualCost} />
+
+                        <View style={{ flex: 1, backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.cardBorder }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase' }} allowFontScaling={false}>
+                            ASSIGNED MAINTENANCE STAFF
+                          </Text>
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary, marginTop: 4 }} allowFontScaling={false}>
+                            {selectedWorkOrder.vendorName || selectedWorkOrder.assignedVendorName || 'Plumber'}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '600', marginTop: 2 }} allowFontScaling={false}>
+                            Technician: {selectedWorkOrder.assignedTechnician || selectedWorkOrder.vendorName || 'Lead Technician'}
+                          </Text>
                         </View>
-                      </View>
-
-                      <View style={styles.formGroup}>
-                        <Text style={styles.formLabel} allowFontScaling={false}>SCHEDULED DATE (YYYY-MM-DD)</Text>
-                        <TextInput style={styles.formInput} placeholder="YYYY-MM-DD" placeholderTextColor="#64748b" value={woSchedDate} onChangeText={setWoSchedDate} />
-                      </View>
-
-                      <View style={styles.formGroup}>
-                        <Text style={styles.formLabel} allowFontScaling={false}>INTERNAL DISPATCH NOTES</Text>
-                        <TextInput 
-                          style={[styles.formInput, { height: 60, textAlignVertical: 'top', paddingTop: 8 }]} 
-                          placeholder="Contractor scope and parts notes..." 
-                          placeholderTextColor="#64748b" 
-                          multiline 
-                          value={woNotes} 
-                          onChangeText={setWoNotes} 
-                        />
                       </View>
                     </View>
 
-                    <View style={styles.modalActions}>
-                      <TouchableOpacity style={styles.cancelBtn} onPress={() => setSelectedWorkOrder(null)} disabled={submitting}>
-                        <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.submitBtn, submitting && styles.submitBtnDisabled]} onPress={handleSaveWorkOrderDetails} disabled={submitting}>
-                        {submitting ? <ActivityIndicator size="small" color="#0f172a" /> : <Text style={styles.submitBtnText} allowFontScaling={false}>Save Details</Text>}
-                      </TouchableOpacity>
+                    {/* CARD 2: COST ANALYSIS (Web Parity) */}
+                    <View style={styles.detailContainer}>
+                      <Text style={styles.modalSectionTitle} allowFontScaling={false}>COST ANALYSIS</Text>
+                      
+                      <View style={{ marginTop: 8, gap: 10 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                          <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>
+                            Estimated Cost:
+                          </Text>
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
+                            ${selectedWorkOrder.estimatedCost || 0}
+                          </Text>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
+                          <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>
+                            Actual Cost (Base):
+                          </Text>
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
+                            ${selectedWorkOrder.actualCost || selectedWorkOrder.cost || 0}
+                          </Text>
+                        </View>
+
+                        {Number(selectedWorkOrder.extraExpenses) > 0 && (
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
+                            <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>
+                              Extra Expenses:
+                            </Text>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#f43f5e' }} allowFontScaling={false}>
+                              +${selectedWorkOrder.extraExpenses}
+                            </Text>
+                          </View>
+                        )}
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
+                          <Text style={{ fontSize: 12, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>
+                            Total Final Cost:
+                          </Text>
+                          <Text style={{ fontSize: 15, fontWeight: '900', color: '#10b981' }} allowFontScaling={false}>
+                            ${((Number(selectedWorkOrder.actualCost || selectedWorkOrder.cost) || 0) + (Number(selectedWorkOrder.extraExpenses) || 0)) || (Number(selectedWorkOrder.estimatedCost) || 0)}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* CARD 3: WORK ORDER SCOPE & NOTES */}
+                    <View style={[styles.detailContainer, { marginBottom: 20 }]}>
+                      <Text style={styles.modalSectionTitle} allowFontScaling={false}>WORK ORDER SCOPE & NOTES</Text>
+                      <Text style={{ fontSize: 12, color: colors.textPrimary, lineHeight: 18, marginTop: 8 }} allowFontScaling={false}>
+                        {selectedWorkOrder.description || selectedWorkOrder.title || 'General Maintenance Dispatch'}
+                      </Text>
+                      {selectedWorkOrder.notes ? (
+                        <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase' }} allowFontScaling={false}>
+                            INTERNAL DISPATCH NOTES
+                          </Text>
+                          <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 4 }} allowFontScaling={false}>
+                            {selectedWorkOrder.notes}
+                          </Text>
+                        </View>
+                      ) : null}
+                      {selectedWorkOrder.resolutionNotes ? (
+                        <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#059669', textTransform: 'uppercase' }} allowFontScaling={false}>
+                            TECHNICIAN RESOLUTION NOTES
+                          </Text>
+                          <Text style={{ fontSize: 11, color: colors.textPrimary, fontStyle: 'italic', marginTop: 4 }} allowFontScaling={false}>
+                            "{selectedWorkOrder.resolutionNotes}"
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                   </ScrollView>
                 )
@@ -3823,6 +4121,201 @@ export const MaintenanceScreen = ({
                   </View>
                 </ScrollView>
               )}
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* --- QUICK PROVISION MAINTENANCE STAFF MODAL --- */}
+      <Modal visible={showQuickAddStaffModal} animationType="slide" transparent>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBg}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={[styles.modalCard, { maxHeight: '90%' }]}>
+              <View style={styles.modalHeaderRow}>
+                <View style={styles.modalTitleRow}>
+                  <Ionicons name="person-add-outline" size={20} color="#0284c7" style={{ marginRight: 8 }} />
+                  <View>
+                    <Text style={styles.modalTitle} allowFontScaling={false}>Provision Maintenance Staff</Text>
+                    <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 1 }} allowFontScaling={false}>
+                      Quick-register technician profile with service specialty
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={() => setShowQuickAddStaffModal(false)}>
+                  <Ionicons name="close" size={22} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>FULL NAME *</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="E.g., David Miller"
+                    placeholderTextColor="#64748b"
+                    value={quickStaffName}
+                    onChangeText={setQuickStaffName}
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>EMAIL ADDRESS *</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="david@company.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    placeholderTextColor="#64748b"
+                    value={quickStaffEmail}
+                    onChangeText={setQuickStaffEmail}
+                  />
+                </View>
+
+                <View style={styles.formRow}>
+                  <View style={[styles.formGroup, { flex: 1 }]}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>PHONE NUMBER</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="(555) 0122"
+                      keyboardType="phone-pad"
+                      placeholderTextColor="#64748b"
+                      value={quickStaffPhone}
+                      onChangeText={setQuickStaffPhone}
+                    />
+                  </View>
+                  <View style={[styles.formGroup, { flex: 1 }]}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>STATUS</Text>
+                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => setQuickStaffStatus('Active')}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 9,
+                          borderRadius: 8,
+                          alignItems: 'center',
+                          backgroundColor: quickStaffStatus === 'Active' ? '#10b981' : (isDarkMode ? '#334155' : '#e2e8f0'),
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: quickStaffStatus === 'Active' ? '#fff' : colors.textSecondary }} allowFontScaling={false}>
+                          Active
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setQuickStaffStatus('Suspended')}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 9,
+                          borderRadius: 8,
+                          alignItems: 'center',
+                          backgroundColor: quickStaffStatus === 'Suspended' ? '#ef4444' : (isDarkMode ? '#334155' : '#e2e8f0'),
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: quickStaffStatus === 'Suspended' ? '#fff' : colors.textSecondary }} allowFontScaling={false}>
+                          Suspended
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>USER PASSWORD *</Text>
+                  <View style={{ position: 'relative', justifyContent: 'center' }}>
+                    <TextInput
+                      style={[styles.formInput, { paddingRight: 40 }]}
+                      placeholder="Choose secure password"
+                      secureTextEntry={!showQuickStaffPassword}
+                      placeholderTextColor="#64748b"
+                      value={quickStaffPassword}
+                      onChangeText={setQuickStaffPassword}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowQuickStaffPassword(!showQuickStaffPassword)}
+                      style={{ position: 'absolute', right: 12, padding: 4 }}
+                    >
+                      <Ionicons
+                        name={showQuickStaffPassword ? "eye-off-outline" : "eye-outline"}
+                        size={18}
+                        color="#64748b"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>ROLE</Text>
+                  <View style={[styles.formInput, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc', justifyContent: 'center' }]}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>
+                      🔧 Maintenance
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Specialty Dropdown */}
+                <View style={[styles.formGroup, showQuickSpecialtyDropdown && { zIndex: 9999, position: 'relative' }]}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>SPECIALTY TRADE *</Text>
+                  <TouchableOpacity
+                    style={styles.dropdownTrigger}
+                    onPress={() => setShowQuickSpecialtyDropdown(!showQuickSpecialtyDropdown)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.dropdownTriggerText} allowFontScaling={false}>
+                      {quickStaffSpecialty}
+                    </Text>
+                    <Ionicons name={showQuickSpecialtyDropdown ? "chevron-up" : "chevron-down"} size={14} color="#cbd5e1" />
+                  </TouchableOpacity>
+                  {showQuickSpecialtyDropdown && (
+                    <View style={styles.dropdownContainer}>
+                      {[
+                        { label: 'Plumber Specialty', val: 'Plumber' },
+                        { label: 'Electrician Specialty', val: 'Electrician' },
+                        { label: 'HVAC Maintenance', val: 'HVAC' },
+                        { label: 'General Contractor', val: 'General Contractor' },
+                        { label: 'Cleaning & Turnovers', val: 'Cleaning' },
+                        { label: 'Landscaping & Pools', val: 'Landscaping' },
+                        { label: 'Pest Control', val: 'Pest Control' },
+                        { label: 'Security & Fire', val: 'Security' },
+                        { label: 'Roofing & Guttering', val: 'Roofing' },
+                      ].map((opt) => (
+                        <TouchableOpacity
+                          key={opt.val}
+                          style={styles.dropdownItem}
+                          onPress={() => {
+                            setQuickStaffSpecialty(opt.val);
+                            setShowQuickSpecialtyDropdown(false);
+                          }}
+                        >
+                          <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt.label}</Text>
+                          {quickStaffSpecialty === opt.val && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                <View style={[styles.modalActions, { marginTop: 16 }]}>
+                  <TouchableOpacity
+                    style={styles.cancelBtn}
+                    onPress={() => setShowQuickAddStaffModal(false)}
+                    disabled={quickStaffSubmitting}
+                  >
+                    <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.submitBtn, { backgroundColor: '#0284c7' }, quickStaffSubmitting && styles.submitBtnDisabled]}
+                    onPress={handleQuickCreateStaff}
+                    disabled={quickStaffSubmitting}
+                  >
+                    {quickStaffSubmitting ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>
+                        Provision & Select Staff
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>

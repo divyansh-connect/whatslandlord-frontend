@@ -141,15 +141,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
     { name: 'Tenant', desc: 'Pay rent, submit repair tickets and view lease contract', badge: 'Resident' },
   ]);
 
-  // Tab 6: Payment & Late Fee Settings States matching Web PaymentSettingsPage.tsx
-  const [emailPref, setEmailPref] = useState(true);
-  const [smsPref, setSmsPref] = useState(true);
-  const [gatewayEnv, setGatewayEnv] = useState('sandbox');
-  const [gatewayMerchantId, setGatewayMerchantId] = useState('merch_19A019X88b');
-  const [gatewaySecretKey, setGatewaySecretKey] = useState('sk_test_51Kxyz...');
-  const [gatewayWebhookUrl, setGatewayWebhookUrl] = useState('https://app.whatslandlord.com/api/v1/payments/webhook');
-  const [stripeConnected, setStripeConnected] = useState(true);
-  const [achEnabled, setAchEnabled] = useState(true);
+  // Tab 6: Payment & Late Fee Settings States matching Web PaymentSettingsPage.tsx (Late Fee Policy)
 
   // Tab 7: Subscription & Billing States matching Web BillingPage.tsx
   const [billingSubscription, setBillingSubscription] = useState({
@@ -333,23 +325,6 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
         ]);
       }
 
-      // 4. Fetch invoice delivery preferences & gateway credentials matching Web localStorage
-      try {
-        const [savedEmail, savedSms, savedEnv, savedMId, savedSKey, savedWUrl] = await Promise.all([
-          AsyncStorage.getItem('auto_deliver_email'),
-          AsyncStorage.getItem('auto_deliver_sms'),
-          AsyncStorage.getItem('gateway_env'),
-          AsyncStorage.getItem('gateway_merchant_id'),
-          AsyncStorage.getItem('gateway_secret_key'),
-          AsyncStorage.getItem('gateway_webhook_url'),
-        ]);
-        if (savedEmail !== null) setEmailPref(savedEmail === 'true');
-        if (savedSms !== null) setSmsPref(savedSms === 'true');
-        if (savedEnv) setGatewayEnv(savedEnv);
-        if (savedMId) setGatewayMerchantId(savedMId);
-        if (savedSKey) setGatewaySecretKey(savedSKey);
-        if (savedWUrl) setGatewayWebhookUrl(savedWUrl);
-      } catch (err) {}
 
       // 5. Fetch subscription & plans matching Web api.billing.getSubscription() and api.plans.getAll()
       try {
@@ -872,32 +847,6 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Payment Settings Handlers matching Web PaymentSettingsPage.tsx
-  const handleSaveCredentials = async () => {
-    try {
-      await AsyncStorage.setItem('gateway_env', gatewayEnv);
-      await AsyncStorage.setItem('gateway_merchant_id', gatewayMerchantId);
-      await AsyncStorage.setItem('gateway_secret_key', gatewaySecretKey);
-      await AsyncStorage.setItem('gateway_webhook_url', gatewayWebhookUrl);
-      setNotification('Payment Gateway credentials updated successfully!');
-      setTimeout(() => setNotification(null), 3000);
-    } catch (e) {
-      setNotification('Payment Gateway credentials updated successfully!');
-      setTimeout(() => setNotification(null), 3000);
-    }
-  };
-
-  const handleSaveDeliveryPrefs = async () => {
-    try {
-      await AsyncStorage.setItem('auto_deliver_email', String(emailPref));
-      await AsyncStorage.setItem('auto_deliver_sms', String(smsPref));
-      setNotification('Invoice delivery options updated successfully!');
-      setTimeout(() => setNotification(null), 3000);
-    } catch (e) {
-      setNotification('Invoice delivery options updated successfully!');
-      setTimeout(() => setNotification(null), 3000);
-    }
-  };
 
   // Integrations Marketplace Handlers matching Web IntegrationsPage.tsx
   const handleOpenIntegrationConfig = (item) => {
@@ -1108,7 +1057,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
     { id: 'late-fees', title: 'Late Fee Policy', shortTitle: 'Late Fee Policy', icon: 'time-outline', color: '#f59e0b', desc: 'Grace periods, automated late fee schedules & rules' },
     { id: 'users', title: 'Users & Roles', shortTitle: 'Users & Roles', icon: 'people-outline', color: '#3b82f6', desc: 'Company staff, employee logins & user management' },
     { id: 'roles', title: 'Roles & Permissions', shortTitle: 'Roles & Perms', icon: 'shield-outline', color: '#8b5cf6', desc: 'Operational permissions matrix & role privileges' },
-    { id: 'payment-settings', title: 'Payment Settings', shortTitle: 'Payment Settings', icon: 'card-outline', color: '#10b981', desc: 'Merchant gateways, stripe credentials & fee settings' },
+    { id: 'payment-settings', title: 'Payment Settings', shortTitle: 'Payment Settings', icon: 'card-outline', color: '#10b981', desc: 'Late fee grace periods & overdue penalty policy' },
     { id: 'billing', title: 'Subscription & Billing', shortTitle: 'Billing & Plan', icon: 'receipt-outline', color: '#ec4899', desc: 'SaaS plan tiers, recurring billing & invoices' },
     { id: 'integrations', title: 'Integrations Marketplace', shortTitle: 'Integrations', icon: 'apps-outline', color: '#06b6d4', desc: 'Twilio SMS, WhatsApp Cloud API & webhooks' },
     { id: 'connected', title: 'Connected Apps (QuickBooks)', shortTitle: 'Connected Apps', icon: 'git-network-outline', color: '#6366f1', desc: 'Sync customer accounts & external connectors' },
@@ -1138,9 +1087,6 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
     }
     if (type === 'lateFeeCron') {
       return val ? 'Active (Auto-Apply after Grace Period)' : 'Disabled';
-    }
-    if (type === 'gatewayEnv') {
-      return val === 'production' ? 'Production Live Mode' : 'Sandbox Test Mode';
     }
     return val;
   };
@@ -1201,12 +1147,6 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
       return [
         { label: 'Active (Auto-Apply after Grace Period)', value: true },
         { label: 'Disabled', value: false },
-      ];
-    }
-    if (pickerType === 'gatewayEnv') {
-      return [
-        { label: 'Sandbox Test Mode', value: 'sandbox' },
-        { label: 'Production Live Mode', value: 'production' },
       ];
     }
     if (pickerType === 'propertySelect') {
@@ -2767,143 +2707,6 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
               </View>
             </View>
 
-            {/* CARD 2: Merchant Gateway Credentials */}
-            <View style={styles.paymentSubCard}>
-              <View style={styles.subCardHeader}>
-                <Ionicons name="sparkles-outline" size={16} color="#2563eb" />
-                <Text style={styles.subCardTitle} allowFontScaling={false}>Merchant Gateway Credentials</Text>
-              </View>
-
-              <View style={styles.fieldsGrid}>
-                <View style={styles.fieldItem}>
-                  <Text style={styles.fieldLabel} allowFontScaling={false}>ENVIRONMENT MODE</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownSelector}
-                    onPress={() => {
-                      setPickerType('gatewayEnv');
-                      setPickerModalOpen(true);
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.dropdownSelectorText} numberOfLines={1} allowFontScaling={false}>
-                      {getDropdownLabel('gatewayEnv', gatewayEnv)}
-                    </Text>
-                    <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.fieldItem}>
-                  <Text style={styles.fieldLabel} allowFontScaling={false}>GATEWAY MERCHANT ID</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={gatewayMerchantId}
-                    onChangeText={setGatewayMerchantId}
-                    placeholder="merch_19A019X88b"
-                    placeholderTextColor={colors.textMuted}
-                    autoCapitalize="none"
-                  />
-                </View>
-
-                <View style={styles.fieldItem}>
-                  <Text style={styles.fieldLabel} allowFontScaling={false}>SECRET API KEY</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={gatewaySecretKey}
-                    onChangeText={setGatewaySecretKey}
-                    secureTextEntry
-                    placeholder="sk_test_51Kxyz..."
-                    placeholderTextColor={colors.textMuted}
-                    autoCapitalize="none"
-                  />
-                </View>
-
-                <View style={styles.fieldItem}>
-                  <Text style={styles.fieldLabel} allowFontScaling={false}>RECONCILIATION WEBHOOK URL</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={gatewayWebhookUrl}
-                    onChangeText={setGatewayWebhookUrl}
-                    placeholder="https://app.whatslandlord.com/api/v1/payments/webhook"
-                    placeholderTextColor={colors.textMuted}
-                    autoCapitalize="none"
-                  />
-                </View>
-              </View>
-
-              <View style={styles.cardActionEnd}>
-                <TouchableOpacity
-                  style={styles.saveConfigurationsBtn}
-                  onPress={handleSaveCredentials}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="save-outline" size={14} color="#ffffff" style={{ marginRight: 5 }} />
-                  <Text style={styles.saveConfigurationsBtnText} allowFontScaling={false}>Save Credentials</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* CARD 3: Invoice Delivery Options */}
-            <View style={styles.paymentSubCard}>
-              <View style={styles.subCardHeader}>
-                <Ionicons name="mail-outline" size={16} color="#2563eb" />
-                <Text style={styles.subCardTitle} allowFontScaling={false}>Invoice Delivery Options</Text>
-              </View>
-
-              <Text style={styles.paymentDesc} allowFontScaling={false}>
-                Configure automated distribution rules. When enabled, monthly invoices will be automatically generated and sent to the respective residents.
-              </Text>
-
-              <View style={{ gap: 10, marginBottom: 8 }}>
-                <TouchableOpacity
-                  style={styles.deliveryOptionCard}
-                  onPress={() => setEmailPref(!emailPref)}
-                  activeOpacity={0.8}
-                >
-                  <View style={[styles.deliveryCheckbox, emailPref && styles.deliveryCheckboxChecked]}>
-                    {emailPref && <Ionicons name="checkmark" size={13} color="#ffffff" />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.deliveryOptionTitle} allowFontScaling={false}>
-                      Auto-Send Invoices via Email
-                    </Text>
-                    <Text style={styles.deliveryOptionDesc} allowFontScaling={false}>
-                      Deliver monthly statements directly to tenant's registered email inbox.
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.deliveryOptionCard}
-                  onPress={() => setSmsPref(!smsPref)}
-                  activeOpacity={0.8}
-                >
-                  <View style={[styles.deliveryCheckbox, smsPref && styles.deliveryCheckboxChecked]}>
-                    {smsPref && <Ionicons name="checkmark" size={13} color="#ffffff" />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.deliveryOptionTitle} allowFontScaling={false}>
-                      Auto-Send Invoices via SMS/Text
-                    </Text>
-                    <Text style={styles.deliveryOptionDesc} allowFontScaling={false}>
-                      Deliver instant text alerts to tenant's mobile phone number.
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.cardActionEnd}>
-                <TouchableOpacity
-                  style={styles.saveConfigurationsBtn}
-                  onPress={handleSaveDeliveryPrefs}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="save-outline" size={14} color="#ffffff" style={{ marginRight: 5 }} />
-                  <Text style={styles.saveConfigurationsBtnText} allowFontScaling={false}>
-                    Save Delivery Preferences
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
           </View>
         )}
 
@@ -3197,7 +3000,10 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
 
       {/* MASTER PASSWORD AUTHORIZATION MODAL matching Web FormDialog */}
       <Modal visible={isPasswordModalOpen} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
           <View style={styles.passwordModalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle} allowFontScaling={false}>
@@ -3270,7 +3076,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* DROPDOWN OPTIONS PICKER MODAL */}
@@ -3296,7 +3102,6 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
                     if (pickerType === 'currency') setCurrency(opt.value);
                     if (pickerType === 'lateFeeType') setLateFeeType(opt.value);
                     if (pickerType === 'lateFeeCron' || pickerType === 'automationStatus') setIsLateFeeEnabled(opt.value);
-                    if (pickerType === 'gatewayEnv') setGatewayEnv(opt.value);
                     if (pickerType === 'propertySelect') setSelectedPropertyId(opt.value);
                     if (pickerType === 'unitSelect') setSelectedUnitId(opt.value);
                     setPickerModalOpen(false);
@@ -3312,8 +3117,11 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
 
       {/* PROVISION / EDIT USER MODAL matching Web UsersPage Photos 4 & 5 */}
       <Modal visible={userModalOpen} animationType="fade" transparent onRequestClose={() => setUserModalOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.userFormModalContent}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={[styles.userFormModalContent, { maxHeight: '90%', flexShrink: 1 }]}>
             {/* Header */}
             <View style={styles.userModalHeaderWrap}>
               <View style={{ flex: 1 }}>
@@ -3329,7 +3137,12 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 440 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{ paddingBottom: 10 }}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+            >
               <View style={{ gap: 12, paddingVertical: 6 }}>
                 {/* 1. Full Name */}
                 <View>
@@ -3580,7 +3393,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate }) => {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
       {/* INTEGRATION CONFIGURATION MODAL matching Web IntegrationsPage */}
       <Modal visible={Boolean(selectedIntegration)} animationType="fade" transparent>

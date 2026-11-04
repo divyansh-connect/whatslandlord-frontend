@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Platform, LogBox, Dimensions, StatusBar as RNStatusBar, BackHandler, Keyboard } from 'react-native';
+import Constants from 'expo-constants';
 import { AppActivityIndicator as ActivityIndicator } from './components/AppActivityIndicator';
 import { StatusBar } from 'expo-status-bar';
 import { useAuthStore, useThemeStore } from './store/useStore';
@@ -62,6 +63,7 @@ import { PlatformSettingsScreen } from './screens/PlatformSettingsScreen';
 import { InspectionTemplatesScreen } from './screens/InspectionTemplatesScreen';
 import { RolesPermissionsScreen } from './screens/RolesPermissionsScreen';
 import { CompanySettingsScreen } from './screens/CompanySettingsScreen';
+import { RestoreBinScreen } from './screens/RestoreBinScreen';
 import { NavigationDrawer } from './components/NavigationDrawer';
 
 const getAndroidNavBarInset = (screenHeight, windowHeight) => {
@@ -351,10 +353,10 @@ export default function App() {
 
     case 'Maintenance Staff':
       moduleTabs = [
-        { id: 'dashboard', label: language === 'es' ? 'Tablero' : 'Dashboard', icon: 'grid-outline', activeIcon: 'grid' },
-        { id: 'mytasks', label: language === 'es' ? 'Mis Tareas' : 'My Tasks', icon: 'clipboard-outline', activeIcon: 'clipboard' },
-        { id: 'messages', label: language === 'es' ? 'Mensajes' : 'Messages', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles' },
-        { id: 'profile', label: language === 'es' ? 'Perfil' : 'Profile', icon: 'person-outline', activeIcon: 'person' },
+        { id: 'dashboard', label: language === 'es' ? 'Tablero' : language === 'hi' ? 'डैशबोर्ड' : 'Dashboard', icon: 'grid-outline', activeIcon: 'grid' },
+        { id: 'mytasks', label: language === 'es' ? 'Mis Tareas' : language === 'hi' ? 'कार्य' : 'My Tasks', icon: 'clipboard-outline', activeIcon: 'clipboard' },
+        { id: 'history', label: language === 'es' ? 'Historial' : language === 'hi' ? 'इतिहास' : 'History', icon: 'time-outline', activeIcon: 'time' },
+        { id: 'profile', label: language === 'es' ? 'Perfil' : language === 'hi' ? 'प्रोफ़ाइल' : 'Profile', icon: 'person-outline', activeIcon: 'person' },
       ];
       break;
 
@@ -369,10 +371,10 @@ export default function App() {
 
     case 'Tenant':
       moduleTabs = [
-        { id: 'dashboard', label: language === 'es' ? 'Tablero' : 'Dashboard', icon: 'grid-outline', activeIcon: 'grid' },
-        { id: 'lease', label: language === 'es' ? 'Contrato' : 'Lease', icon: 'document-text-outline', activeIcon: 'document-text' },
-        { id: 'rent', label: language === 'es' ? 'Pagos' : 'Payments', icon: 'card-outline', activeIcon: 'card' },
-        { id: 'messages', label: language === 'es' ? 'Mensajes' : 'Messages', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles' },
+        { id: 'dashboard', label: language === 'es' ? 'Tablero' : language === 'hi' ? 'डैशबोर्ड' : 'Dashboard', icon: 'grid-outline', activeIcon: 'grid' },
+        { id: 'lease', label: language === 'es' ? 'Contrato' : language === 'hi' ? 'लीज' : 'Lease', icon: 'document-text-outline', activeIcon: 'document-text' },
+        { id: 'rent', label: language === 'es' ? 'Pagos' : language === 'hi' ? 'किराया' : 'Payments', icon: 'card-outline', activeIcon: 'card' },
+        { id: 'maintenance', label: language === 'es' ? 'Mantenimiento' : language === 'hi' ? 'मेंटेनेंस' : 'Maintenance', icon: 'construct-outline', activeIcon: 'construct' },
       ];
       break;
 
@@ -489,6 +491,8 @@ export default function App() {
         return <OwnersScreen onNavigate={handleNavigate} />;
       case 'documents':
         return <TenantDocumentsScreen initialTab={activeSubTab || 'tenant'} onNavigate={handleNavigate} />;
+      case 'restore-bin':
+        return <RestoreBinScreen onNavigate={handleNavigate} />;
       case 'invoices':
         if (role === 'Property Manager' || role === 'Collection Manager') {
           return (
@@ -581,7 +585,7 @@ export default function App() {
       case 'companies':
         return <CompaniesScreen />;
       case 'distributions':
-        return <DistributionsScreen />;
+        return <DistributionsScreen onNavigate={handleNavigate} />;
       case 'ai':
         return <AIAssistantScreen onNavigate={handleNavigate} />;
       case 'company-settings':
@@ -745,11 +749,15 @@ export default function App() {
   );
 }
 
+const statusBarHeight = (Constants?.statusBarHeight && Constants.statusBarHeight > 0)
+  ? (Platform.OS === 'ios' ? Math.max(Constants.statusBarHeight + 2, 52) : Constants.statusBarHeight)
+  : (Platform.OS === 'ios' ? 52 : (RNStatusBar.currentHeight || 28));
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0f172a',
-    paddingTop: Platform.OS === 'ios' ? 44 : Platform.OS === 'android' ? 28 : 0,
+    paddingTop: statusBarHeight,
   },
   loadingContainer: {
     flex: 1,

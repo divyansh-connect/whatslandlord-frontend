@@ -54,7 +54,7 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const DistributionsScreen = () => {
+export const DistributionsScreen = ({ onNavigate }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
@@ -152,7 +152,19 @@ export const DistributionsScreen = () => {
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
         {/* Page Header */}
         <View style={styles.header}>
-          <Text style={styles.title} allowFontScaling={false}>Payout Distributions Log</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {!!onNavigate && (
+              <TouchableOpacity
+                onPress={() => onNavigate('dashboard')}
+                style={{ marginRight: 8, padding: 4 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            )}
+            <Text style={[styles.title, { marginBottom: 0 }]} allowFontScaling={false}>Payout Distributions Log</Text>
+          </View>
         </View>
 
         {/* Search Bar */}

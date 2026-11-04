@@ -340,6 +340,10 @@ export const InspectionDetailsScreen = ({ inspectionId, onNavigate }) => {
 
   const activeRoom = rooms.find(r => r.id === activeRoomId);
 
+  const totalItemsCount = rooms.reduce((acc, r) => acc + (r.items ? r.items.length : 0), 0);
+  const completedItemsCount = rooms.reduce((acc, r) => acc + (r.items ? r.items.filter(i => i.completed || i.condition).length : 0), 0);
+  const progressPercent = totalItemsCount > 0 ? Math.round((completedItemsCount / totalItemsCount) * 100) : 100;
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -349,28 +353,55 @@ export const InspectionDetailsScreen = ({ inspectionId, onNavigate }) => {
     );
   }
 
+  const inspectionNumber = inspection?.inspectionNumber || inspection?.code || (inspectionId ? `MO-${String(inspectionId).slice(-8).toUpperCase()}` : 'MO-INSPECTION');
+  const templateTitle = inspection?.templateName || inspection?.template?.name || 'astoria3';
+  const statusStr = (inspection?.status || 'COMPLETED').toUpperCase();
+
   return (
     <View style={styles.mainWrapper}>
       <View style={styles.fixedHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 60, marginTop: 10 }}>
-          <TouchableOpacity onPress={() => onNavigate && onNavigate('leads')} style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="arrow-back" size={22} color={colors.textPrimary} style={{ marginRight: 6 }} />
-            <Text style={styles.title} allowFontScaling={false}>Inspection details</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 46, marginTop: 4 }}>
+          <TouchableOpacity onPress={() => onNavigate && onNavigate('leads', { tab: 'moveout' })} style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <Ionicons name="arrow-back" size={22} color={colors.textPrimary} style={{ marginRight: 8 }} />
+            <Text style={[styles.title, { fontSize: 18 }]} numberOfLines={1} allowFontScaling={false}>
+              Checklist Execution: {inspectionNumber}
+            </Text>
           </TouchableOpacity>
-
-          {/* Save Draft button hidden per user request; can be unhidden later if requested */}
-          {false && (
-            <TouchableOpacity style={styles.saveDraftBtn} onPress={() => handleSaveDraft(false)} disabled={submitting}>
-              <Text style={styles.saveDraftText} allowFontScaling={false}>Save Draft</Text>
-            </TouchableOpacity>
-          )}
         </View>
-        <Text style={styles.subtitle} allowFontScaling={false}>
-          {inspection?.templateName || 'Standard Template'} · {inspection?.propertyName || 'Property'} · Room {inspection?.unitNumber || '1A'}
+        <Text style={[styles.subtitle, { fontSize: 12, marginTop: 2 }]} allowFontScaling={false}>
+          Status: <Text style={{ fontWeight: '800', color: statusStr === 'COMPLETED' ? '#10b981' : '#f59e0b' }}>{statusStr}</Text> | Template: <Text style={{ fontWeight: '700', color: colors.textPrimary }}>{templateTitle}</Text>
         </Text>
       </View>
 
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* INSPECTION PROGRESS Card matching Web Screenshot 1 */}
+        <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.15)' : '#e0f2fe', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
+                <Ionicons name="clipboard-outline" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary, letterSpacing: 0.5 }} allowFontScaling={false}>
+                  INSPECTION PROGRESS
+                </Text>
+                <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
+                  {completedItemsCount} of {totalItemsCount} items rated ({progressPercent}%)
+                </Text>
+              </View>
+            </View>
+            <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+              <Text style={{ fontSize: 9, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase' }} allowFontScaling={false}>PROGRESS</Text>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: colors.primary, marginTop: 1 }} allowFontScaling={false}>{progressPercent}%</Text>
+            </View>
+          </View>
+
+          {/* Progress Bar */}
+          <View style={{ height: 6, backgroundColor: isDarkMode ? '#334155' : '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
+            <View style={{ height: '100%', width: `${progressPercent}%`, backgroundColor: '#0284c7', borderRadius: 3 }} />
+          </View>
+        </View>
+
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScrollContainer}>
           {rooms.map((room) => {
             const isActive = room.id === activeRoomId;
@@ -392,6 +423,9 @@ export const InspectionDetailsScreen = ({ inspectionId, onNavigate }) => {
 
         {activeRoom ? (
           <View style={{ marginTop: 14 }}>
+            <Text style={{ fontSize: 11, fontWeight: '900', color: '#0284c7', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10 }} allowFontScaling={false}>
+              {activeRoom.name.toUpperCase()} SECTION
+            </Text>
             {activeRoom.items.map((item) => (
               <View key={item.id} style={styles.itemCard}>
                 <View style={styles.rowBetween}>
@@ -426,9 +460,10 @@ export const InspectionDetailsScreen = ({ inspectionId, onNavigate }) => {
                   </View>
                 </View>
 
+                <Text style={[styles.fieldLabel, { marginTop: 10, marginBottom: 4 }]} allowFontScaling={false}>ITEM CONDITION NOTES</Text>
                 <TextInput
                   style={styles.notesInput}
-                  placeholder="Provide condition notes..."
+                  placeholder="Detail any cracks, leaks, damage, or wear..."
                   placeholderTextColor="#64748b"
                   value={item.notes || ''}
                   onChangeText={(val) => handleItemNoteChange(activeRoom.id, item.id, val)}

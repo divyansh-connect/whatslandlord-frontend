@@ -19,6 +19,7 @@ import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { isNoticeForTenant } from '../utils/tenantNoticeHelper';
+import { CustomDatePicker } from '../components/CustomDatePicker';
 
 export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
@@ -90,8 +91,9 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
   const [ticketDesc, setTicketDesc] = useState('');
 
   // Screening Form
+  const [tenantProfile, setTenantProfile] = useState(null);
   const [screeningDob, setScreeningDob] = useState('');
-  const [screeningSsn, setScreeningSsn] = useState('');
+  const [showScreeningDobPicker, setShowScreeningDobPicker] = useState(false);
   const [docFile, setDocFile] = useState(null);
   const [consent, setConsent] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -133,6 +135,7 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
       const metrics = metricsRes?.data || metricsRes || {};
       const allLeases = Array.isArray(leasesRes?.data) ? leasesRes.data : (Array.isArray(leasesRes) ? leasesRes : []);
       const profile = profileRes?.data || profileRes || {};
+      setTenantProfile(profile);
       const reports = screeningRes?.data || screeningRes || [];
       const notifs = notifsRes?.data || notifsRes || [];
       const maintenance = maintenanceRes?.data || maintenanceRes || [];
@@ -242,41 +245,43 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
     const payAmount = tenantData.outstandingBalance > 0 ? tenantData.outstandingBalance : tenantData.currentRent;
     if (payAmount <= 0) return;
 
-    if (activeGateway?.provider === 'RAZORPAY') {
-      try {
-        setSubmitting(true);
-        setProcessingGateway(true);
-
-        const orderRes = await apiClient.post(
-          '/payments/razorpay-order',
-          {
-            amount: Number(payAmount),
-            currency: 'USD',
-            propertyId: tenantData.propertyId,
-          },
-          logout,
-          refreshAccessToken
-        );
-
-        const orderData = orderRes?.data || orderRes;
-        if (!orderData?.orderId || !orderData?.keyId) {
-          throw new Error('Failed to create Razorpay Order.');
-        }
-
-        setRazorpayOrder(orderData);
-        setPayModalVisible(false);
-        setSdkModalVisible(true);
-      } catch (err) {
-        Alert.alert('Payment Gateway Error', err.message || 'Could not connect to payment gateway.');
-      } finally {
-        setSubmitting(false);
-        setProcessingGateway(false);
-      }
+    if (activeGateway?.provider !== 'RAZORPAY') {
+      Alert.alert(
+        'Payment Gateway Unavailable',
+        'Online payment gateway is not configured yet. Please contact your property manager to enable online payments.'
+      );
       return;
     }
 
-    // Direct / Manual payment fallback
-    handleDirectPay(payAmount);
+    try {
+      setSubmitting(true);
+      setProcessingGateway(true);
+
+      const orderRes = await apiClient.post(
+        '/payments/razorpay-order',
+        {
+          amount: Number(payAmount),
+          currency: 'USD',
+          propertyId: tenantData.propertyId,
+        },
+        logout,
+        refreshAccessToken
+      );
+
+      const orderData = orderRes?.data || orderRes;
+      if (!orderData?.orderId || !orderData?.keyId) {
+        throw new Error('Failed to create Razorpay Order.');
+      }
+
+      setRazorpayOrder(orderData);
+      setPayModalVisible(false);
+      setSdkModalVisible(true);
+    } catch (err) {
+      Alert.alert('Payment Gateway Error', err.message || 'Could not connect to payment gateway.');
+    } finally {
+      setSubmitting(false);
+      setProcessingGateway(false);
+    }
   };
 
   const handleDirectPay = async (payAmount) => {
@@ -493,8 +498,8 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
       Alert.alert('Consent Required', 'Please authorize background verification.');
       return;
     }
-    if (!screeningDob.trim() || !screeningSsn.trim() || !docFile) {
-      Alert.alert('Validation Error', 'Please complete all fields and select a file.');
+    if (!screeningDob.trim() || !docFile) {
+      Alert.alert('Validation Error', 'Please select your Date of Birth and choose an ID / proof document.');
       return;
     }
     try {
@@ -503,29 +508,25 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
         `/portal/screening/reports/${screeningReport.id}`,
         {
           dob: screeningDob.trim(),
-          ssn: screeningSsn.trim(),
           authorized: true,
-          status: 'Pending Documents',
+          status: 'Processing',
         },
         logout,
         refreshAccessToken
       );
 
-      const formData = new FormData();
-      formData.append('document', {
-        uri: Platform.OS === 'ios' ? docFile.uri.replace('file://', '') : docFile.uri,
-        name: docFile.name || 'id_proof.pdf',
-        type: docFile.mimeType || 'application/pdf',
-      });
-
-      await apiClient.post(
+      await apiClient.uploadFile(
         `/portal/screening/reports/${screeningReport.id}/upload`,
-        formData,
+        docFile,
+        {
+          fieldName: 'document',
+          fileName: docFile.name,
+        },
         logout,
         refreshAccessToken
       );
 
-      Alert.alert('Success', 'Verification documents uploaded successfully.');
+      Alert.alert('Success', 'Verification documents uploaded successfully. The Property Manager is reviewing your report.');
       setScreeningModalOpen(false);
       fetchTenantPortalData();
     } catch (e) {
@@ -544,8 +545,53 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
     );
   }
 
-  const amountToPay = tenantData.outstandingBalance > 0 ? tenantData.outstandingBalance : tenantData.currentRent;
+  const amountToPay = tenantData.outstandingBalance > 0 ? tenantData.outstandingBalance : 0;
   const isOverdue = tenantData.outstandingBalance > 0;
+  const es = language === 'es';
+
+  const screeningApplicantName =
+    screeningReport?.applicantName ||
+    (screeningReport?.tenant
+      ? `${screeningReport.tenant.firstName || ''} ${screeningReport.tenant.lastName || ''}`.trim()
+      : null) ||
+    (tenantProfile?.firstName || tenantProfile?.lastName ? `${tenantProfile?.firstName || ''} ${tenantProfile?.lastName || ''}`.trim() : null) ||
+    (user?.firstName || user?.lastName ? `${user?.firstName || ''} ${user?.lastName || ''}`.trim() : null) ||
+    user?.name ||
+    tenantData?.name ||
+    'Divyansh Pal';
+
+  const screeningApplicantEmail =
+    screeningReport?.applicantEmail ||
+    screeningReport?.email ||
+    screeningReport?.tenant?.email ||
+    tenantProfile?.email ||
+    user?.email ||
+    'N/A';
+
+  const screeningPropertyName =
+    screeningReport?.propertyName ||
+    screeningReport?.tenant?.unit?.property?.name ||
+    (tenantData?.propertyName && tenantData.propertyName !== 'No Active Lease' ? tenantData.propertyName : null) ||
+    'Property';
+
+  const screeningUnitNumber =
+    screeningReport?.unitNumber ||
+    (screeningReport?.tenant?.unit?.unitNumber
+      ? String(screeningReport.tenant.unit.unitNumber).startsWith('Unit')
+        ? screeningReport.tenant.unit.unitNumber
+        : `Unit ${screeningReport.tenant.unit.unitNumber}`
+      : (tenantData?.unitNumber && tenantData.unitNumber !== 'N/A' ? tenantData.unitNumber : 'Unit R1'));
+
+  const screeningCompanyName =
+    (screeningReport?.companyName && !screeningReport.companyName.includes('Apex'))
+      ? screeningReport.companyName
+      : (screeningReport?.tenant?.unit?.property?.companyName && !screeningReport.tenant.unit.property.companyName.includes('Apex'))
+        ? screeningReport.tenant.unit.property.companyName
+        : (tenantProfile?.company && !tenantProfile.company.includes('Apex'))
+          ? tenantProfile.company
+          : (user?.companyName && !user.companyName.includes('Apex'))
+            ? user.companyName
+            : 'Divine';
 
   return (
     <ScrollView
@@ -641,24 +687,71 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
         </TouchableOpacity>
       )}
 
-      {/* Screening Verification Banner (If pending) */}
-      {screeningReport &&
-        (screeningReport.status === 'Pending' || screeningReport.status === 'Pending Documents' || screeningReport.status === 'Pending Consent') && (
+      {/* Screening Verification Banner matching Web parity */}
+      {screeningReport && (() => {
+        const st = screeningReport.status || 'Pending';
+        if (st === 'Approved') {
+          return (
+            <View style={[styles.alertBanner, { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }]}>
+              <Ionicons name="checkmark-circle" size={20} color="#10b981" style={{ marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: '#10b981' }}>Screening Approved</Text>
+                <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>
+                  Your background screening check has been approved successfully! Welcome to your new home.
+                </Text>
+              </View>
+            </View>
+          );
+        }
+        if (st === 'Declined') {
+          return (
+            <View style={[styles.alertBanner, { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }]}>
+              <Ionicons name="close-circle" size={20} color="#ef4444" style={{ marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: '#ef4444' }}>Screening Declined</Text>
+                <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>
+                  Your screening application has been declined. Please contact your property manager for details.
+                </Text>
+              </View>
+            </View>
+          );
+        }
+        if (st === 'Pending Approval' || st === 'Processing' || st === 'Completed' || screeningReport.documentUrl) {
+          return (
+            <View style={[styles.alertBanner, { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.3)' }]}>
+              <Ionicons name="time-outline" size={20} color="#f59e0b" style={{ marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#f59e0b' }}>Verification Under Review</Text>
+                  <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#f59e0b' }}>Pending Approval</Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>
+                  Your verification documents have been submitted. The Property Manager is reviewing them to accept or reject your application.
+                </Text>
+              </View>
+            </View>
+          );
+        }
+        // Otherwise Pending / Pending Documents
+        return (
           <TouchableOpacity
-            style={[styles.alertBanner, { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }]}
+            style={[styles.alertBanner, { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.3)' }]}
             onPress={() => setScreeningModalOpen(true)}
             activeOpacity={0.7}
           >
-            <Ionicons name="alert-circle" size={18} color="#ef4444" style={{ marginRight: 10 }} />
+            <Ionicons name="time" size={18} color="#f59e0b" style={{ marginRight: 10 }} />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: '#ef4444' }}>Verification Required</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#f59e0b' }}>Action Required: Tenant Screening Check</Text>
               <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>
-                Upload ID/W2 proof to complete tenant screening.
+                Please verify your identity and upload required verification documents.
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#ef4444" />
+            <Ionicons name="chevron-forward" size={16} color="#f59e0b" />
           </TouchableOpacity>
-        )}
+        );
+      })()}
 
       {/* =========================================================================
           TOP HERO: TOTAL AMOUNT DUE & FINANCIAL HEALTH GAUGE
@@ -805,352 +898,7 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
         </View>
       </View>
 
-      {/* =========================================================================
-          GRAPHICAL 6-MONTH RENT PAYMENT HISTORY BAR CHART
-          ========================================================================= */}
-      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-        <View style={styles.chartHeaderRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={[styles.chartIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-              <Ionicons name="bar-chart" size={16} color="#10b981" />
-            </View>
-            <View>
-              <Text style={[styles.chartCardTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
-                Payment Track Record
-              </Text>
-              <Text style={[styles.chartCardSub, { color: colors.textSecondary }]} allowFontScaling={false}>
-                6-Month Rent Performance
-              </Text>
-            </View>
-          </View>
-          <View style={styles.chartPillBadge}>
-            <Ionicons name="star" size={11} color="#f59e0b" style={{ marginRight: 3 }} />
-            <Text style={styles.chartPillBadgeText} allowFontScaling={false}>100% On-Time</Text>
-          </View>
-        </View>
-
-        {/* Visual Bar Columns */}
-        <View style={styles.barsContainer}>
-          {paymentHistoryMonths.map((m, idx) => (
-            <View key={idx} style={styles.barCol}>
-              <View style={styles.barTrack}>
-                <View style={[styles.barFill, { height: m.height, backgroundColor: '#10b981' }]}>
-                  <Ionicons name="checkmark" size={10} color="#ffffff" />
-                </View>
-              </View>
-              <Text style={[styles.barLabel, { color: colors.textSecondary }]} allowFontScaling={false}>
-                {m.label}
-              </Text>
-              <Text style={styles.barStatusText} allowFontScaling={false}>
-                Paid
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Summary Footer */}
-        <View style={[styles.chartFooterRow, { borderTopColor: colors.cardBorder }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="shield-checkmark" size={14} color="#10b981" style={{ marginRight: 6 }} />
-            <Text style={[styles.chartFooterText, { color: colors.textSecondary }]} allowFontScaling={false}>
-              Excellent credit status · 0 late charges recorded
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* =========================================================================
-          CARD 1: MAINTENANCE & REPAIRS (WITH 3-STAGE GRAPHICAL STEPPER)
-          ========================================================================= */}
-      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-        <View style={styles.cardHeaderRow}>
-          <TouchableOpacity
-            style={{ flexDirection: 'row', alignItems: 'center' }}
-            onPress={() => onNavigate && onNavigate('maintenance')}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.cardIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-              <Ionicons name="construct" size={17} color="#ef4444" />
-            </View>
-            <Text style={[styles.cardTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
-              Maintenance & Repairs
-            </Text>
-          </TouchableOpacity>
-
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {onNavigate && (
-              <TouchableOpacity
-                style={styles.cardHeaderActionBtn}
-                onPress={() => onNavigate('maintenance')}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.cardHeaderActionText} allowFontScaling={false}>View Logs ›</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={styles.cardHeaderActionBtn}
-              onPress={() => setTicketModalVisible(true)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="add" size={14} color="#38bdf8" style={{ marginRight: 2 }} />
-              <Text style={styles.cardHeaderActionText} allowFontScaling={false}>New Request</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.cardBody}>
-          {recentTicket ? (
-            <TouchableOpacity
-              style={[styles.ticketContainer, { backgroundColor: colors.surface || colors.background, borderColor: colors.cardBorder }]}
-              onPress={() => onNavigate && onNavigate('maintenance')}
-              activeOpacity={0.8}
-            >
-              <View style={styles.ticketTopRow}>
-                <View style={{ flex: 1, marginRight: 8 }}>
-                  <Text style={[styles.ticketTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {recentTicket.title}
-                  </Text>
-                  <Text style={[styles.ticketDate, { color: colors.textSecondary }]}>
-                    Reported on {recentTicket.date || 'Recent'}
-                  </Text>
-                </View>
-                <View style={[styles.ticketStatusPill, { 
-                  backgroundColor: recentTicket.status === 'Completed' || recentTicket.status === 'Resolved' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(56, 189, 248, 0.15)' 
-                }]}>
-                  <Text style={[styles.ticketStatusText, { 
-                    color: recentTicket.status === 'Completed' || recentTicket.status === 'Resolved' ? '#10b981' : '#38bdf8' 
-                  }]}>
-                    {recentTicket.status || 'In Progress'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Visual 3-Stage Graphical Pipeline Stepper */}
-              <View style={styles.stepperContainer}>
-                {/* Step 1: Reported */}
-                <View style={styles.stepNode}>
-                  <View style={[styles.stepDot, styles.stepDotCompleted]}>
-                    <Ionicons name="checkmark" size={11} color="#ffffff" />
-                  </View>
-                  <Text style={[styles.stepLabel, styles.stepLabelActive]} allowFontScaling={false}>Reported</Text>
-                </View>
-
-                {/* Line 1 */}
-                <View style={[styles.stepLine, getMaintenanceStep(recentTicket.status) >= 2 && styles.stepLineActive]} />
-
-                {/* Step 2: In Progress */}
-                <View style={styles.stepNode}>
-                  <View style={[
-                    styles.stepDot,
-                    getMaintenanceStep(recentTicket.status) >= 3 
-                      ? styles.stepDotCompleted 
-                      : (getMaintenanceStep(recentTicket.status) === 2 ? styles.stepDotActive : styles.stepDotPending)
-                  ]}>
-                    {getMaintenanceStep(recentTicket.status) >= 3 ? (
-                      <Ionicons name="checkmark" size={11} color="#ffffff" />
-                    ) : (
-                      <Ionicons name="cog" size={11} color="#ffffff" />
-                    )}
-                  </View>
-                  <Text style={[
-                    styles.stepLabel, 
-                    getMaintenanceStep(recentTicket.status) >= 2 && styles.stepLabelActive
-                  ]} allowFontScaling={false}>
-                    In Progress
-                  </Text>
-                </View>
-
-                {/* Line 2 */}
-                <View style={[styles.stepLine, getMaintenanceStep(recentTicket.status) >= 3 && styles.stepLineActive]} />
-
-                {/* Step 3: Resolved */}
-                <View style={styles.stepNode}>
-                  <View style={[
-                    styles.stepDot, 
-                    getMaintenanceStep(recentTicket.status) >= 3 ? styles.stepDotCompleted : styles.stepDotPending
-                  ]}>
-                    <Ionicons name="checkmark-done" size={11} color={getMaintenanceStep(recentTicket.status) >= 3 ? '#ffffff' : '#64748b'} />
-                  </View>
-                  <Text style={[
-                    styles.stepLabel, 
-                    getMaintenanceStep(recentTicket.status) >= 3 && styles.stepLabelActive
-                  ]} allowFontScaling={false}>
-                    Resolved
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.emptyMaintenanceBox}>
-              <Ionicons name="checkmark-done-circle-outline" size={32} color="#10b981" style={{ marginBottom: 4 }} />
-              <Text style={[styles.emptyMaintenanceTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
-                All Systems Operational
-              </Text>
-              <Text style={[styles.emptyMaintenanceText, { color: colors.textSecondary }]} allowFontScaling={false}>
-                No active repair requests. Everything in your home is up to date!
-              </Text>
-              <TouchableOpacity
-                style={[styles.outlineActionBtn, { borderColor: colors.cardBorder, marginTop: 10 }]}
-                onPress={() => setTicketModalVisible(true)}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="hammer-outline" size={15} color="#38bdf8" style={{ marginRight: 6 }} />
-                <Text style={styles.outlineActionText}>Report an Issue</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {/* =========================================================================
-          CARD 2: MY HOME & LEASE DETAILS (WITH GRAPHICAL PROGRESS)
-          ========================================================================= */}
-      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-        <View style={styles.cardHeaderRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={[styles.cardIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.12)' }]}>
-              <Ionicons name="home" size={17} color="#0284c7" />
-            </View>
-            <Text style={[styles.cardTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
-              My Home & Lease Details
-            </Text>
-          </View>
-
-          {onNavigate && (
-            <TouchableOpacity
-              style={styles.cardHeaderActionBtn}
-              onPress={() => onNavigate('lease')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.cardHeaderActionText} allowFontScaling={false}>View Full</Text>
-              <Ionicons name="chevron-forward" size={13} color="#38bdf8" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={styles.cardBody}>
-          {!tenantData.hasActiveLease ? (
-            <View style={{ alignItems: 'center', paddingVertical: 18 }}>
-              <View style={styles.noLeaseIconBadge}>
-                <Ionicons name="home-outline" size={28} color="#38bdf8" />
-              </View>
-              <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700', marginTop: 8 }}>
-                No Active Lease Assigned
-              </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 11.5, marginTop: 4, textAlign: 'center', paddingHorizontal: 20 }}>
-                Your resident account is active. Once management assigns your residential unit and lease contract, it will appear here graphically.
-              </Text>
-            </View>
-          ) : (
-            <>
-              {/* Lease Progress Timeline */}
-              <View style={styles.leaseProgressWrapper}>
-                <View style={styles.leaseProgressHeader}>
-                  <Text style={[styles.leaseProgressLabel, { color: colors.textSecondary }]} allowFontScaling={false}>
-                    LEASE PERIOD PROGRESS
-                  </Text>
-                  <Text style={[styles.leaseProgressValue, { color: '#38bdf8' }]} allowFontScaling={false}>
-                    Active Agreement
-                  </Text>
-                </View>
-                <View style={styles.leaseProgressBarTrack}>
-                  <View style={[styles.leaseProgressBarFill, { width: '65%' }]} />
-                </View>
-                <View style={styles.leaseProgressFooter}>
-                  <Text style={[styles.leaseDateText, { color: colors.textSecondary }]} allowFontScaling={false}>
-                    Started: Current Year
-                  </Text>
-                  <Text style={[styles.leaseDateText, { color: colors.textSecondary }]} allowFontScaling={false}>
-                    Expires: {tenantData.leaseExpiration}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.leaseGrid}>
-                <View style={[styles.leaseBox, { backgroundColor: colors.surface || colors.background, borderColor: colors.cardBorder }]}>
-                  <Text style={[styles.leaseBoxLabel, { color: colors.textSecondary }]}>PROPERTY</Text>
-                  <Text style={[styles.leaseBoxVal, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {tenantData.propertyName}
-                  </Text>
-                </View>
-
-                <View style={[styles.leaseBox, { backgroundColor: colors.surface || colors.background, borderColor: colors.cardBorder }]}>
-                  <Text style={[styles.leaseBoxLabel, { color: colors.textSecondary }]}>ASSIGNED UNIT</Text>
-                  <Text style={[styles.leaseBoxVal, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {tenantData.unitNumber && tenantData.unitNumber !== 'N/A' ? `Unit ${tenantData.unitNumber}` : 'Standard'}
-                  </Text>
-                </View>
-
-                <View style={[styles.leaseBox, { backgroundColor: colors.surface || colors.background, borderColor: colors.cardBorder }]}>
-                  <Text style={[styles.leaseBoxLabel, { color: colors.textSecondary }]}>MONTHLY RENT</Text>
-                  <Text style={[styles.leaseBoxVal, { color: '#38bdf8' }]} numberOfLines={1}>
-                    ${(tenantData.currentRent || 0).toLocaleString()} / mo
-                  </Text>
-                </View>
-
-                <View style={[styles.leaseBox, { backgroundColor: colors.surface || colors.background, borderColor: colors.cardBorder }]}>
-                  <Text style={[styles.leaseBoxLabel, { color: colors.textSecondary }]}>LEASE EXPIRES</Text>
-                  <Text style={[styles.leaseBoxVal, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {tenantData.leaseExpiration}
-                  </Text>
-                </View>
-              </View>
-
-              {onNavigate && (
-                <TouchableOpacity
-                  style={[styles.outlineActionBtn, { borderColor: colors.cardBorder, marginTop: 12 }]}
-                  onPress={() => onNavigate('lease')}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="document-text-outline" size={15} color="#38bdf8" style={{ marginRight: 6 }} />
-                  <Text style={styles.outlineActionText}>Download Signed Agreement PDF</Text>
-                </TouchableOpacity>
-              )}
-            </>
-          )}
-        </View>
-      </View>
-
-      {/* =========================================================================
-          BOTTOM QUICK ACTIONS: CHAT, DOCUMENTS, RECEIPTS, REPAIRS
-          ========================================================================= */}
-      <View style={styles.quickFooterGrid}>
-        <TouchableOpacity
-          style={[styles.quickFooterBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-          onPress={() => onNavigate && onNavigate('messages')}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="chatbubbles" size={18} color="#10b981" />
-          <Text style={[styles.quickFooterBtnText, { color: colors.textPrimary }]}>Manager Chat</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.quickFooterBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-          onPress={() => onNavigate && onNavigate('documents')}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="folder" size={18} color="#f59e0b" />
-          <Text style={[styles.quickFooterBtnText, { color: colors.textPrimary }]}>Documents</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.quickFooterBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-          onPress={() => setPayModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="receipt" size={18} color="#a855f7" />
-          <Text style={[styles.quickFooterBtnText, { color: colors.textPrimary }]}>Receipts</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.quickFooterBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-          onPress={() => (onNavigate ? onNavigate('maintenance') : setTicketModalVisible(true))}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="hammer" size={18} color="#38bdf8" />
-          <Text style={[styles.quickFooterBtnText, { color: colors.textPrimary }]}>Report Issue</Text>
-        </TouchableOpacity>
-      </View>
+      <View style={{ height: 24 }} />
 
       {/* =========================================================================
           PAY RENT MODAL
@@ -1201,13 +949,13 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
                 </Text>
               </View>
             ) : (
-              <View style={styles.gatewayBadgeBoxManual}>
+              <View style={[styles.gatewayBadgeBoxManual, { borderColor: 'rgba(245, 158, 11, 0.4)', backgroundColor: 'rgba(245, 158, 11, 0.08)' }]}>
                 <View style={styles.gatewayBadgeHeader}>
-                  <Ionicons name="wallet-outline" size={15} color="#94a3b8" />
-                  <Text style={[styles.gatewayBadgeTitle, { color: '#94a3b8' }]}>Direct Payment</Text>
+                  <Ionicons name="alert-circle-outline" size={16} color="#f59e0b" />
+                  <Text style={[styles.gatewayBadgeTitle, { color: '#f59e0b' }]}>Gateway Not Configured</Text>
                 </View>
-                <Text style={styles.gatewayBadgeSub}>
-                  Direct In-App ACH / Offline Settlement
+                <Text style={[styles.gatewayBadgeSub, { color: colors.textSecondary, marginTop: 4, lineHeight: 17 }]}>
+                  Online payment gateway is not configured yet. Please contact your property manager to enable online payments.
                 </Text>
               </View>
             )}
@@ -1227,10 +975,12 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
                 style={[
                   styles.modalBtn,
                   styles.modalConfirmBtn,
-                  activeGateway?.provider === 'RAZORPAY' && { backgroundColor: '#38bdf8' },
+                  activeGateway?.provider === 'RAZORPAY'
+                    ? { backgroundColor: '#38bdf8' }
+                    : { backgroundColor: '#64748b', opacity: 0.6 },
                 ]}
                 onPress={handleInitiatePayment}
-                disabled={submitting}
+                disabled={submitting || activeGateway?.provider !== 'RAZORPAY'}
                 activeOpacity={0.8}
               >
                 {submitting ? (
@@ -1239,11 +989,11 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
                   <Text
                     style={[
                       styles.modalConfirmBtnText,
-                      activeGateway?.provider === 'RAZORPAY' && { color: '#0f172a' },
+                      activeGateway?.provider === 'RAZORPAY' ? { color: '#0f172a' } : { color: '#ffffff' },
                     ]}
                     allowFontScaling={false}
                   >
-                    {activeGateway?.provider === 'RAZORPAY' ? '⚡ Open Razorpay SDK' : 'Confirm Payment'}
+                    {activeGateway?.provider === 'RAZORPAY' ? '⚡ Open Razorpay SDK' : 'Payment Unavailable'}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -1387,86 +1137,254 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
       </Modal>
 
       {/* =========================================================================
-          SCREENING VERIFICATION MODAL
+          SCREENING VERIFICATION MODAL (UNIFIED 1-STEP SCREEN MATCHING WEB DETAILS)
           ========================================================================= */}
       <Modal visible={screeningModalOpen} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-            <Text style={[styles.modalTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
-              Tenant Screening Verification
-            </Text>
-            <Text style={[styles.modalSub, { color: colors.textSecondary }]} allowFontScaling={false}>
-              Please verify identity details and upload proof.
-            </Text>
-
-            <TextInput
-              style={[styles.inputField, { backgroundColor: colors.background, color: colors.textPrimary, borderColor: colors.cardBorder }]}
-              placeholder="Date of Birth (YYYY-MM-DD)"
-              placeholderTextColor="#94a3b8"
-              value={screeningDob}
-              onChangeText={setScreeningDob}
-            />
-
-            <TextInput
-              style={[styles.inputField, { backgroundColor: colors.background, color: colors.textPrimary, borderColor: colors.cardBorder }]}
-              placeholder="SSN (Last 4 digits or Full)"
-              placeholderTextColor="#94a3b8"
-              value={screeningSsn}
-              onChangeText={setScreeningSsn}
-            />
-
-            <TouchableOpacity
-              style={[styles.outlineBtn, { borderColor: colors.cardBorder, marginBottom: 14 }]}
-              onPress={handlePickDocument}
-            >
-              <Ionicons name="cloud-upload-outline" size={18} color="#0284c7" style={{ marginRight: 6 }} />
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#0284c7' }}>
-                {docFile ? docFile.name : 'Choose ID / W2 Document'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}
-              onPress={() => setConsent(!consent)}
-            >
-              <Ionicons
-                name={consent ? 'checkbox' : 'square-outline'}
-                size={20}
-                color={consent ? '#10b981' : colors.textSecondary}
-                style={{ marginRight: 8 }}
-              />
-              <Text style={{ fontSize: 12, color: colors.textSecondary, flex: 1 }}>
-                I authorize background verification and identity screening.
-              </Text>
-            </TouchableOpacity>
-
-            <View style={styles.modalBtnRow}>
+          <View style={[styles.screeningModalContainer, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+            {/* Header Title & Provider Badge */}
+            <View style={[styles.screeningHeader, { borderBottomColor: colors.cardBorder }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.screeningHeaderTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
+                  {es ? 'EVALUACIÓN DE INQUILINO' : 'TENANT SCREENING CHECK'}
+                </Text>
+                <View style={styles.providerBadgeRow}>
+                  <Text style={styles.providerBadgeText} allowFontScaling={false}>
+                    {es ? 'PASO 1 DE 1 • PROVEEDOR: TransUnion' : 'STEP 1 OF 1 • PROVIDER: TransUnion'}
+                  </Text>
+                </View>
+              </View>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.modalCancelBtn]}
+                style={styles.modalCloseBtn}
                 onPress={() => setScreeningModalOpen(false)}
                 activeOpacity={0.7}
               >
-                <Text style={styles.modalCancelBtnText} allowFontScaling={false}>
-                  Cancel
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16 }}
+            >
+              {/* SECTION 1: SCREENING CHECK INVITATION & DETAILS (From Web Step 1) */}
+              <View style={[styles.screeningSectionCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#f8fafc', borderColor: colors.cardBorder }]}>
+                <View style={styles.sectionHeaderTitleRow}>
+                  <Ionicons name="sparkles" size={15} color="#0284c7" style={{ marginRight: 6 }} />
+                  <Text style={[styles.sectionHeading, { color: colors.textPrimary }]} allowFontScaling={false}>
+                    {es ? 'INVITACIÓN A EVALUACIÓN' : 'SCREENING CHECK INVITATION'}
+                  </Text>
+                </View>
+                <Text style={[styles.sectionDescText, { color: colors.textSecondary }]} allowFontScaling={false}>
+                  {es
+                    ? `Ha sido invitado por ${screeningCompanyName} para completar una verificación de evaluación de alquiler. Esta solicitud se procesará de forma segura.`
+                    : `You have been invited by ${screeningCompanyName} to complete a rental application screening check. This request will be processed securely.`}
+                </Text>
+
+                {/* 2-Column Details Summary Grid */}
+                <View style={styles.screeningGridRow}>
+                  <View style={[styles.screeningGridBox, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                    <Text style={styles.gridBoxLabel} allowFontScaling={false}>
+                      {es ? 'DATOS DEL SOLICITANTE' : 'APPLICANT DETAILS'}
+                    </Text>
+                    <Text style={[styles.gridBoxPrimary, { color: colors.textPrimary }]} numberOfLines={1} allowFontScaling={false}>
+                      {screeningApplicantName}
+                    </Text>
+                    <Text style={[styles.gridBoxSecondary, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
+                      {screeningApplicantEmail}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.screeningGridBox, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                    <Text style={styles.gridBoxLabel} allowFontScaling={false}>
+                      {es ? 'UBICACIÓN OBJETIVO' : 'TARGET LOCATION'}
+                    </Text>
+                    <Text style={[styles.gridBoxPrimary, { color: colors.textPrimary }]} numberOfLines={1} allowFontScaling={false}>
+                      {screeningPropertyName}
+                    </Text>
+                    <Text style={[styles.gridBoxSecondary, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
+                      Unit Number: {screeningUnitNumber}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* SECTION 2: IDENTITY VERIFICATION (From Web Step 2 - SSN Removed) */}
+              <View style={[styles.screeningSectionCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#f8fafc', borderColor: colors.cardBorder, marginTop: 12 }]}>
+                <View style={styles.sectionHeaderTitleRow}>
+                  <Ionicons name="person-outline" size={15} color="#0284c7" style={{ marginRight: 6 }} />
+                  <Text style={[styles.sectionHeading, { color: colors.textPrimary }]} allowFontScaling={false}>
+                    {es ? 'VERIFICACIÓN DE IDENTIDAD' : 'IDENTITY VERIFICATION'}
+                  </Text>
+                </View>
+                <Text style={[styles.sectionDescText, { color: colors.textSecondary }]} allowFontScaling={false}>
+                  {es
+                    ? 'Ingrese su fecha de nacimiento. Esta información se transmite directamente al proveedor para su verificación.'
+                    : 'Please enter your Date of Birth. This information is encrypted and transmitted directly to the screening provider for verification.'}
+                </Text>
+
+                <View style={{ marginTop: 4 }}>
+                  <Text style={[styles.screeningFieldLabel, { color: colors.textSecondary }]} allowFontScaling={false}>
+                    {es ? 'FECHA DE NACIMIENTO *' : 'DATE OF BIRTH *'}
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.inputField,
+                      {
+                        backgroundColor: colors.background,
+                        borderColor: colors.cardBorder,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingVertical: 12,
+                        marginBottom: 0,
+                      },
+                    ]}
+                    onPress={() => setShowScreeningDobPicker(true)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <Ionicons name="calendar" size={18} color="#0284c7" style={{ marginRight: 8 }} />
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: screeningDob ? '700' : '500',
+                          color: screeningDob ? colors.textPrimary : '#94a3b8',
+                        }}
+                        allowFontScaling={false}
+                      >
+                        {screeningDob ? screeningDob : (es ? 'Seleccionar Fecha de Nacimiento' : 'Select Date of Birth (YYYY-MM-DD)')}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* SECTION 3: DOCUMENT VERIFICATION (From Web Step 4) */}
+              <View style={[styles.screeningSectionCard, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#f8fafc', borderColor: colors.cardBorder, marginTop: 12 }]}>
+                <View style={styles.sectionHeaderTitleRow}>
+                  <Ionicons name="document-text-outline" size={15} color="#0284c7" style={{ marginRight: 6 }} />
+                  <Text style={[styles.sectionHeading, { color: colors.textPrimary }]} allowFontScaling={false}>
+                    {es ? 'VERIFICACIÓN DE DOCUMENTOS' : 'DOCUMENT VERIFICATION'}
+                  </Text>
+                </View>
+                <Text style={[styles.sectionDescText, { color: colors.textSecondary }]} allowFontScaling={false}>
+                  {es
+                    ? 'Suba una copia de su identificación oficial con foto (Pasaporte, Licencia) o comprobante de ingresos W2 (Máx. 5MB).'
+                    : 'Please upload a copy of your Government-issued Photo ID (e.g. Passport, Drivers License, State ID) or W2 Income statements. Max file size: 5MB.'}
+                </Text>
+
+                <TouchableOpacity
+                  style={[
+                    styles.docUploadDashedBox,
+                    {
+                      borderColor: docFile ? '#10b981' : colors.cardBorder,
+                      backgroundColor: docFile ? (isDarkMode ? 'rgba(16,185,129,0.08)' : '#f0fdf4') : colors.card,
+                    },
+                  ]}
+                  onPress={handlePickDocument}
+                  activeOpacity={0.8}
+                >
+                  {docFile ? (
+                    <View style={{ alignItems: 'center' }}>
+                      <View style={[styles.uploadIconBadge, { backgroundColor: 'rgba(16,185,129,0.15)' }]}>
+                        <Ionicons name="checkmark-circle" size={24} color="#10b981" />
+                      </View>
+                      <Text style={[styles.docUploadFileName, { color: colors.textPrimary }]} numberOfLines={1}>
+                        {docFile.name}
+                      </Text>
+                      <Text style={[styles.docUploadFileSize, { color: colors.textSecondary }]}>
+                        {docFile.size ? `${(docFile.size / (1024 * 1024)).toFixed(2)} MB • ` : ''}
+                        {es ? 'Listo para enviar (Toca para cambiar)' : 'Ready to upload (Tap to change)'}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ alignItems: 'center' }}>
+                      <View style={[styles.uploadIconBadge, { backgroundColor: 'rgba(2,132,199,0.1)' }]}>
+                        <Ionicons name="cloud-upload-outline" size={24} color="#0284c7" />
+                      </View>
+                      <Text style={[styles.docUploadPromptText, { color: '#0284c7' }]}>
+                        {es ? 'Seleccionar ID o Documento W2' : 'Choose ID / W2 Document'}
+                      </Text>
+                      <Text style={[styles.docUploadHintText, { color: colors.textSecondary }]}>
+                        PDF, PNG, JPG, DOC (Max 5MB)
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {/* SECTION 4: AUTHORIZATION & CONSENT (From Web Step 3) */}
+              <TouchableOpacity
+                style={[
+                  styles.consentBox,
+                  {
+                    backgroundColor: consent
+                      ? (isDarkMode ? 'rgba(2,132,199,0.12)' : '#f0f9ff')
+                      : (isDarkMode ? 'rgba(255,255,255,0.03)' : '#f8fafc'),
+                    borderColor: consent ? '#0284c7' : colors.cardBorder,
+                  },
+                ]}
+                onPress={() => setConsent(!consent)}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={consent ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={consent ? '#0284c7' : colors.textSecondary}
+                  style={{ marginRight: 10, marginTop: 1 }}
+                />
+                <Text style={[styles.consentText, { color: colors.textPrimary }]} allowFontScaling={false}>
+                  {es
+                    ? `Autorizo a ${screeningCompanyName} y al proveedor de evaluación (TransUnion) a obtener mi informe de consumidor, antecedentes penales e historial de desalojos con fines de evaluación de alquiler.`
+                    : `I authorize ${screeningCompanyName} and the screening provider (TransUnion) to obtain my consumer report, criminal background report, and eviction history for rental screening purposes.`}
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalConfirmBtn]}
-                onPress={handleSubmitDocuments}
-                disabled={submitting}
-                activeOpacity={0.8}
-              >
-                {submitting ? (
-                  <ActivityIndicator color="#ffffff" />
-                ) : (
-                  <Text style={styles.modalConfirmBtnText} allowFontScaling={false}>
-                    Submit Proof
+              {/* ACTION BUTTONS */}
+              <View style={[styles.modalBtnRow, { marginTop: 16 }]}>
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.modalCancelBtn]}
+                  onPress={() => setScreeningModalOpen(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.modalCancelBtnText} allowFontScaling={false}>
+                    {es ? 'Cancelar' : 'Cancel'}
                   </Text>
-                )}
-              </TouchableOpacity>
-            </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.modalConfirmBtn]}
+                  onPress={handleSubmitDocuments}
+                  disabled={submitting}
+                  activeOpacity={0.8}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.modalConfirmBtnText} allowFontScaling={false}>
+                      {es ? 'Enviar Verificación' : 'Submit Proof'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
+
+          {/* Custom Date Picker rendered inline inside this Modal so it is never blocked by OS modal layering */}
+          {showScreeningDobPicker && (
+            <CustomDatePicker
+              inline
+              visible={showScreeningDobPicker}
+              value={screeningDob}
+              onSelect={(date) => {
+                setScreeningDob(date);
+                setShowScreeningDobPicker(false);
+              }}
+              onClose={() => setShowScreeningDobPicker(false)}
+            />
+          )}
         </View>
       </Modal>
 
@@ -2380,6 +2298,148 @@ const getStyles = (colors, isDarkMode) =>
       fontWeight: '700',
       color: '#94a3b8',
       marginTop: 12,
+    },
+
+    // Unified Tenant Screening Check Modal Styles
+    screeningModalContainer: {
+      borderRadius: 20,
+      borderWidth: 1,
+      maxHeight: '90%',
+      overflow: 'hidden',
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 10,
+    },
+    screeningHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+    },
+    screeningHeaderTitle: {
+      fontSize: 15,
+      fontWeight: '900',
+      letterSpacing: 0.5,
+    },
+    providerBadgeRow: {
+      marginTop: 3,
+    },
+    providerBadgeText: {
+      fontSize: 9.5,
+      fontWeight: '800',
+      color: '#0284c7',
+      letterSpacing: 0.3,
+    },
+    modalCloseBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    screeningSectionCard: {
+      borderRadius: 14,
+      borderWidth: 1,
+      padding: 13,
+    },
+    sectionHeaderTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 6,
+    },
+    sectionHeading: {
+      fontSize: 11.5,
+      fontWeight: '800',
+      letterSpacing: 0.4,
+    },
+    sectionDescText: {
+      fontSize: 11,
+      lineHeight: 16,
+      marginBottom: 10,
+    },
+    screeningGridRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    screeningGridBox: {
+      flex: 1,
+      borderRadius: 10,
+      borderWidth: 1,
+      padding: 10,
+    },
+    gridBoxLabel: {
+      fontSize: 8.5,
+      fontWeight: '800',
+      color: '#64748b',
+      letterSpacing: 0.5,
+      marginBottom: 4,
+      textTransform: 'uppercase',
+    },
+    gridBoxPrimary: {
+      fontSize: 12.5,
+      fontWeight: '700',
+      marginBottom: 2,
+    },
+    gridBoxSecondary: {
+      fontSize: 10.5,
+    },
+    screeningFieldLabel: {
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+      marginBottom: 5,
+      textTransform: 'uppercase',
+    },
+    docUploadDashedBox: {
+      borderWidth: 1.5,
+      borderStyle: 'dashed',
+      borderRadius: 12,
+      paddingVertical: 14,
+      paddingHorizontal: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    uploadIconBadge: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 6,
+    },
+    docUploadPromptText: {
+      fontSize: 12.5,
+      fontWeight: '700',
+      marginBottom: 2,
+    },
+    docUploadHintText: {
+      fontSize: 10,
+    },
+    docUploadFileName: {
+      fontSize: 12,
+      fontWeight: '700',
+      marginBottom: 2,
+    },
+    docUploadFileSize: {
+      fontSize: 10,
+    },
+    consentBox: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      borderRadius: 12,
+      borderWidth: 1,
+      padding: 11,
+      marginTop: 12,
+    },
+    consentText: {
+      fontSize: 11,
+      lineHeight: 16,
+      flex: 1,
+      fontWeight: '500',
     },
   });
 

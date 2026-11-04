@@ -153,8 +153,9 @@ export const ReportsScreen = ({ onNavigate }) => {
   // Helper to ensure "Unit" is never duplicated (e.g. avoid "Unit Unit 1F")
   const formatUnitLabel = (val) => {
     if (!val) return 'Unit N/A';
-    const str = String(val).trim();
-    return str.toLowerCase().startsWith('unit') ? str : `Unit ${str}`;
+    let str = String(val).trim();
+    str = str.replace(/^(unit\s*)+/i, '').trim();
+    return str ? `Unit ${str}` : 'Unit N/A';
   };
 
   // Animations
@@ -306,15 +307,19 @@ export const ReportsScreen = ({ onNavigate }) => {
           ...e,
           type: 'Expense',
         }));
-        const totalIncome = incomes.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
-        const totalExpenses = expenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
-        const plSummary = payload.summary || payload.data?.summary || {
+        const transactions = payload.transactions || payload.data?.transactions || [];
+        const transIncome = transactions.filter((t) => t.type === 'Income').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+        const transExpenses = transactions.filter((t) => t.type === 'Expense').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+        const totalIncome = transIncome > 0 ? transIncome : (payload.summary?.totalIncome || payload.data?.summary?.totalIncome || incomes.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0));
+        const totalExpenses = transExpenses > 0 ? transExpenses : (payload.summary?.totalExpenses || payload.data?.summary?.totalExpenses || expenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0));
+        const plSummary = {
           totalIncome,
           totalExpenses,
           netProfit: totalIncome - totalExpenses,
         };
         setSummaryData(plSummary);
-        setReportData([...incomes, ...expenses]);
+        setReportData(transactions.length > 0 ? transactions : [...incomes, ...expenses]);
       } else {
         const list = Array.isArray(res?.data)
           ? res.data
@@ -363,11 +368,11 @@ export const ReportsScreen = ({ onNavigate }) => {
               completionRate: list.length > 0 ? parseFloat(((completedCount / list.length) * 100).toFixed(1)) : 0.0,
             };
           } else if (selectedReportId === 'payment-history') {
+            const paidItems = list.filter((i) => !i.paymentStatus || ['Paid', 'Partially Paid', 'PartiallyPaid', 'Cleared'].includes(i.paymentStatus));
             summary = {
-              totalCollectedAmount: list.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0),
+              totalCollectedAmount: paidItems.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0),
               totalTransactions: res?.pagination?.totalRecords || list.length,
               averageTransaction: list.length > 0 ? Math.round(list.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0) / list.length) : 0,
-              topMethod: list.length > 0 ? list[0].paymentMethod || 'ACH' : 'N/A',
             };
           }
         }
@@ -1025,7 +1030,6 @@ export const ReportsScreen = ({ onNavigate }) => {
       onNavigate?.('properties', {
         tab: 'units',
         unitId: item.unitId,
-        propertyId: item.propertyId,
         statusFilter: item.status || 'All',
       });
     } else if (item.type === 'property' && item.propertyId) {
@@ -2029,46 +2033,6 @@ export const ReportsScreen = ({ onNavigate }) => {
                         <Ionicons name="card-outline" size={20} color="#38bdf8" />
                       </View>
                     </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.kpiCard, { borderColor: 'rgba(168, 85, 247, 0.35)' }]}
-                      onPress={() => handleOpenMetricDrillDown('AVERAGE_PAYMENT')}
-                      activeOpacity={0.72}
-                    >
-                      <View style={styles.kpiTextCol}>
-                        <Text style={[styles.kpiLabel, { color: '#a855f7' }]} allowFontScaling={false}>AVERAGE PAYMENT</Text>
-                        <Text style={[styles.kpiValue, { color: '#a855f7' }]} allowFontScaling={false}>
-                          ${Number(summaryData.averageTransaction || 0).toLocaleString()}
-                        </Text>
-                        <View style={styles.kpiTapHintRow}>
-                          <Text style={[styles.kpiTapHintText, { color: '#a855f7' }]} allowFontScaling={false}>View ledger</Text>
-                          <Ionicons name="chevron-forward" size={10} color="#a855f7" />
-                        </View>
-                      </View>
-                      <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
-                        <Ionicons name="analytics-outline" size={20} color="#a855f7" />
-                      </View>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.kpiCard, { borderColor: 'rgba(251, 191, 36, 0.35)' }]}
-                      onPress={() => handleOpenMetricDrillDown('TOP_METHOD')}
-                      activeOpacity={0.72}
-                    >
-                      <View style={styles.kpiTextCol}>
-                        <Text style={[styles.kpiLabel, { color: '#fbbf24' }]} allowFontScaling={false}>TOP METHOD</Text>
-                        <Text style={[styles.kpiValue, { color: '#fbbf24' }]} allowFontScaling={false}>
-                          {summaryData.topMethod || 'ACH'}
-                        </Text>
-                        <View style={styles.kpiTapHintRow}>
-                          <Text style={[styles.kpiTapHintText, { color: '#fbbf24' }]} allowFontScaling={false}>View method</Text>
-                          <Ionicons name="chevron-forward" size={10} color="#fbbf24" />
-                        </View>
-                      </View>
-                      <View style={[styles.kpiIconBox, { backgroundColor: 'rgba(251, 191, 36, 0.15)' }]}>
-                        <Ionicons name="swap-horizontal-outline" size={20} color="#fbbf24" />
-                      </View>
-                    </TouchableOpacity>
                   </View>
                 )}
 
@@ -2103,7 +2067,7 @@ export const ReportsScreen = ({ onNavigate }) => {
                           </Text>
                           {item.unitNumber && (
                             <Text style={styles.recordSubText} allowFontScaling={false}>
-                              Unit {item.unitNumber}
+                              {formatUnitLabel(item.unitNumber)}
                             </Text>
                           )}
                         </View>
@@ -2280,17 +2244,26 @@ export const ReportsScreen = ({ onNavigate }) => {
 
                       {/* --- PROFIT & LOSS FIELDS --- */}
                       {selectedReportId === 'profit-loss' && (
-                        <View style={styles.rowBetween}>
-                          <Text style={styles.recordSubText} allowFontScaling={false}>Category: {item.type}</Text>
-                          <Text
-                            style={[
-                              styles.detailValue,
-                              { color: item.type === 'Income' ? '#10b981' : '#ef4444', fontWeight: '900' },
-                            ]}
-                            allowFontScaling={false}
-                          >
-                            {item.type === 'Income' ? '+' : '-'}${Number(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                          </Text>
+                        <View>
+                          <View style={styles.rowBetween}>
+                            <Text style={[styles.recordSubText, { flex: 1, marginRight: 8 }]} numberOfLines={1} allowFontScaling={false}>
+                              {item.description || item.name || 'Transaction'}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.detailValue,
+                                { color: item.type === 'Income' ? '#10b981' : '#ef4444', fontWeight: '900' },
+                              ]}
+                              allowFontScaling={false}
+                            >
+                              {item.type === 'Income' ? '+' : '-'}${Number(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </Text>
+                          </View>
+                          <View style={[styles.cardDetailRow, { marginTop: 4 }]}>
+                            <Text style={[styles.recordSubText, { fontSize: 11 }]} allowFontScaling={false}>
+                              {item.date && item.date !== 'N/A' ? `${new Date(item.date).toLocaleDateString()} • ` : ''}{item.category || item.type}
+                            </Text>
+                          </View>
                         </View>
                       )}
 
@@ -2557,38 +2530,6 @@ export const ReportsScreen = ({ onNavigate }) => {
             )}
 
             <View style={styles.detailModalFooter}>
-              {/* Deep link direct actions */}
-              {viewingItem && (viewingItem.unitId || viewingItem.unitNumber || selectedReportId === 'occupancy' || selectedReportId === 'rent-roll') && (
-                <TouchableOpacity
-                  style={styles.detailDeepLinkBtn}
-                  onPress={() => {
-                    const uId = viewingItem.unitId || viewingItem.id;
-                    const pId = viewingItem.propertyId || viewingItem.property?.id;
-                    setViewingItem(null);
-                    onNavigate?.('properties', { tab: 'units', unitId: uId, propertyId: pId, statusFilter: viewingItem.unitStatus || 'All' });
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="business-outline" size={13} color="#38bdf8" />
-                  <Text style={styles.detailDeepLinkBtnText} allowFontScaling={false}>Open Unit</Text>
-                </TouchableOpacity>
-              )}
-
-              {viewingItem && (viewingItem.tenantId || viewingItem.tenantName || selectedReportId === 'delinquency') && (
-                <TouchableOpacity
-                  style={[styles.detailDeepLinkBtn, { borderColor: 'rgba(129, 140, 248, 0.4)', backgroundColor: 'rgba(129, 140, 248, 0.12)' }]}
-                  onPress={() => {
-                    const tId = viewingItem.tenantId || viewingItem.id;
-                    setViewingItem(null);
-                    onNavigate?.('tenants', { tenantId: tId, statusFilter: selectedReportId === 'delinquency' ? 'Delinquent' : 'All' });
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="person-outline" size={13} color="#818cf8" />
-                  <Text style={[styles.detailDeepLinkBtnText, { color: '#818cf8' }]} allowFontScaling={false}>Open Tenant</Text>
-                </TouchableOpacity>
-              )}
-
               <TouchableOpacity style={styles.closeDetailBtn} onPress={() => setViewingItem(null)}>
                 <Text style={styles.closeDetailBtnText} allowFontScaling={false}>Close</Text>
               </TouchableOpacity>
@@ -2685,7 +2626,7 @@ export const ReportsScreen = ({ onNavigate }) => {
                 >
                   <Text style={styles.accordionHeaderText} allowFontScaling={false}>
                     {filteredUnits.find((u) => u.id === selectedUnitId)?.unitNumber
-                      ? `Unit ${filteredUnits.find((u) => u.id === selectedUnitId)?.unitNumber}`
+                      ? formatUnitLabel(filteredUnits.find((u) => u.id === selectedUnitId)?.unitNumber)
                       : 'All Units'}
                   </Text>
                   <Ionicons
@@ -2786,7 +2727,7 @@ export const ReportsScreen = ({ onNavigate }) => {
                           color={selectedTenantId === t.id ? '#38bdf8' : '#64748b'}
                         />
                         <Text style={[styles.accordionOptionText, selectedTenantId === t.id && styles.optionSelectedText]}>
-                          {t.name || `${t.firstName || ''} ${t.lastName || ''}`.trim()} {t.unit?.unitNumber ? `(Unit ${t.unit.unitNumber})` : ''}
+                          {t.name || `${t.firstName || ''} ${t.lastName || ''}`.trim()} {t.unit?.unitNumber ? `(${formatUnitLabel(t.unit.unitNumber)})` : ''}
                         </Text>
                       </TouchableOpacity>
                     ))}

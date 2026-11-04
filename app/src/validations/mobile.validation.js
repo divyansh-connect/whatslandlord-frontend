@@ -1,22 +1,21 @@
 import * as z from 'zod';
 
 export const propertySchema = z.object({
-  name: z.string().min(1, 'Property Name is required'),
-  ownerId: z.string().optional(),
+  name: z.string({ required_error: 'Property Name is required' }).trim().min(1, 'Property Name is required'),
+  ownerId: z.string({ required_error: 'Owner is required' }).trim().min(1, 'Please select an Owner'),
   address: z.string().optional(),
-  type: z.string().optional(),
-  status: z.string().optional(),
-  streetAddress: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  country: z.string().optional(),
-  zip: z.string().optional(),
+  type: z.string().default('Apartment'),
+  status: z.string().default('Active'),
+  streetAddress: z.string({ required_error: 'Street Address is required' }).trim().min(1, 'Street Address is required'),
+  city: z.string({ required_error: 'City is required' }).trim().min(1, 'City is required'),
+  state: z.string({ required_error: 'State is required' }).trim().min(1, 'State is required'),
+  country: z.string({ required_error: 'Country is required' }).trim().min(1, 'Country is required'),
+  zip: z.string({ required_error: 'ZIP Code is required' }).trim().min(1, 'ZIP Code is required'),
   nycBin: z.string().optional(),
   managementCompany: z.string().optional(),
-  ownershipPercentage: z.number({ invalid_type_error: 'Ownership percentage must be a number' })
-    .min(0, 'Percentage cannot be negative')
-    .max(100, 'Percentage cannot exceed 100')
-    .optional(),
+  ownershipPercentage: z.number({ invalid_type_error: 'Ownership % must be a number' })
+    .min(1, 'Percentage must be at least 1')
+    .max(100, 'Percentage cannot exceed 100'),
   yearBuilt: z.number({ invalid_type_error: 'Year built must be a number' })
     .min(1700, 'Year built must be after 1700')
     .optional(),
@@ -35,6 +34,30 @@ export const propertySchema = z.object({
   monthlyExpenses: z.number({ invalid_type_error: 'Monthly expenses must be a number' })
     .min(0, 'Monthly expenses cannot be negative')
     .optional(),
+}).passthrough();
+
+export const propertyDraftSchema = z.object({
+  name: z.string({ required_error: 'Property Name is required' }).trim().min(1, 'Property Name is required'),
+  ownerId: z.string().optional(),
+  address: z.string().optional(),
+  type: z.string().optional(),
+  status: z.string().optional(),
+  streetAddress: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  country: z.string().optional(),
+  zip: z.string().optional(),
+  nycBin: z.string().optional(),
+  managementCompany: z.string().optional(),
+  ownershipPercentage: z.number().optional(),
+  yearBuilt: z.number().optional(),
+  totalFloors: z.number().optional(),
+  totalBuildings: z.number().optional(),
+  totalUnits: z.number().optional(),
+  squareFootage: z.number().optional(),
+  purchasePrice: z.number().optional(),
+  currentValue: z.number().optional(),
+  monthlyExpenses: z.number().optional(),
 }).passthrough();
 
 export const buildingSchema = z.object({

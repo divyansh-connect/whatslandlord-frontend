@@ -22,6 +22,76 @@ import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
+// Shimmer Skeleton Loader for Owners
+const SkeletonItem = ({ width: w, height: h, borderRadius = 8, style, isDarkMode }) => {
+  const animatedValue = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(animatedValue, { toValue: 0.85, duration: 750, useNativeDriver: true }),
+        Animated.timing(animatedValue, { toValue: 0.3, duration: 750, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [animatedValue]);
+  const baseColor = isDarkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.07)';
+  return (
+    <Animated.View
+      style={[
+        { width: w || '100%', height: h || 20, borderRadius, backgroundColor: baseColor, opacity: animatedValue },
+        style,
+      ]}
+    />
+  );
+};
+
+const OwnersSkeleton = ({ isDarkMode }) => {
+  const cardBg = isDarkMode ? '#1e293b' : '#ffffff';
+  const cardBorder = isDarkMode ? '#334155' : '#e2e8f0';
+
+  return (
+    <View style={{ paddingTop: 4 }}>
+      {[1, 2, 3, 4].map((i) => (
+        <View
+          key={i}
+          style={{
+            backgroundColor: cardBg,
+            borderRadius: 16,
+            padding: 16,
+            marginBottom: 12,
+            borderWidth: 1,
+            borderColor: cardBorder,
+          }}
+        >
+          {/* Top Row: Avatar + Name/Email + Payout Badge */}
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <SkeletonItem width={42} height={42} borderRadius={21} style={{ marginRight: 12 }} isDarkMode={isDarkMode} />
+            <View style={{ flex: 1 }}>
+              <SkeletonItem width="50%" height={16} borderRadius={5} style={{ marginBottom: 6 }} isDarkMode={isDarkMode} />
+              <SkeletonItem width="70%" height={12} borderRadius={4} isDarkMode={isDarkMode} />
+            </View>
+            <SkeletonItem width={64} height={24} borderRadius={12} isDarkMode={isDarkMode} />
+          </View>
+
+          {/* Properties Count / Section */}
+          <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: cardBorder }}>
+            <SkeletonItem width="40%" height={13} borderRadius={4} style={{ marginBottom: 8 }} isDarkMode={isDarkMode} />
+            <SkeletonItem width="80%" height={12} borderRadius={4} isDarkMode={isDarkMode} />
+          </View>
+
+          {/* Action Buttons Row */}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14, gap: 8 }}>
+            <SkeletonItem width={72} height={30} borderRadius={8} isDarkMode={isDarkMode} />
+            <SkeletonItem width={72} height={30} borderRadius={8} isDarkMode={isDarkMode} />
+            <SkeletonItem width={40} height={30} borderRadius={8} isDarkMode={isDarkMode} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+};
+
 export const OwnersScreen = ({ onNavigate }) => {
   const logout = useAuthStore((state) => state.logout);
   const refreshAccessToken = useAuthStore((state) => state.refreshAccessToken);
@@ -275,17 +345,6 @@ export const OwnersScreen = ({ onNavigate }) => {
 
   const payoutOptions = ['ACH/Direct Deposit', 'Wire Transfer', 'Check'];
 
-  if (loading && owners.length === 0 && !refreshing) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#38bdf8" />
-        <Text style={styles.loadingText} allowFontScaling={false}>
-          Loading Property Owners...
-        </Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.mainWrapper}>
       {/* Top Header section */}
@@ -367,7 +426,9 @@ export const OwnersScreen = ({ onNavigate }) => {
           </View>
 
           {/* List or Empty State */}
-          {filteredOwners.length === 0 ? (
+          {loading && owners.length === 0 && !refreshing ? (
+            <OwnersSkeleton isDarkMode={isDarkMode} />
+          ) : filteredOwners.length === 0 ? (
             <View style={styles.emptyCard}>
               <Ionicons name="people-outline" size={48} color="#64748b" style={{ marginBottom: 12 }} />
               <Text style={styles.emptyText} allowFontScaling={false}>No Owners Found</Text>

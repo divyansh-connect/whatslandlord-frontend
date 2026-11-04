@@ -9,6 +9,7 @@ LogBox.ignoreLogs([
   'Cannot connect to Expo CLI',
   'Setting a timer for a long period',
   'AsyncStorage has been extracted',
+  'SafeAreaView has been deprecated',
 ]);
 
 if (typeof __DEV__ !== 'undefined' && __DEV__) {
@@ -16,7 +17,9 @@ if (typeof __DEV__ !== 'undefined' && __DEV__) {
   console.warn = (...args) => {
     if (
       typeof args[0] === 'string' &&
-      (args[0].includes('Cannot connect to Expo CLI') || args[0].includes('expo/src/async-require/hmr'))
+      (args[0].includes('Cannot connect to Expo CLI') ||
+        args[0].includes('expo/src/async-require/hmr') ||
+        args[0].includes('SafeAreaView has been deprecated'))
     ) {
       return; // Drop warning without creating expensive stack trace
     }

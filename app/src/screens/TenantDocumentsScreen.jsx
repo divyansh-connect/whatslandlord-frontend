@@ -65,7 +65,7 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const TenantDocumentsScreen = ({ onNavigate }) => {
+export const TenantDocumentsScreen = ({ onNavigate, initialTab }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -73,8 +73,8 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
   const es = language === 'es';
   
   // App role evaluation
-  const isOwnerPortal = user?.role === 'Owner';
-  const isTenantPortal = user?.role === 'Tenant';
+  const isOwnerPortal = user?.role === 'Owner' || user?.roleName === 'Owner';
+  const isTenantPortal = user?.role === 'Tenant' || user?.roleName === 'Tenant';
   const isManager = !isOwnerPortal && !isTenantPortal;
 
   // General States
@@ -87,7 +87,7 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
   const [searchTerm, setSearchTerm] = useState('');
   
   // Tabs for Manager: 'all', 'owner', 'tenant'
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState(initialTab || 'all');
   const [categoryFilter, setCategoryFilter] = useState('All');
 
   // Trigger dropdown for Manager upload button
@@ -125,7 +125,8 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
 
   // --- Upload Owner Document Form States ---
   const [oDocName, setODocName] = useState('');
-  const [oCategory, setOCategory] = useState('Statement');
+  const [oCategory, setOCategory] = useState('Statements');
+  const [customOCategory, setCustomOCategory] = useState('');
   const [oPropId, setOPropId] = useState('');
   const [oOwnerId, setOOwnerId] = useState('');
   const [showOPropDropdown, setShowOPropDropdown] = useState(false);
@@ -155,7 +156,8 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
 
   // --- Upload Tenant Document Form States ---
   const [tDocName, setTDocName] = useState('');
-  const [tCategory, setTCategory] = useState('Lease');
+  const [tCategory, setTCategory] = useState('Rental Agreement');
+  const [customTCategory, setCustomTCategory] = useState('');
   const [tPropId, setTPropId] = useState('');
   const [tTenantId, setTTenantId] = useState('');
   const [showTPropDropdown, setShowTPropDropdown] = useState(false);
@@ -180,11 +182,15 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
   const handlePickOwnerDocument = async () => {
     try {
       const res = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
+        type: ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'],
         copyToCacheDirectory: true,
       });
       if (!res.canceled && res.assets && res.assets.length > 0) {
         const file = res.assets[0];
+        if (file.size && file.size > 5 * 1024 * 1024) {
+          Alert.alert('File Too Large', 'File size exceeds the 5 MB limit. Please select a file smaller than 5 MB.');
+          return;
+        }
         setSelectedOwnerFile(file);
         if (!oDocName.trim()) {
           const rawName = file.name || 'Owner_Document';
@@ -199,11 +205,15 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
   const handlePickTenantDocument = async () => {
     try {
       const res = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
+        type: ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'],
         copyToCacheDirectory: true,
       });
       if (!res.canceled && res.assets && res.assets.length > 0) {
         const file = res.assets[0];
+        if (file.size && file.size > 5 * 1024 * 1024) {
+          Alert.alert('File Too Large', 'File size exceeds the 5 MB limit. Please select a file smaller than 5 MB.');
+          return;
+        }
         setSelectedTenantFile(file);
         if (!tDocName.trim()) {
           const rawName = file.name || 'Tenant_Document';
@@ -532,7 +542,7 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
       return;
     }
     if (!oDocName.trim()) {
-      Alert.alert('Validation Error', 'Document display name is required.');
+      Alert.alert('Validation Error', 'Document title is required.');
       return;
     }
 
@@ -540,15 +550,18 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
       setSubmitting(true);
       const ext = selectedOwnerFile.name ? selectedOwnerFile.name.substring(selectedOwnerFile.name.lastIndexOf('.')) : '.pdf';
       const finalDocName = oDocName.trim().endsWith(ext) ? oDocName.trim() : `${oDocName.trim()}${ext}`;
+      const finalCategory = oCategory === 'Other' ? (customOCategory.trim() || 'Other') : oCategory;
+
+      const uploadEndpoint = isOwnerPortal ? '/portal/owner/documents' : '/documents/owner/upload';
 
       await apiClient.uploadFile(
-        '/documents/owner/upload',
-        selectedOwnerFile.uri,
+        uploadEndpoint,
+        selectedOwnerFile,
         {
           fieldName: 'file',
           parameters: {
             name: finalDocName,
-            category: oCategory,
+            category: finalCategory,
             ...(oOwnerId ? { ownerId: oOwnerId } : {}),
             ...(oPropId ? { propertyId: oPropId } : {}),
           },
@@ -560,6 +573,7 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
       Alert.alert('Success', 'Owner document uploaded successfully.');
       setIsOwnerUploadOpen(false);
       setODocName('');
+      setCustomOCategory('');
       setOOwnerId('');
       setOPropId('');
       setSelectedOwnerFile(null);
@@ -578,7 +592,11 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
       return;
     }
     if (!tDocName.trim()) {
-      Alert.alert('Validation Error', 'Document display name is required.');
+      Alert.alert('Validation Error', 'Document title is required.');
+      return;
+    }
+    if (isManager && !tTenantId) {
+      Alert.alert('Validation Error', 'Please select an associated tenant.');
       return;
     }
 
@@ -587,32 +605,42 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
       const ext = selectedTenantFile.name ? selectedTenantFile.name.substring(selectedTenantFile.name.lastIndexOf('.')) : '.pdf';
       const finalDocName = tDocName.trim().endsWith(ext) ? tDocName.trim() : `${tDocName.trim()}${ext}`;
 
+      const selectedTenant = tenantsList.find((t) => t.id === tTenantId);
+      const bId = selectedTenant?.buildingId || selectedTenant?.unit?.buildingId || '';
+      const uId = selectedTenant?.unitId || selectedTenant?.unit?.id || '';
+      const propId = tPropId || selectedTenant?.propertyId || selectedTenant?.unit?.propertyId || '';
+      const finalCategory = tCategory === 'Other' ? (customTCategory.trim() || 'Other') : tCategory;
+
       const uploadEndpoint = isTenantPortal ? '/portal/tenant/documents' : '/documents/tenant/upload';
       await apiClient.uploadFile(
         uploadEndpoint,
-        selectedTenantFile.uri,
+        selectedTenantFile,
         {
           fieldName: 'file',
           parameters: {
             name: finalDocName,
-            category: tCategory,
+            category: finalCategory,
             ...(tTenantId ? { tenantId: tTenantId } : {}),
-            ...(tPropId ? { propertyId: tPropId } : {}),
+            ...(propId ? { propertyId: propId } : {}),
+            ...(bId ? { buildingId: bId } : {}),
+            ...(uId ? { unitId: uId } : {}),
           },
         },
         logout,
         refreshAccessToken
       );
 
-      Alert.alert('Success', 'Tenant document uploaded successfully.');
+      Alert.alert('Success', 'Document uploaded successfully.');
       setIsTenantUploadOpen(false);
       setTDocName('');
+      setCustomTCategory('');
+      setTCategory('Rental Agreement');
       setTTenantId('');
       setTPropId('');
       setSelectedTenantFile(null);
       fetchDocumentsData();
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to upload tenant document');
+      Alert.alert('Error', err.message || 'Failed to upload document');
     } finally {
       setSubmitting(false);
     }
@@ -638,8 +666,24 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
     return matchesSearch && matchesTab && matchesCat;
   });
 
-  const oCatOptions = ['Statement', 'Tax', 'Contracts', 'Other'];
-  const tCatOptions = ['Lease', 'Receipt', 'Notice', 'Other'];
+  const oCatOptions = [
+    'Statements',
+    'Tax Documents',
+    'Contracts',
+    'Insurance',
+    'Property Photos',
+    'Maintenance Reports',
+    'Inspection Reports',
+    'Other'
+  ];
+  const tCatOptions = [
+    'Rental Agreement',
+    'Identity Proof (Govt ID)',
+    'Proof of Income',
+    'Utility Bills',
+    "Renter's Insurance",
+    'Other',
+  ];
 
   if (loading && !refreshing) {
     return (
@@ -735,7 +779,17 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
               )}
             </View>
           ) : (
-            <TouchableOpacity style={styles.uploadBtn} onPress={() => setIsOwnerUploadOpen(true)} activeOpacity={0.8}>
+            <TouchableOpacity 
+              style={styles.uploadBtn} 
+              onPress={() => {
+                if (isTenantPortal) {
+                  setIsTenantUploadOpen(true);
+                } else {
+                  setIsOwnerUploadOpen(true);
+                }
+              }} 
+              activeOpacity={0.8}
+            >
               <Ionicons name="cloud-upload-outline" size={16} color="#0f172a" />
               <Text style={styles.uploadBtnText} allowFontScaling={false}>Upload</Text>
             </TouchableOpacity>
@@ -893,231 +947,358 @@ export const TenantDocumentsScreen = ({ onNavigate }) => {
         </Animated.View>
       </ScrollView>
 
-      {/* --- UPLOAD OWNER DOCUMENT MODAL --- */}
+      {/* --- UPLOAD OWNER DOCUMENT MODAL (MATCHING WEB SCREENSHOT 1) --- */}
       <Modal visible={isOwnerUploadOpen} animationType="slide" transparent>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBg}>
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalCard}>
               <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Upload Document for Owner</Text>
+                <Text style={styles.modalTitle} allowFontScaling={false}>Upload New Document</Text>
                 <TouchableOpacity onPress={() => setIsOwnerUploadOpen(false)}>
                   <Ionicons name="close" size={24} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
 
               <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                <Text style={styles.modalSubHeader} allowFontScaling={false}>Upload tax, statement, or contract documents associated directly with property owners.</Text>
-                
-                {/* Property Selector */}
-                <View style={[styles.formGroup, showOPropDropdown && { zIndex: 9999, position: 'relative' }]}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>PROPERTY</Text>
-                  <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowOPropDropdown(!showOPropDropdown)} activeOpacity={0.7}>
-                    <Text style={styles.dropdownTriggerText} allowFontScaling={false}>
-                      {properties.find(p => p.id === oPropId)?.name || 'Select Property...'}
-                    </Text>
-                    <Ionicons name={showOPropDropdown ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                  </TouchableOpacity>
-                  {showOPropDropdown && (
-                    <View style={styles.dropdownContainer}>
-                      {properties.map((opt) => (
-                        <TouchableOpacity key={opt.id} style={styles.dropdownItem} onPress={() => { 
-                          setOPropId(opt.id); 
-                          const foundOwner = ownersList.find((o) => o.id === opt.ownerId || o.id === opt.owner?.id);
-                          setOOwnerId(foundOwner ? foundOwner.id : (opt.ownerId || ''));
-                          setShowOPropDropdown(false); 
-                        }}>
-                          <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt.name}</Text>
-                          {oPropId === opt.id && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                {/* Associated Owner (Auto-filled & disabled read-only) */}
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>ASSOCIATED OWNER</Text>
-                  <TextInput
-                    style={[
-                      styles.formInput,
-                      {
-                        backgroundColor: isDarkMode ? '#1e293b' : '#e2e8f0',
-                        color: isDarkMode ? '#94a3b8' : '#64748b',
-                        opacity: 0.75,
-                      }
-                    ]}
-                    placeholder={oPropId ? 'No owner assigned to this property' : 'Select a property first'}
-                    placeholderTextColor="#64748b"
-                    value={(() => {
-                      if (!oPropId) return 'Select a property first';
-                      const selectedProp = properties.find((p) => p.id === oPropId);
-                      if (!selectedProp) return 'Select a property first';
-                      const ownerObj = ownersList.find((o) => o.id === oOwnerId || o.id === selectedProp.ownerId || o.id === selectedProp.owner?.id) || selectedProp.owner;
-                      if (ownerObj) {
-                        const fullName = ownerObj.name || `${ownerObj.firstName || ''} ${ownerObj.lastName || ''}`.trim() || 'Unknown Owner';
-                        return `${fullName} (${ownerObj.companyName || 'Individual'})`;
-                      }
-                      return 'No owner assigned to this property';
-                    })()}
-                    editable={false}
-                  />
-                </View>
-
-                {/* Category Selector */}
-                <View style={[styles.formGroup, showOCatDropdown && { zIndex: 9997, position: 'relative' }]}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>CATEGORY</Text>
-                  <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowOCatDropdown(!showOCatDropdown)} activeOpacity={0.7}>
-                    <Text style={styles.dropdownTriggerText} allowFontScaling={false}>{oCategory}</Text>
-                    <Ionicons name={showOCatDropdown ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                  </TouchableOpacity>
-                  {showOCatDropdown && (
-                    <View style={styles.dropdownContainer}>
-                      {oCatOptions.map((opt) => (
-                        <TouchableOpacity key={opt} style={styles.dropdownItem} onPress={() => { setOCategory(opt); setShowOCatDropdown(false); }}>
-                          <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt}</Text>
-                          {oCategory === opt && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>DOCUMENT DISPLAY NAME</Text>
-                  <TextInput style={styles.formInput} placeholder="E.g., Statement_2026" placeholderTextColor="#64748b" value={oDocName} onChangeText={setODocName} />
-                </View>
-
-                {/* Real File Picker box */}
+                {/* 1. Drag and drop file picker box at the TOP (matching Web UI Screenshot 1) */}
                 <TouchableOpacity
-                  style={[styles.dragDropBox, selectedOwnerFile && { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.08)' }]}
+                  style={[
+                    styles.dragDropBox,
+                    selectedOwnerFile && { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.08)' }
+                  ]}
                   activeOpacity={0.7}
                   onPress={handlePickOwnerDocument}
                 >
                   <Ionicons
                     name={selectedOwnerFile ? "checkmark-circle" : "cloud-upload-outline"}
-                    size={32}
-                    color={selectedOwnerFile ? "#10b981" : "#38bdf8"}
+                    size={38}
+                    color={selectedOwnerFile ? "#10b981" : "#0284c7"}
                   />
                   <Text style={[styles.dragDropTitle, selectedOwnerFile && { color: '#10b981' }]} allowFontScaling={false} numberOfLines={1}>
-                    {selectedOwnerFile ? selectedOwnerFile.name : 'Choose Document File'}
+                    {selectedOwnerFile ? selectedOwnerFile.name : 'Drag and drop file here or click to browse'}
                   </Text>
                   <Text style={styles.dragDropSub} allowFontScaling={false}>
                     {selectedOwnerFile
-                      ? `${(Number(selectedOwnerFile.size || 0) / 1024).toFixed(1)} KB · Tap to change file`
-                      : 'Tap to select document from phone storage'}
+                      ? `${(Number(selectedOwnerFile.size || 0) / (1024 * 1024)).toFixed(2)} MB • Tap to change file`
+                      : 'PDF, PNG, JPG up to 5MB'}
                   </Text>
                 </TouchableOpacity>
 
-                <View style={styles.modalActions}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsOwnerUploadOpen(false)} disabled={submitting}>
-                    <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.submitBtn, submitting && styles.submitBtnDisabled]} onPress={handleUploadOwnerSubmit} disabled={submitting}>
-                    {submitting ? <ActivityIndicator size="small" color="#0f172a" /> : <Text style={styles.submitBtnText} allowFontScaling={false}>Upload File</Text>}
-                  </TouchableOpacity>
+                {/* 2. Manager-only property & owner selector (Hidden for Owner Portal) */}
+                {isManager && (
+                  <>
+                    <View style={styles.formGroup}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>PROPERTY</Text>
+                      <TouchableOpacity 
+                        style={[styles.dropdownTrigger, showOPropDropdown && styles.dropdownTriggerActive]} 
+                        onPress={() => setShowOPropDropdown(!showOPropDropdown)} 
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.dropdownTriggerText} allowFontScaling={false}>
+                          {properties.find(p => p.id === oPropId)?.name || 'Select Property...'}
+                        </Text>
+                        <Ionicons name={showOPropDropdown ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
+                      </TouchableOpacity>
+                      {showOPropDropdown && (
+                        <View style={styles.inFlowDropdownContainer}>
+                          {properties.map((opt) => (
+                            <TouchableOpacity 
+                              key={opt.id} 
+                              style={[styles.inFlowDropdownItem, oPropId === opt.id && styles.inFlowDropdownItemActive]} 
+                              onPress={() => { 
+                                setOPropId(opt.id); 
+                                const foundOwner = ownersList.find((o) => o.id === opt.ownerId || o.id === opt.owner?.id);
+                                setOOwnerId(foundOwner ? foundOwner.id : (opt.ownerId || ''));
+                                setShowOPropDropdown(false); 
+                              }}
+                            >
+                              <Text style={[styles.inFlowDropdownItemText, oPropId === opt.id && styles.inFlowDropdownItemTextActive]} allowFontScaling={false}>
+                                {opt.name}
+                              </Text>
+                              {oPropId === opt.id && <Ionicons name="checkmark-circle" size={18} color="#0284c7" />}
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.formGroup}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>ASSOCIATED OWNER</Text>
+                      <TextInput
+                        style={[
+                          styles.formInput,
+                          {
+                            backgroundColor: isDarkMode ? '#1e293b' : '#e2e8f0',
+                            color: isDarkMode ? '#94a3b8' : '#64748b',
+                            opacity: 0.75,
+                          }
+                        ]}
+                        placeholder={oPropId ? 'No owner assigned to this property' : 'Select a property first'}
+                        placeholderTextColor="#64748b"
+                        value={(() => {
+                          if (!oPropId) return 'Select a property first';
+                          const selectedProp = properties.find((p) => p.id === oPropId);
+                          if (!selectedProp) return 'Select a property first';
+                          const ownerObj = ownersList.find((o) => o.id === oOwnerId || o.id === selectedProp.ownerId || o.id === selectedProp.owner?.id) || selectedProp.owner;
+                          if (ownerObj) {
+                            const fullName = ownerObj.name || `${ownerObj.firstName || ''} ${ownerObj.lastName || ''}`.trim() || 'Unknown Owner';
+                            return `${fullName} (${ownerObj.companyName || 'Individual'})`;
+                          }
+                          return 'No owner assigned to this property';
+                        })()}
+                        editable={false}
+                      />
+                    </View>
+                  </>
+                )}
+
+                {/* 3. Document Title (Exact Web Screenshot 1) */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>DOCUMENT TITLE</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="E.g., Year End Tax Statement"
+                    placeholderTextColor="#64748b"
+                    value={oDocName}
+                    onChangeText={setODocName}
+                  />
                 </View>
+
+                {/* 4. Category Selector (In-Flow Fully Responsive, Exact Web Categories) */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>CATEGORY</Text>
+                  <TouchableOpacity 
+                    style={[styles.dropdownTrigger, showOCatDropdown && styles.dropdownTriggerActive]} 
+                    onPress={() => setShowOCatDropdown(!showOCatDropdown)} 
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.dropdownTriggerText, { color: colors.textPrimary, fontWeight: '700' }]} allowFontScaling={false}>
+                      {oCategory}
+                    </Text>
+                    <Ionicons name={showOCatDropdown ? "chevron-up" : "chevron-down"} size={18} color="#0284c7" />
+                  </TouchableOpacity>
+                  {showOCatDropdown && (
+                    <View style={styles.inFlowDropdownContainer}>
+                      {oCatOptions.map((opt) => {
+                        const isSelected = oCategory === opt;
+                        return (
+                          <TouchableOpacity 
+                            key={opt} 
+                            style={[styles.inFlowDropdownItem, isSelected && styles.inFlowDropdownItemActive]} 
+                            onPress={() => { 
+                              setOCategory(opt); 
+                              setShowOCatDropdown(false); 
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.inFlowDropdownItemText, isSelected && styles.inFlowDropdownItemTextActive]} allowFontScaling={false}>
+                              {opt}
+                            </Text>
+                            {isSelected ? (
+                              <Ionicons name="checkmark-circle" size={18} color="#0284c7" />
+                            ) : (
+                              <Ionicons name="ellipse-outline" size={16} color={isDarkMode ? '#475569' : '#cbd5e1'} />
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+
+                {/* Custom Category if 'Other' */}
+                {oCategory === 'Other' && (
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>CUSTOM CATEGORY NAME</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      placeholder="E.g., Bank Payout Slip"
+                      placeholderTextColor="#64748b"
+                      value={customOCategory}
+                      onChangeText={setCustomOCategory}
+                    />
+                  </View>
+                )}
               </ScrollView>
+
+              {/* 5. Fixed Footer Actions - Always Pinned & Visible at Bottom (matching Tenant modal) */}
+              <View style={styles.fixedModalFooter}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsOwnerUploadOpen(false)} disabled={submitting}>
+                  <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.submitBtn, { backgroundColor: '#0284c7' }, submitting && styles.submitBtnDisabled]} 
+                  onPress={handleUploadOwnerSubmit} 
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={[styles.submitBtnText, { color: '#ffffff', fontWeight: '800' }]} allowFontScaling={false}>
+                      Upload File
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* --- UPLOAD TENANT DOCUMENT MODAL --- */}
+      {/* --- UPLOAD TENANT DOCUMENT MODAL (MATCHING WEB MODAL) --- */}
       <Modal visible={isTenantUploadOpen} animationType="slide" transparent>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBg}>
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalCard}>
               <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle} allowFontScaling={false}>Upload Document for Tenant</Text>
+                <Text style={styles.modalTitle} allowFontScaling={false}>Upload New Document</Text>
                 <TouchableOpacity onPress={() => setIsTenantUploadOpen(false)}>
                   <Ionicons name="close" size={24} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
 
               <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                <Text style={styles.modalSubHeader} allowFontScaling={false}>Upload lease, receipt, or notice documents associated with tenant accounts.</Text>
-
-                {/* Tenant Selector (First, matching Web UI) */}
-                <View style={[styles.formGroup, showTTenantDropdown && { zIndex: 9999, position: 'relative' }]}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>TENANT</Text>
-                  <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowTTenantDropdown(!showTTenantDropdown)} activeOpacity={0.7}>
-                    <Text style={styles.dropdownTriggerText} allowFontScaling={false}>
-                      {tenantsList.find(t => t.id === tTenantId) ? `${tenantsList.find(t => t.id === tTenantId).firstName} ${tenantsList.find(t => t.id === tTenantId).lastName}` : 'Select Tenant...'}
-                    </Text>
-                    <Ionicons name={showTTenantDropdown ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                  </TouchableOpacity>
-                  {showTTenantDropdown && (
-                    <View style={styles.dropdownContainer}>
-                      {tenantsList.map((opt) => (
-                        <TouchableOpacity key={opt.id} style={styles.dropdownItem} onPress={() => { 
-                          setTTenantId(opt.id); 
-                          setTPropId(opt.propertyId || opt.unit?.propertyId || '');
-                          setShowTTenantDropdown(false); 
-                        }}>
-                          <Text style={styles.dropdownItemText} allowFontScaling={false}>
-                            {opt.firstName} {opt.lastName} {opt.unit?.unitNumber ? `(Unit ${opt.unit.unitNumber})` : ''}
-                          </Text>
-                          {tTenantId === opt.id && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                {/* Category Selector */}
-                <View style={[styles.formGroup, showTCatDropdown && { zIndex: 9997, position: 'relative' }]}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>CATEGORY</Text>
-                  <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowTCatDropdown(!showTCatDropdown)} activeOpacity={0.7}>
-                    <Text style={styles.dropdownTriggerText} allowFontScaling={false}>{tCategory}</Text>
-                    <Ionicons name={showTCatDropdown ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
-                  </TouchableOpacity>
-                  {showTCatDropdown && (
-                    <View style={styles.dropdownContainer}>
-                      {tCatOptions.map((opt) => (
-                        <TouchableOpacity key={opt} style={styles.dropdownItem} onPress={() => { setTCategory(opt); setShowTCatDropdown(false); }}>
-                          <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt}</Text>
-                          {tCategory === opt && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>DOCUMENT DISPLAY NAME</Text>
-                  <TextInput style={styles.formInput} placeholder="E.g., Lease_Agreement_2026" placeholderTextColor="#64748b" value={tDocName} onChangeText={setTDocName} />
-                </View>
-
-                {/* Real File Picker box */}
+                {/* 1. File Picker Drag-and-drop box at the TOP (matching Web UI) */}
                 <TouchableOpacity
-                  style={[styles.dragDropBox, selectedTenantFile && { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.08)' }]}
+                  style={[
+                    styles.dragDropBox,
+                    selectedTenantFile && { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.08)' }
+                  ]}
                   activeOpacity={0.7}
                   onPress={handlePickTenantDocument}
                 >
                   <Ionicons
                     name={selectedTenantFile ? "checkmark-circle" : "cloud-upload-outline"}
-                    size={32}
-                    color={selectedTenantFile ? "#10b981" : "#38bdf8"}
+                    size={38}
+                    color={selectedTenantFile ? "#10b981" : "#0284c7"}
                   />
                   <Text style={[styles.dragDropTitle, selectedTenantFile && { color: '#10b981' }]} allowFontScaling={false} numberOfLines={1}>
-                    {selectedTenantFile ? selectedTenantFile.name : 'Choose Document File'}
+                    {selectedTenantFile ? selectedTenantFile.name : 'Drag and drop file here or click to browse'}
                   </Text>
                   <Text style={styles.dragDropSub} allowFontScaling={false}>
                     {selectedTenantFile
-                      ? `${(Number(selectedTenantFile.size || 0) / 1024).toFixed(1)} KB · Tap to change file`
-                      : 'Tap to select document from phone storage'}
+                      ? `${(Number(selectedTenantFile.size || 0) / (1024 * 1024)).toFixed(2)} MB • Tap to change file`
+                      : 'PDF, PNG, JPG up to 5MB'}
                   </Text>
                 </TouchableOpacity>
 
-                <View style={styles.modalActions}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsTenantUploadOpen(false)} disabled={submitting}>
-                    <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.submitBtn, submitting && styles.submitBtnDisabled]} onPress={handleUploadTenantSubmit} disabled={submitting}>
-                    {submitting ? <ActivityIndicator size="small" color="#0f172a" /> : <Text style={styles.submitBtnText} allowFontScaling={false}>Upload File</Text>}
-                  </TouchableOpacity>
+                {/* 2. Manager Only: Tenant Selector */}
+                {isManager && (
+                  <View style={[styles.formGroup, showTTenantDropdown && { zIndex: 9999, position: 'relative' }]}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>TENANT</Text>
+                    <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setShowTTenantDropdown(!showTTenantDropdown)} activeOpacity={0.7}>
+                      <Text style={styles.dropdownTriggerText} allowFontScaling={false}>
+                        {tenantsList.find(t => t.id === tTenantId) ? `${tenantsList.find(t => t.id === tTenantId).firstName} ${tenantsList.find(t => t.id === tTenantId).lastName}` : 'Select Tenant...'}
+                      </Text>
+                      <Ionicons name={showTTenantDropdown ? "chevron-up" : "chevron-down"} size={16} color="#cbd5e1" />
+                    </TouchableOpacity>
+                    {showTTenantDropdown && (
+                      <View style={styles.dropdownContainer}>
+                        {tenantsList.map((opt) => (
+                          <TouchableOpacity key={opt.id} style={styles.dropdownItem} onPress={() => { 
+                            setTTenantId(opt.id); 
+                            setTPropId(opt.propertyId || opt.unit?.propertyId || '');
+                            setShowTTenantDropdown(false); 
+                          }}>
+                            <Text style={styles.dropdownItemText} allowFontScaling={false}>
+                              {opt.firstName} {opt.lastName} {opt.unit?.unitNumber ? `(Unit ${opt.unit.unitNumber})` : ''}
+                            </Text>
+                            {tTenantId === opt.id && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* 3. DOCUMENT TITLE (matching Web placeholder: "E.g., Renter Insurance Policy") */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>DOCUMENT TITLE</Text>
+                  <TextInput 
+                    style={styles.formInput} 
+                    placeholder="E.g., Renter Insurance Policy" 
+                    placeholderTextColor="#64748b" 
+                    value={tDocName} 
+                    onChangeText={setTDocName} 
+                  />
                 </View>
+
+                {/* 4. CATEGORY Selector (In-Flow Fully Responsive) */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel} allowFontScaling={false}>CATEGORY</Text>
+                  <TouchableOpacity 
+                    style={[styles.dropdownTrigger, showTCatDropdown && styles.dropdownTriggerActive]} 
+                    onPress={() => setShowTCatDropdown(!showTCatDropdown)} 
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.dropdownTriggerText, { color: colors.textPrimary, fontWeight: '700' }]} allowFontScaling={false}>
+                      {tCategory}
+                    </Text>
+                    <Ionicons name={showTCatDropdown ? "chevron-up" : "chevron-down"} size={18} color="#0284c7" />
+                  </TouchableOpacity>
+                  {showTCatDropdown && (
+                    <View style={styles.inFlowDropdownContainer}>
+                      {tCatOptions.map((opt) => {
+                        const isSelected = tCategory === opt;
+                        return (
+                          <TouchableOpacity 
+                            key={opt} 
+                            style={[styles.inFlowDropdownItem, isSelected && styles.inFlowDropdownItemActive]} 
+                            onPress={() => { 
+                              setTCategory(opt); 
+                              setShowTCatDropdown(false); 
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.inFlowDropdownItemText, isSelected && styles.inFlowDropdownItemTextActive]} allowFontScaling={false}>
+                              {opt}
+                            </Text>
+                            {isSelected ? (
+                              <Ionicons name="checkmark-circle" size={18} color="#0284c7" />
+                            ) : (
+                              <Ionicons name="ellipse-outline" size={16} color={isDarkMode ? '#475569' : '#cbd5e1'} />
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+
+                {/* 5. Custom Category Name if 'Other' is chosen */}
+                {tCategory === 'Other' && (
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel} allowFontScaling={false}>CUSTOM CATEGORY NAME</Text>
+                    <TextInput 
+                      style={styles.formInput} 
+                      placeholder="E.g., Bank Statement" 
+                      placeholderTextColor="#64748b" 
+                      value={customTCategory} 
+                      onChangeText={setCustomTCategory} 
+                    />
+                  </View>
+                )}
               </ScrollView>
+
+              {/* 6. Fixed Footer Actions - Always Pinned & Visible at Bottom */}
+              <View style={styles.fixedModalFooter}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsTenantUploadOpen(false)} disabled={submitting}>
+                  <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.submitBtn, { backgroundColor: '#0284c7' }, submitting && styles.submitBtnDisabled]} 
+                  onPress={handleUploadTenantSubmit} 
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={[styles.submitBtnText, { color: '#ffffff', fontWeight: '800' }]} allowFontScaling={false}>
+                      Upload File
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
@@ -1264,11 +1445,11 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
 
   // Modal styling
   modalBg: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.85)', justifyContent: 'center', padding: 20 },
-  modalCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: colors.cardBorder, maxHeight: '85%' },
-  modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: colors.cardBorder, maxHeight: '88%', flexDirection: 'column' },
+  modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   modalTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary, flex: 1, flexShrink: 1, marginRight: 8 },
   modalSubHeader: { fontSize: 11, color: colors.textSecondary, lineHeight: 16, marginTop: 4, marginBottom: 14 },
-  modalScroll: { marginBottom: 16 },
+  modalScroll: { flexShrink: 1 },
 
   formGroup: { marginBottom: 14 },
   formRow: { flexDirection: 'row', gap: 10 },
@@ -1295,6 +1476,10 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     paddingHorizontal: 12,
     height: 44,
   },
+  dropdownTriggerActive: {
+    borderColor: '#0284c7',
+    borderWidth: 1.5,
+  },
   dropdownTriggerText: { color: colors.textSecondary, fontSize: 13 },
   dropdownContainer: {
     position: 'absolute',
@@ -1319,6 +1504,46 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     borderBottomColor: colors.surface,
   },
   dropdownItemText: { color: colors.textSecondary, fontSize: 12.5 },
+
+  // Responsive In-Flow Dropdown Styles
+  inFlowDropdownContainer: {
+    marginTop: 6,
+    backgroundColor: colors.inputBackground,
+    borderWidth: 1,
+    borderColor: colors.inputBorder,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  inFlowDropdownItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardBorder,
+  },
+  inFlowDropdownItemActive: {
+    backgroundColor: 'rgba(2, 132, 199, 0.1)',
+  },
+  inFlowDropdownItemText: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  inFlowDropdownItemTextActive: {
+    color: '#0284c7',
+    fontWeight: '800',
+  },
+  fixedModalFooter: {
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'flex-end',
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+    paddingTop: 14,
+    marginTop: 10,
+  },
 
   dragDropBox: {
     backgroundColor: colors.inputBackground,

@@ -13,6 +13,7 @@ import {
   Image,
   Modal,
   Alert,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
@@ -54,10 +55,51 @@ export const LoginScreen = () => {
     priority: 'Medium',
     notes: '',
   });
+  const [selectedUnit, setSelectedUnit] = useState(null);
   const [publicProperties, setPublicProperties] = useState([]);
   const [isLoadingPublicProps, setIsLoadingPublicProps] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [isSubmittingSignup, setIsSubmittingSignup] = useState(false);
+
+  const availableUnits = React.useMemo(() => {
+    const list = [];
+    publicProperties.forEach((prop) => {
+      if (prop.units && Array.isArray(prop.units) && prop.units.length > 0) {
+        prop.units.forEach((u) => {
+          // Only show Vacant units for rental applications!
+          const isVacant = !u.status || u.status === 'Vacant' || u.status === 'Vacant_Needs_Preparation';
+          if (!isVacant) return;
+
+          list.push({
+            unitId: u.id,
+            unitNumber: u.unitNumber,
+            rentAmount: u.rentAmount || prop.rentAmount,
+            bedrooms: u.bedrooms,
+            bathrooms: u.bathrooms,
+            propertyId: prop.id,
+            propertyName: prop.name,
+            address: prop.address,
+            companyId: prop.companyId,
+            ownerName: prop.owner?.name || prop.ownerName || 'Apex PM',
+          });
+        });
+      } else {
+        list.push({
+          unitId: '',
+          unitNumber: '101',
+          rentAmount: prop.rentAmount || 1200,
+          bedrooms: prop.bedrooms || 1,
+          bathrooms: prop.bathrooms || 1,
+          propertyId: prop.id,
+          propertyName: prop.name,
+          address: prop.address,
+          companyId: prop.companyId,
+          ownerName: prop.owner?.name || prop.ownerName || 'Apex PM',
+        });
+      }
+    });
+    return list;
+  }, [publicProperties]);
 
   useEffect(() => {
     if (signupModalVisible) {
@@ -142,6 +184,8 @@ export const LoginScreen = () => {
                 <Text style={styles.label} allowFontScaling={false}>Email Address</Text>
                 <TextInput
                   style={styles.input}
+                  placeholder="Enter your email"
+                  placeholderTextColor={isDarkMode ? '#64748b' : '#94a3b8'}
                   value={email}
                   onChangeText={setEmail}
                   autoCapitalize="none"
@@ -155,6 +199,8 @@ export const LoginScreen = () => {
                 <Text style={styles.label} allowFontScaling={false}>Password</Text>
                 <TextInput
                   style={styles.input}
+                  placeholder="Enter your password"
+                  placeholderTextColor={isDarkMode ? '#64748b' : '#94a3b8'}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
@@ -190,14 +236,15 @@ export const LoginScreen = () => {
             {/* 3-Step Public Tenant Registration Full-Screen Native Modal */}
             <Modal visible={signupModalVisible} animationType="slide" presentationStyle="fullScreen">
               <View style={styles.modalFullScreenBgDark}>
+                <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
                 <KeyboardAvoidingView
                   behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                   style={{ flex: 1 }}
                 >
-                  {/* Top Header Bar */}
+                  {/* Top Header Bar with Safe Area Spacing */}
                   <View style={styles.modalHeaderNativeDark}>
-                    <TouchableOpacity onPress={() => setSignupModalVisible(false)} style={styles.closeHeaderBtn}>
-                      <Ionicons name="close" size={26} color="#ffffff" />
+                    <TouchableOpacity onPress={() => setSignupModalVisible(false)} style={styles.closeHeaderBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                      <Ionicons name="close" size={22} color="#0f172a" />
                     </TouchableOpacity>
 
                     <View style={{ alignItems: 'center' }}>
@@ -209,7 +256,7 @@ export const LoginScreen = () => {
                       </Text>
                     </View>
 
-                    <View style={{ width: 30 }} />
+                    <View style={{ width: 36 }} />
                   </View>
 
                   {/* Visual Progress Bar Track */}
@@ -242,7 +289,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="John"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.firstName}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, firstName: t })}
                               />
@@ -252,7 +299,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="Doe"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.lastName}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, lastName: t })}
                               />
@@ -263,7 +310,7 @@ export const LoginScreen = () => {
                           <TextInput
                             style={styles.modalInputDarkBox}
                             placeholder="john.doe@gmail.com"
-                            placeholderTextColor="#64748b"
+                            placeholderTextColor="#94a3b8"
                             keyboardType="email-address"
                             autoCapitalize="none"
                             value={signupForm.email}
@@ -274,7 +321,7 @@ export const LoginScreen = () => {
                           <TextInput
                             style={styles.modalInputDarkBox}
                             placeholder="(512) 555-0199"
-                            placeholderTextColor="#64748b"
+                            placeholderTextColor="#94a3b8"
                             keyboardType="phone-pad"
                             value={signupForm.phone}
                             onChangeText={(t) => setSignupForm({ ...signupForm, phone: t })}
@@ -284,7 +331,7 @@ export const LoginScreen = () => {
                           <TextInput
                             style={styles.modalInputDarkBox}
                             placeholder="••••••••"
-                            placeholderTextColor="#64748b"
+                            placeholderTextColor="#94a3b8"
                             secureTextEntry
                             value={signupForm.password}
                             onChangeText={(t) => setSignupForm({ ...signupForm, password: t })}
@@ -322,7 +369,7 @@ export const LoginScreen = () => {
                         <View style={{ flex: 1 }}>
                           <Text style={styles.stepTitleWhite}>Choose Your Home</Text>
                           <Text style={styles.stepSubtitleTextMuted}>
-                            Select the property you want to assign yourself to
+                            Select the unit and apartment property you want to apply for
                           </Text>
 
                           {signupError ? (
@@ -331,53 +378,70 @@ export const LoginScreen = () => {
                             </View>
                           ) : null}
 
-                          <Text style={styles.inputLabelBright}>🏢 AVAILABLE PROPERTIES ({publicProperties.length})</Text>
+                          <Text style={styles.inputLabelBright}>🏢 AVAILABLE VACANT HOMES & UNITS ({availableUnits.length})</Text>
 
                           {isLoadingPublicProps ? (
                             <ActivityIndicator size="large" color="#38bdf8" style={{ marginTop: 20 }} />
-                          ) : publicProperties.length === 0 ? (
+                          ) : availableUnits.length === 0 ? (
                             <View style={{ padding: 20, alignItems: 'center' }}>
-                              <Text style={{ color: '#94a3b8' }}>No properties currently available.</Text>
+                              <Text style={{ color: '#94a3b8' }}>No units currently available.</Text>
                             </View>
                           ) : (
-                            publicProperties.map((prop) => {
-                              const isSelected = signupForm.selectedProperty?.id === prop.id;
-                              const ownerName = prop.owner?.name || prop.ownerName || 'Apex PM';
+                            availableUnits.map((u, idx) => {
+                              const isSelected = selectedUnit?.propertyId === u.propertyId && selectedUnit?.unitNumber === u.unitNumber;
                               return (
                                 <TouchableOpacity
-                                  key={prop.id || prop.name}
+                                  key={`${u.propertyId}-${u.unitNumber}-${idx}`}
                                   style={[
                                     styles.propertyOptionCardDark,
                                     isSelected && styles.propertyOptionCardSelectedCyan,
                                   ]}
                                   onPress={() => {
                                     setSignupError('');
-                                    setSignupForm({ ...signupForm, selectedProperty: prop });
+                                    setSelectedUnit(u);
+                                    setSignupForm((prev) => ({
+                                      ...prev,
+                                      selectedProperty: { id: u.propertyId, name: u.propertyName, companyId: u.companyId, address: u.address },
+                                      budget: u.rentAmount ? String(u.rentAmount) : prev.budget,
+                                    }));
                                   }}
                                 >
-                                  <Ionicons
-                                    name="business"
-                                    size={24}
-                                    color={isSelected ? '#38bdf8' : '#94a3b8'}
-                                  />
-                                  <View style={{ flex: 1 }}>
-                                    <Text
-                                      style={[
-                                        styles.propertyOptionTitleWhite,
-                                        isSelected && styles.propertyOptionTitleSelectedCyan,
-                                      ]}
-                                    >
-                                      {prop.name}
+                                  <View style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: isSelected ? '#e0f2fe' : '#f1f5f9', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Ionicons
+                                      name="home"
+                                      size={22}
+                                      color={isSelected ? '#0284c7' : '#64748b'}
+                                    />
+                                  </View>
+                                  <View style={{ flex: 1, marginLeft: 10 }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                      <Text
+                                        style={[
+                                          styles.propertyOptionTitleWhite,
+                                          { fontSize: 16, fontWeight: '800' },
+                                          isSelected && styles.propertyOptionTitleSelectedCyan,
+                                        ]}
+                                      >
+                                        Unit {u.unitNumber}
+                                      </Text>
+                                      {u.rentAmount ? (
+                                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#059669' }}>
+                                          ${Number(u.rentAmount).toLocaleString()}<Text style={{ fontSize: 10, color: '#64748b', fontWeight: 'normal' }}>/mo</Text>
+                                        </Text>
+                                      ) : null}
+                                    </View>
+                                    <Text style={{ fontSize: 13, color: '#334155', fontWeight: '600', marginTop: 2 }}>
+                                      🏢 {u.propertyName}
                                     </Text>
-                                    <Text style={styles.propertyOptionSubMuted}>
-                                      {prop.address || 'Address not listed'}
+                                    <Text style={styles.propertyOptionSubMuted} numberOfLines={1}>
+                                      📍 {u.address || 'Address not listed'}
                                     </Text>
-                                    <Text style={{ fontSize: 10, color: '#38bdf8', fontWeight: 'bold', marginTop: 2 }}>
-                                      Owner/Manager: {ownerName}
+                                    <Text style={{ fontSize: 11, color: '#0284c7', fontWeight: '600', marginTop: 2 }}>
+                                      Manager: {u.ownerName}
                                     </Text>
                                   </View>
                                   {isSelected && (
-                                    <Ionicons name="checkmark-circle" size={22} color="#38bdf8" />
+                                    <Ionicons name="checkmark-circle" size={24} color="#0284c7" />
                                   )}
                                 </TouchableOpacity>
                               );
@@ -394,8 +458,8 @@ export const LoginScreen = () => {
                             <TouchableOpacity
                               style={styles.primaryNextBtnFlexCyan}
                               onPress={() => {
-                                if (!signupForm.selectedProperty) {
-                                  setSignupError('Please select a property from the list.');
+                                if (!selectedUnit && !signupForm.selectedProperty) {
+                                  setSignupError('Please select a home/unit from the list.');
                                   return;
                                 }
                                 setSignupError('');
@@ -426,32 +490,42 @@ export const LoginScreen = () => {
                           {/* 1. VISUALLY STUNNING SELECTED DETAILS CARD */}
                           <View style={styles.selectedPropSummaryCardDark}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                              <Ionicons name="business" size={20} color="#38bdf8" />
+                              <View style={{ width: 38, height: 38, borderRadius: 8, backgroundColor: '#e0f2fe', alignItems: 'center', justifyContent: 'center' }}>
+                                <Ionicons name="home" size={20} color="#0284c7" />
+                              </View>
                               <View style={{ flex: 1 }}>
-                                <Text style={{ fontSize: 10, fontWeight: '800', color: '#38bdf8', textTransform: 'uppercase' }}>
-                                  SELECTED PROPERTY
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: '#0284c7', textTransform: 'uppercase' }}>
+                                  SELECTED HOME & UNIT
                                 </Text>
-                                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#ffffff' }}>
-                                  {signupForm.selectedProperty?.name || 'Selected Property'}
+                                <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#0f172a' }}>
+                                  Unit {selectedUnit?.unitNumber || '101'} · {signupForm.selectedProperty?.name || selectedUnit?.propertyName || 'Selected Property'}
                                 </Text>
-                                <Text style={{ fontSize: 11, color: '#94a3b8' }}>
-                                  {signupForm.selectedProperty?.address || ''}
+                                <Text style={{ fontSize: 11, color: '#64748b' }}>
+                                  {signupForm.selectedProperty?.address || selectedUnit?.address || ''}
                                 </Text>
                               </View>
+                              {selectedUnit?.rentAmount ? (
+                                <View style={{ alignItems: 'flex-end' }}>
+                                  <Text style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>MONTHLY RENT</Text>
+                                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#059669' }}>
+                                    ${Number(selectedUnit.rentAmount).toLocaleString()}<Text style={{ fontSize: 10, color: '#64748b' }}>/mo</Text>
+                                  </Text>
+                                </View>
+                              ) : null}
                             </View>
 
-                            <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 6 }} />
+                            <View style={{ height: 1, backgroundColor: '#e2e8f0', marginVertical: 8 }} />
 
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                               <View style={{ flex: 1 }}>
-                                <Text style={{ fontSize: 9, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 'bold' }}>APPLICANT</Text>
-                                <Text style={{ fontSize: 11, color: '#e2e8f0', fontWeight: '600' }}>
+                                <Text style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>APPLICANT</Text>
+                                <Text style={{ fontSize: 12, color: '#0f172a', fontWeight: '700' }}>
                                   {signupForm.firstName} {signupForm.lastName}
                                 </Text>
                               </View>
                               <View style={{ flex: 1 }}>
-                                <Text style={{ fontSize: 9, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 'bold' }}>EMAIL & PHONE</Text>
-                                <Text style={{ fontSize: 11, color: '#e2e8f0', fontWeight: '600' }}>
+                                <Text style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>EMAIL & PHONE</Text>
+                                <Text style={{ fontSize: 12, color: '#0f172a', fontWeight: '700' }}>
                                   {signupForm.email}
                                 </Text>
                               </View>
@@ -467,7 +541,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="YYYY-MM-DD"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.dob}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, dob: t })}
                               />
@@ -477,7 +551,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="American"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.nationality}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, nationality: t })}
                               />
@@ -490,7 +564,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="Driver License"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.idType}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, idType: t })}
                               />
@@ -500,7 +574,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="A1234567"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.idNumber}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, idNumber: t })}
                               />
@@ -513,7 +587,7 @@ export const LoginScreen = () => {
                           <TextInput
                             style={styles.modalInputDarkBox}
                             placeholder="789 Pine Rd, Austin, TX"
-                            placeholderTextColor="#64748b"
+                            placeholderTextColor="#94a3b8"
                             value={signupForm.currentAddress}
                             onChangeText={(t) => setSignupForm({ ...signupForm, currentAddress: t })}
                           />
@@ -526,7 +600,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="Google Inc."
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.employer}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, employer: t })}
                               />
@@ -536,7 +610,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="Software Engineer"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.position}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, position: t })}
                               />
@@ -549,7 +623,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="3000"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 keyboardType="numeric"
                                 value={signupForm.monthlyIncome}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, monthlyIncome: t })}
@@ -560,7 +634,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="Full-Time"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.employmentStatus}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, employmentStatus: t })}
                               />
@@ -575,7 +649,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="Mary Doe"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.emergencyName}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, emergencyName: t })}
                               />
@@ -585,7 +659,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="Spouse"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.emergencyRelationship}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, emergencyRelationship: t })}
                               />
@@ -595,7 +669,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="(512) 555-9876"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 keyboardType="phone-pad"
                                 value={signupForm.emergencyPhone}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, emergencyPhone: t })}
@@ -611,7 +685,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="1500"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 keyboardType="numeric"
                                 value={signupForm.budget}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, budget: t })}
@@ -622,7 +696,7 @@ export const LoginScreen = () => {
                               <TextInput
                                 style={styles.modalInputDarkBox}
                                 placeholder="YYYY-MM-DD"
-                                placeholderTextColor="#64748b"
+                                placeholderTextColor="#94a3b8"
                                 value={signupForm.moveInDate}
                                 onChangeText={(t) => setSignupForm({ ...signupForm, moveInDate: t })}
                               />
@@ -633,7 +707,7 @@ export const LoginScreen = () => {
                           <TextInput
                             style={[styles.modalInputDarkBox, { height: 70, textAlignVertical: 'top' }]}
                             placeholder="Include pet counts, move-in preferences or details..."
-                            placeholderTextColor="#64748b"
+                            placeholderTextColor="#94a3b8"
                             multiline
                             numberOfLines={3}
                             value={signupForm.notes}
@@ -660,9 +734,11 @@ export const LoginScreen = () => {
                                 try {
                                   const payload = {
                                     ...signupForm,
-                                    companyId: signupForm.selectedProperty?.companyId,
-                                    property: signupForm.selectedProperty?.name,
-                                    propertyId: signupForm.selectedProperty?.id,
+                                    companyId: signupForm.selectedProperty?.companyId || selectedUnit?.companyId,
+                                    property: signupForm.selectedProperty?.name || selectedUnit?.propertyName,
+                                    propertyId: signupForm.selectedProperty?.id || selectedUnit?.propertyId,
+                                    unitId: selectedUnit?.unitId || undefined,
+                                    unitNumber: selectedUnit?.unitNumber || undefined,
                                   };
                                   try {
                                     await apiClient.post('/auth/tenant-signup', payload);
@@ -863,39 +939,46 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   modalFullScreenBgDark: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#f8fafc',
   },
   modalHeaderNativeDark: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: Platform.OS === 'ios' ? 56 : (StatusBar.currentHeight || 24) + 12,
+    paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
-    backgroundColor: '#0f172a',
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
   },
   closeHeaderBtn: {
-    padding: 4,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalHeaderTitleBright: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#ffffff',
+    color: '#0f172a',
   },
   stepSubtitleCyan: {
     fontSize: 12,
-    color: '#38bdf8',
+    color: '#0284c7',
     fontWeight: '700',
+    marginTop: 2,
   },
   progressBarTrackDark: {
     height: 4,
-    backgroundColor: '#1e293b',
+    backgroundColor: '#e2e8f0',
     width: '100%',
   },
   progressBarFillCyan: {
     height: '100%',
-    backgroundColor: '#38bdf8',
+    backgroundColor: '#0284c7',
   },
   modalScrollContentFlex: {
     flexGrow: 1,
@@ -904,51 +987,60 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     width: '100%',
     maxWidth: 640,
     alignSelf: 'center',
+    backgroundColor: '#f8fafc',
   },
   stepContainerFlex: {
     flex: 1,
     justifyContent: 'space-between',
   },
   stepTitleWhite: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0f172a',
     marginBottom: 4,
   },
   stepSubtitleTextMuted: {
     fontSize: 13,
-    color: '#94a3b8',
+    color: '#64748b',
     marginBottom: 18,
   },
   inputLabelBright: {
     fontSize: 12,
-    fontWeight: 'bold',
-    color: '#cbd5e1',
+    fontWeight: '700',
+    color: '#334155',
     marginBottom: 6,
     marginTop: 12,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   modalInputDarkBox: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#ffffff',
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: '#ffffff',
+    color: '#0f172a',
     fontSize: 15,
-    borderWidth: 1,
-    borderColor: '#334155',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
   },
   bottomPinnedBar: {
-    marginTop: 30,
+    marginTop: 28,
     paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
     borderTopWidth: 1,
-    borderTopColor: '#1e293b',
+    borderTopColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
   },
   primaryNextBtnFull: {
     backgroundColor: '#0284c7',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
+    shadowColor: '#0284c7',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
   },
   nextBtnTextBold: {
     color: '#ffffff',
@@ -958,29 +1050,34 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   propertyOptionCardDark: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 15,
     marginBottom: 12,
     borderWidth: 1.5,
-    borderColor: '#334155',
+    borderColor: '#e2e8f0',
     gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   propertyOptionCardSelectedCyan: {
-    borderColor: '#38bdf8',
-    backgroundColor: '#38bdf818',
+    borderColor: '#0284c7',
+    backgroundColor: '#f0f9ff',
   },
   propertyOptionTitleWhite: {
-    color: '#ffffff',
+    color: '#0f172a',
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   propertyOptionTitleSelectedCyan: {
-    color: '#38bdf8',
+    color: '#0284c7',
     fontWeight: 'bold',
   },
   propertyOptionSubMuted: {
-    color: '#94a3b8',
+    color: '#64748b',
     fontSize: 12,
     marginTop: 2,
   },
@@ -989,16 +1086,16 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     gap: 12,
   },
   secondaryBackBtnDark: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingVertical: 13,
     borderRadius: 12,
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: '#334155',
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
   },
   backBtnTextWhite: {
-    color: '#ffffff',
-    fontWeight: '600',
+    color: '#334155',
+    fontWeight: '700',
     fontSize: 14,
   },
   primaryNextBtnFlexCyan: {
@@ -1016,32 +1113,37 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     alignItems: 'center',
   },
   selectedPropSummaryCardDark: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 14,
-    borderWidth: 1,
-    borderColor: '#38bdf840',
+    borderWidth: 1.5,
+    borderColor: '#bae6fd',
     marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   sectionHeaderCyan: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#38bdf8',
+    color: '#0284c7',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginTop: 18,
     marginBottom: 6,
   },
   errorAlertBox: {
-    backgroundColor: 'rgba(244, 63, 94, 0.15)',
+    backgroundColor: '#fef2f2',
     borderWidth: 1,
-    borderColor: 'rgba(244, 63, 94, 0.3)',
+    borderColor: '#fecaca',
     borderRadius: 8,
     padding: 10,
     marginBottom: 14,
   },
   errorAlertText: {
-    color: '#fb7185',
+    color: '#dc2626',
     fontSize: 12,
     fontWeight: '600',
     textAlign: 'center',

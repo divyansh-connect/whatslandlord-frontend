@@ -75,6 +75,90 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
+// Shimmer Skeleton Loader for Tenants
+const SkeletonItem = ({ width: w, height: h, borderRadius = 8, style, isDarkMode }) => {
+  const animatedValue = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(animatedValue, { toValue: 0.85, duration: 750, useNativeDriver: true }),
+        Animated.timing(animatedValue, { toValue: 0.3, duration: 750, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [animatedValue]);
+  const baseColor = isDarkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.07)';
+  return (
+    <Animated.View
+      style={[
+        { width: w || '100%', height: h || 20, borderRadius, backgroundColor: baseColor, opacity: animatedValue },
+        style,
+      ]}
+    />
+  );
+};
+
+const TenantsSkeleton = ({ isDarkMode }) => {
+  const cardBg = isDarkMode ? '#1e293b' : '#ffffff';
+  const cardBorder = isDarkMode ? '#334155' : '#e2e8f0';
+
+  return (
+    <View style={{ paddingTop: 4 }}>
+      {[1, 2, 3, 4].map((i) => (
+        <View
+          key={i}
+          style={{
+            backgroundColor: cardBg,
+            borderRadius: 16,
+            padding: 16,
+            marginBottom: 12,
+            borderWidth: 1,
+            borderColor: cardBorder,
+          }}
+        >
+          {/* Header Row: Avatar + Tenant Name & Unit + Status Badge */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <SkeletonItem width={44} height={44} borderRadius={22} style={{ marginRight: 12 }} isDarkMode={isDarkMode} />
+            <View style={{ flex: 1 }}>
+              <SkeletonItem width="55%" height={16} borderRadius={5} style={{ marginBottom: 6 }} isDarkMode={isDarkMode} />
+              <SkeletonItem width="75%" height={12} borderRadius={4} isDarkMode={isDarkMode} />
+            </View>
+            <SkeletonItem width={60} height={22} borderRadius={11} isDarkMode={isDarkMode} />
+          </View>
+
+          {/* Lease & Rent Stat Box */}
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+              borderRadius: 10,
+              padding: 10,
+              marginBottom: 12,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <SkeletonItem width="50%" height={10} borderRadius={4} style={{ marginBottom: 4 }} isDarkMode={isDarkMode} />
+              <SkeletonItem width="70%" height={14} borderRadius={4} isDarkMode={isDarkMode} />
+            </View>
+            <View style={{ flex: 1, alignItems: 'flex-end' }}>
+              <SkeletonItem width="40%" height={10} borderRadius={4} style={{ marginBottom: 4 }} isDarkMode={isDarkMode} />
+              <SkeletonItem width="60%" height={14} borderRadius={4} isDarkMode={isDarkMode} />
+            </View>
+          </View>
+
+          {/* Action Row */}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+            <SkeletonItem width={68} height={28} borderRadius={6} isDarkMode={isDarkMode} />
+            <SkeletonItem width={68} height={28} borderRadius={6} isDarkMode={isDarkMode} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+};
+
 export const TenantsScreen = ({
   initialStatusFilter = 'All',
   initialAdoptionFilter = null,
@@ -499,17 +583,6 @@ export const TenantsScreen = ({
   const empStatuses = ['Full-Time', 'Part-Time', 'Self-Employed', 'Unemployed'];
   const statuses = ['Active', 'Pending', 'Inactive'];
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#38bdf8" />
-        <Text style={styles.loadingText} allowFontScaling={false}>
-          {language === 'es' ? 'Cargando directorio de inquilinos...' : 'Loading Tenant Directory...'}
-        </Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.mainWrapper}>
       {/* Header & Search controls (Fixed) */}
@@ -660,7 +733,9 @@ export const TenantsScreen = ({
           </View>
 
           {/* Cards List */}
-          {filteredTenants.length === 0 ? (
+          {loading && !refreshing && tenants.length === 0 ? (
+            <TenantsSkeleton isDarkMode={isDarkMode} />
+          ) : filteredTenants.length === 0 ? (
             <View style={styles.emptyCard}>
               <Ionicons name="people-outline" size={48} color="#475569" style={{ marginBottom: 10 }} />
               <Text style={styles.emptyText} allowFontScaling={false}>

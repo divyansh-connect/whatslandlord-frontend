@@ -10,6 +10,8 @@ import {
   Platform,
   KeyboardAvoidingView,
   RefreshControl,
+  StatusBar,
+  Switch,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
@@ -19,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 export const TenantProfileScreen = ({ onNavigate }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
-  const { language } = useThemeStore();
+  const { language, setLanguage, theme, toggleTheme } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
   const es = language === 'es';
@@ -34,8 +36,8 @@ export const TenantProfileScreen = ({ onNavigate }) => {
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [vehicles, setVehicles] = useState('Toyota Camry (2022)');
-  const [pets, setPets] = useState('Golden Retriever (Dog)');
+  const [vehicles, setVehicles] = useState('');
+  const [pets, setPets] = useState('');
   const [preferredLanguage, setPreferredLanguage] = useState('English (US)');
   const [unitNumber, setUnitNumber] = useState('Standard');
   const [emergencyContact, setEmergencyContact] = useState('');
@@ -54,12 +56,12 @@ export const TenantProfileScreen = ({ onNavigate }) => {
       const res = await apiClient.get('/portal/tenant/profile', logout, refreshAccessToken);
       const data = res?.data || res;
       if (data) {
-        setFirstName(data.firstName || user?.firstName || 'remo');
-        setLastName(data.lastName || user?.lastName || 'demo');
-        setPhone(data.phone || '7894561230');
-        setEmail(data.email || user?.email || 'j@gmail.com');
-        setVehicles(data.vehicles || 'Toyota Camry (2022)');
-        setPets(data.pets || 'Golden Retriever (Dog)');
+        setFirstName(data.firstName || user?.firstName || '');
+        setLastName(data.lastName || user?.lastName || '');
+        setPhone(data.phone || user?.phone || '');
+        setEmail(data.email || user?.email || '');
+        setVehicles(data.vehicles || data.vehicle || '');
+        setPets(data.pets || data.pet || '');
         setPreferredLanguage(data.preferredLanguage || 'English (US)');
         setUnitNumber(data.unitNumber || 'Standard');
         setEmergencyContact(data.emergencyContact || 'Emergency Contact Available');
@@ -67,12 +69,12 @@ export const TenantProfileScreen = ({ onNavigate }) => {
     } catch (e) {
       console.warn('Tenant profile fetch error:', e.message);
       // Fallback from auth user store
-      setFirstName(user?.firstName || 'remo');
-      setLastName(user?.lastName || 'demo');
-      setPhone(user?.phone || '7894561230');
-      setEmail(user?.email || 'j@gmail.com');
-      setVehicles('Toyota Camry (2022)');
-      setPets('Golden Retriever (Dog)');
+      setFirstName(user?.firstName || '');
+      setLastName(user?.lastName || '');
+      setPhone(user?.phone || '');
+      setEmail(user?.email || '');
+      setVehicles('');
+      setPets('');
       setPreferredLanguage('English (US)');
     } finally {
       setLoading(false);
@@ -192,6 +194,7 @@ export const TenantProfileScreen = ({ onNavigate }) => {
               style={styles.backBtn}
               onPress={() => onNavigate('dashboard')}
               activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
               <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
             </TouchableOpacity>
@@ -203,6 +206,32 @@ export const TenantProfileScreen = ({ onNavigate }) => {
             <Text style={styles.headerTitle} allowFontScaling={false}>
               {es ? 'Perfil de Residente' : 'Resident Profile'}
             </Text>
+          </View>
+
+          {/* Quick Header Toggles matching user screenshot */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              onPress={toggleTheme}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={isDarkMode ? 'sunny-outline' : 'moon-outline'}
+                size={19}
+                color={isDarkMode ? '#f59e0b' : '#6366f1'}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              onPress={() => setLanguage(language === 'es' ? 'en' : 'es')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="globe-outline" size={15} color={colors.textPrimary} style={{ marginRight: 3 }} />
+              <Text style={styles.headerLangText} allowFontScaling={false}>
+                {language.toUpperCase()}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -332,15 +361,9 @@ export const TenantProfileScreen = ({ onNavigate }) => {
                         <Text style={styles.gridLabel} allowFontScaling={false}>
                           {es ? 'CORREO ELECTRÓNICO' : 'EMAIL ADDRESS'}
                         </Text>
-                        <View style={styles.emailLockedRow}>
-                          <Text style={styles.gridValue} allowFontScaling={false}>
-                            {email || 'j@gmail.com'}
-                          </Text>
-                          <View style={styles.lockedPill}>
-                            <Ionicons name="lock-closed" size={10} color="#f59e0b" style={{ marginRight: 2 }} />
-                            <Text style={styles.lockedPillText} allowFontScaling={false}>locked</Text>
-                          </View>
-                        </View>
+                        <Text style={styles.gridValue} allowFontScaling={false}>
+                          {email}
+                        </Text>
                       </View>
 
                       <View style={styles.gridCol}>
@@ -348,7 +371,7 @@ export const TenantProfileScreen = ({ onNavigate }) => {
                           {es ? 'IDIOMA PREFERIDO' : 'PREFERRED LANGUAGE'}
                         </Text>
                         <Text style={styles.gridValue} allowFontScaling={false}>
-                          {preferredLanguage || 'English (US)'}
+                          {language === 'es' ? 'Español (ES)' : 'English (US)'}
                         </Text>
                       </View>
                     </View>
@@ -406,13 +429,12 @@ export const TenantProfileScreen = ({ onNavigate }) => {
 
                       <View style={{ flex: 1, marginLeft: 8 }}>
                         <Text style={styles.inputLabel} allowFontScaling={false}>
-                          {es ? 'CORREO (BLOQUEADO)' : 'EMAIL (LOCKED)'}
+                          {es ? 'CORREO ELECTRÓNICO' : 'EMAIL ADDRESS'}
                         </Text>
                         <View style={[styles.textInput, styles.disabledInput]}>
                           <Text style={[styles.disabledInputText, { color: colors.textSecondary }]} numberOfLines={1}>
                             {email}
                           </Text>
-                          <Ionicons name="lock-closed" size={12} color={colors.textSecondary} />
                         </View>
                       </View>
                     </View>
@@ -540,7 +562,7 @@ export const TenantProfileScreen = ({ onNavigate }) => {
                       style={styles.permitInput}
                       value={vehicles}
                       onChangeText={setVehicles}
-                      placeholder="e.g. Toyota Camry (2022)"
+                      placeholder="e.g. Toyota Camry (2022) or N/A"
                       placeholderTextColor={colors.textSecondary}
                       allowFontScaling={false}
                     />
@@ -548,7 +570,7 @@ export const TenantProfileScreen = ({ onNavigate }) => {
                     <View style={styles.permitDisplayBox}>
                       <Ionicons name="car-outline" size={16} color="#38bdf8" style={{ marginRight: 8 }} />
                       <Text style={styles.permitDisplayText} allowFontScaling={false}>
-                        {vehicles || 'Toyota Camry (2022)'}
+                        {vehicles && vehicles.trim() ? vehicles : 'N/A'}
                       </Text>
                     </View>
                   )}
@@ -564,7 +586,7 @@ export const TenantProfileScreen = ({ onNavigate }) => {
                       style={styles.permitInput}
                       value={pets}
                       onChangeText={setPets}
-                      placeholder="e.g. Golden Retriever (Dog)"
+                      placeholder="e.g. Golden Retriever (Dog) or N/A"
                       placeholderTextColor={colors.textSecondary}
                       allowFontScaling={false}
                     />
@@ -572,7 +594,7 @@ export const TenantProfileScreen = ({ onNavigate }) => {
                     <View style={styles.permitDisplayBox}>
                       <Ionicons name="paw-outline" size={16} color="#10b981" style={{ marginRight: 8 }} />
                       <Text style={styles.permitDisplayText} allowFontScaling={false}>
-                        {pets || 'Golden Retriever (Dog)'}
+                        {pets && pets.trim() ? pets : 'N/A'}
                       </Text>
                     </View>
                   )}
@@ -629,6 +651,84 @@ export const TenantProfileScreen = ({ onNavigate }) => {
                   </View>
                 </View>
               </View>
+
+              {/* =========================================================================
+                  CARD 4: APP PREFERENCES (DARK MODE & LANGUAGE)
+                  ========================================================================= */}
+              <View style={[styles.card, { marginTop: 14 }]}>
+                <Text style={styles.cardHeaderTitle} allowFontScaling={false}>
+                  {es ? 'PREFERENCIAS DE LA APLICACIÓN' : 'APP PREFERENCES'}
+                </Text>
+
+                {/* Dark Mode Row */}
+                <View style={styles.prefRow}>
+                  <View style={styles.prefLeft}>
+                    <View style={[styles.prefIconCircle, { backgroundColor: isDarkMode ? 'rgba(245, 158, 11, 0.15)' : 'rgba(99, 102, 241, 0.12)' }]}>
+                      <Ionicons
+                        name={isDarkMode ? 'sunny' : 'moon'}
+                        size={18}
+                        color={isDarkMode ? '#f59e0b' : '#6366f1'}
+                      />
+                    </View>
+                    <View>
+                      <Text style={styles.prefTitle} allowFontScaling={false}>
+                        {es ? 'Modo Oscuro' : 'Dark Mode'}
+                      </Text>
+                      <Text style={styles.prefSubtitle} allowFontScaling={false}>
+                        {isDarkMode ? (es ? 'Tema oscuro activo' : 'Dark theme active') : (es ? 'Tema claro activo' : 'Light theme active')}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Switch
+                    value={isDarkMode}
+                    onValueChange={toggleTheme}
+                    trackColor={{ false: '#cbd5e1', true: '#0284c7' }}
+                    thumbColor="#ffffff"
+                  />
+                </View>
+
+                <View style={styles.prefDivider} />
+
+                {/* Language Row */}
+                <View style={styles.prefRow}>
+                  <View style={styles.prefLeft}>
+                    <View style={[styles.prefIconCircle, { backgroundColor: 'rgba(2, 132, 199, 0.12)' }]}>
+                      <Ionicons name="globe" size={18} color="#0284c7" />
+                    </View>
+                    <View>
+                      <Text style={styles.prefTitle} allowFontScaling={false}>
+                        {es ? 'Idioma de la App' : 'App Language'}
+                      </Text>
+                      <Text style={styles.prefSubtitle} allowFontScaling={false}>
+                        {language === 'es' ? 'Español' : 'English'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.langSegmentGroup}>
+                    <TouchableOpacity
+                      style={[styles.langChip, language === 'en' && styles.langChipActive]}
+                      onPress={() => setLanguage('en')}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.langChipText, language === 'en' && styles.langChipTextActive]}>
+                        EN
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.langChip, language === 'es' && styles.langChipActive]}
+                      onPress={() => setLanguage('es')}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.langChipText, language === 'es' && styles.langChipTextActive]}>
+                        ES
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
             </>
           )}
         </ScrollView>
@@ -645,7 +745,7 @@ const getStyles = (colors, isDarkMode) =>
     },
     header: {
       paddingHorizontal: 18,
-      paddingTop: 16,
+      paddingTop: Platform.OS === 'ios' ? 56 : (StatusBar.currentHeight || 20) + 12,
       paddingBottom: 12,
       borderBottomWidth: 1,
       borderBottomColor: colors.cardBorder || 'rgba(148, 163, 184, 0.15)',
@@ -974,5 +1074,77 @@ const getStyles = (colors, isDarkMode) =>
       fontSize: 12.5,
       fontWeight: '700',
       color: colors.textPrimary,
+    },
+    // Header Quick Toggles
+    headerIconBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      borderRadius: 8,
+      backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+    },
+    headerLangText: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.textPrimary,
+    },
+    // App Preferences Card Styles
+    prefRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 8,
+    },
+    prefLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      flex: 1,
+    },
+    prefIconCircle: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    prefTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    prefSubtitle: {
+      fontSize: 11,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    prefDivider: {
+      height: 1,
+      backgroundColor: colors.cardBorder || 'rgba(148, 163, 184, 0.15)',
+      marginVertical: 6,
+    },
+    langSegmentGroup: {
+      flexDirection: 'row',
+      backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#f1f5f9',
+      borderRadius: 8,
+      padding: 3,
+      gap: 3,
+    },
+    langChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      borderRadius: 6,
+    },
+    langChipActive: {
+      backgroundColor: '#0284c7',
+    },
+    langChipText: {
+      fontSize: 11.5,
+      fontWeight: '700',
+      color: colors.textSecondary,
+    },
+    langChipTextActive: {
+      color: '#ffffff',
     },
   });

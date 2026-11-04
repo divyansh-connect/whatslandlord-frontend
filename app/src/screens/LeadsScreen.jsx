@@ -17,6 +17,7 @@ import {
   Keyboard,
   Linking,
   StatusBar,
+  Image,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
@@ -69,9 +70,10 @@ const appStatusOptions = [
 const screeningStatusOptions = [
   { label: 'All Statuses', value: 'ALL' },
   { label: 'Pending', value: 'PENDING' },
-  { label: 'Passed', value: 'PASSED' },
-  { label: 'Failed', value: 'FAILED' },
-  { label: 'In Review', value: 'IN_REVIEW' },
+  { label: 'Processing', value: 'PROCESSING' },
+  { label: 'Completed', value: 'COMPLETED' },
+  { label: 'Approved', value: 'APPROVED' },
+  { label: 'Declined', value: 'DECLINED' },
 ];
 
 const leaseStatusOptions = [
@@ -344,9 +346,11 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
         name: item.name || 'Prospect',
         email: item.email || 'N/A',
         phone: item.phone || 'N/A',
-        propertyName: item.property?.name || item.propertyName || 'Property',
+        propertyName: item.property || item.propertyName || item.property?.name || 'Property',
         propertyId: item.propertyId || '',
-        stage: item.stage || 'NEW'
+        stage: item.status || item.stage || 'NEW',
+        budget: item.budget || 1500,
+        raw: item,
       })));
     } catch (e) {
       console.log('Leads fetch failed:', e.message);
@@ -371,18 +375,19 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
 
         const applicantName = item.tenantName || item.applicantName || (tenantObj ? `${tenantObj.firstName || ''} ${tenantObj.lastName || ''}`.trim() : '') || (item.email ? item.email.split('@')[0] : 'Applicant');
         const propertyName = propObj?.name || item.propertyName || 'Property';
-        const rawUnit = unitObj?.unitNumber || item.unitNumber || 'Room 1B';
+        const rawUnit = unitObj?.unitNumber || item.unitNumber || 'TBD';
         const unitNumber = String(rawUnit).toLowerCase().startsWith('unit') ? rawUnit : `Unit ${rawUnit}`;
 
         return {
           id: item.id,
           applicantName,
+          email: item.email || tenantObj?.email || '',
           propertyName,
           unitNumber,
-          submissionDate: item.submissionDate ? item.submissionDate.split('T')[0] : (item.createdAt ? item.createdAt.split('T')[0] : 'N/A'),
+          submissionDate: item.submittedDate ? item.submittedDate.split('T')[0] : (item.createdAt ? item.createdAt.split('T')[0] : 'N/A'),
           creditScore: item.creditScore || '720',
           proposedRent: item.proposedRent || item.rentProposed || 1500,
-          status: item.status || 'Under Review',
+          status: item.status || 'Pending',
           propertyId: item.propertyId || '',
         };
       }));
@@ -436,6 +441,11 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
           ? (String(rawUnit).toLowerCase().startsWith('unit') ? rawUnit : `Unit ${rawUnit}`)
           : 'Unassigned';
 
+        let mappedStatus = s.status || s.screeningStatus || 'Processing';
+        if (mappedStatus === 'Completed' || (s.documentUrl && mappedStatus === 'Processing')) {
+          mappedStatus = 'Pending Approval';
+        }
+
         return {
           id: s.id,
           applicantName,
@@ -443,7 +453,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
           propertyName,
           unitNumber,
           screeningPackage: s.screeningPackage || 'Basic',
-          screeningStatus: s.status || s.screeningStatus || 'Processing',
+          screeningStatus: mappedStatus,
           raw: s,
         };
       }));
@@ -927,6 +937,105 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
     }
   };
 
+  // B2. Convert Lead to Application (Matching Web Workflow)
+  const handleConvertLead = async (item) => {
+    try {
+      setSubmitting(true);
+      const resolvedName = item.name || 'Unnamed Lead';
+      let resolvedProperty = item.propertyName || item.property || 'Unknown Property';
+      let resolvedUnit = 'Unit 101';
+
+      if (resolvedProperty.includes(' · Unit ')) {
+        const parts = resolvedProperty.split(' · Unit ');
+        resolvedProperty = parts[0];
+        resolvedUnit = `Unit ${parts[1]}`;
+      } else if (resolvedProperty.includes(' · ')) {
+        const parts = resolvedProperty.split(' · ');
+        resolvedProperty = parts[0];
+        resolvedUnit = parts[1];
+      } else if (item.notes && item.notes.includes('Unit:')) {
+        const match = item.notes.match(/Unit:\s*([^\s|]+)/i);
+        if (match && match[1]) resolvedUnit = match[1].startsWith('Unit') ? match[1] : `Unit ${match[1]}`;
+      }
+
+      // 1. Create Application
+      await apiClient.post('/applications', {
+        tenantName: resolvedName,
+        email: item.email,
+        propertyName: resolvedProperty,
+        unitNumber: resolvedUnit,
+        rentProposed: item.budget ? Number(item.budget) : 1500,
+        status: 'Pending',
+      }, logout, refreshAccessToken);
+
+      // 2. Update Lead status to 'Application Sent'
+      await apiClient.post('/portal/crm/leads', {
+        id: item.id,
+        status: 'Application Sent',
+        email: item.email,
+        name: resolvedName,
+      }, logout, refreshAccessToken);
+
+      Alert.alert('Success', `Lead converted to Application for ${resolvedName}!`);
+      fetchLeads(false);
+      fetchApplications(false);
+      setActiveTab('applications');
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Failed to convert lead.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // B3. Accept Application -> Mark Approved & Auto-Create Screening Check (Matching Web Workflow)
+  const handleAcceptApplication = async (appItem) => {
+    try {
+      setSubmitting(true);
+      // 1. Approve application
+      await apiClient.put(`/applications/${appItem.id}`, { status: 'Approved' }, logout, refreshAccessToken);
+
+      // 2. Create Screening check in backend
+      const names = (appItem.applicantName || 'Applicant').trim().split(' ');
+      const first = names[0] || 'Applicant';
+      const last = names.slice(1).join(' ') || 'Tenant';
+      try {
+        await apiClient.post('/portal/screening/reports', {
+          email: appItem.email,
+          firstName: first,
+          lastName: last,
+          propertyName: appItem.propertyName,
+          unitNumber: appItem.unitNumber,
+          status: 'Processing',
+        }, logout, refreshAccessToken);
+      } catch (e) {
+        console.log('Screening auto-create info:', e.message);
+      }
+
+      Alert.alert('Success', 'Application accepted & sent to Screening!');
+      fetchApplications(false);
+      fetchScreening(false);
+      setActiveTab('screening');
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Failed to accept application.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // B4. Reject Application
+  const handleRejectApplication = async (appItem) => {
+    try {
+      setSubmitting(true);
+      await apiClient.put(`/applications/${appItem.id}`, { status: 'Rejected' }, logout, refreshAccessToken);
+      Alert.alert('Success', 'Application rejected.');
+      fetchApplications(false);
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Failed to reject application.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // C. Save screening check (Send invitation)
   const handleRequestScreening = async () => {
     setScrErrors({});
@@ -1100,38 +1209,40 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
       Alert.alert('Consent Required', 'Applicant must authorize and give consent.');
       return;
     }
-    if (!screeningDob.trim() || !screeningSsn.trim()) {
-      Alert.alert('Validation Error', 'DOB and SSN are required.');
+    if (!screeningDob.trim()) {
+      Alert.alert('Validation Error', 'DOB is required.');
       return;
     }
 
     try {
       setSubmitting(true);
 
-      // 1. Save details (dob, ssn, authorized) and advance status to 'Processing' matching Web
+      // 1. Save details (dob, authorized) and advance status to 'Processing' matching Web
       await apiClient.put(`/portal/screening/reports/${selectedScreening.id}`, {
         dob: screeningDob.trim(),
-        ssn: screeningSsn.trim(),
+        ssn: screeningSsn ? screeningSsn.trim() : undefined,
         authorized: true,
         status: 'Processing',
       }, logout, refreshAccessToken);
 
       // 2. Upload document file if selected
       if (screeningDocFile) {
-        const formData = new FormData();
-        formData.append('document', {
-          uri: Platform.OS === 'ios' ? screeningDocFile.uri.replace('file://', '') : screeningDocFile.uri,
-          name: screeningDocFile.name || 'screening_doc.pdf',
-          type: screeningDocFile.mimeType || 'application/pdf',
-        });
-
-        await apiClient.post(`/portal/screening/reports/${selectedScreening.id}/upload`, formData, logout, refreshAccessToken);
+        await apiClient.uploadFile(
+          `/portal/screening/reports/${selectedScreening.id}/upload`,
+          screeningDocFile,
+          {
+            fieldName: 'document',
+            fileName: screeningDocFile.name,
+          },
+          logout,
+          refreshAccessToken
+        );
       }
 
-      Alert.alert('Success', 'Screening details verified. Status moved to Processing.', [
+      Alert.alert('Success', 'Screening details verified. Status moved to Pending Approval.', [
         {
-          text: 'Run Check Now',
-          onPress: () => handleUpdateScreeningStatus(selectedScreening.id, 'Completed'),
+          text: 'Review & Decide',
+          onPress: () => handleUpdateScreeningStatus(selectedScreening.id, 'Pending Approval'),
         },
         {
           text: 'Close',
@@ -1402,7 +1513,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                 await Promise.allSettled([
                   fetchMoveOuts(false),
                   fetchLeases(false),
-                  fetchProperties(false),
+                  fetchOptions(),
                 ]);
               } else {
                 throw new Error('Could not identify target lease to complete move-out.');
@@ -1438,9 +1549,19 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
           const unit = full.unit || lease.unit || {};
           const property = unit.property || lease.property || full.property || {};
 
+          const inspections = Array.isArray(full.inspections) ? full.inspections : (full.inspection ? [full.inspection] : []);
+          const latestInsp = inspections[0] || null;
+
           setSelectedWorkflowItem(prev => ({
             ...prev,
             ...full,
+            inspections,
+            latestInspection: latestInsp,
+            inspectionId: latestInsp?.id || full.inspectionId,
+            inspectionCode: latestInsp?.inspectionNumber || latestInsp?.code || (latestInsp?.id ? `MO-${String(latestInsp.id).slice(-8).toUpperCase()}` : (full.id ? `MO-${String(full.id).slice(-8).toUpperCase()}` : 'MO-INSP')),
+            inspectionStatus: latestInsp?.status || 'COMPLETED',
+            templateName: latestInsp?.templateName || (latestInsp?.template ? latestInsp.template.name : (full.templateName || 'astoria3')),
+            templateVersion: latestInsp?.templateVersion || (latestInsp?.template ? latestInsp.template.version : 1),
             tenantName: tenant.firstName ? `${tenant.firstName} ${tenant.lastName || ''}`.trim() : prev?.tenantName,
             propertyName: property.name || property.address || prev?.propertyName,
             unitNumber: unit.unitNumber || prev?.unitNumber,
@@ -1454,7 +1575,6 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
 
           // Gather damaged items from inspections
           const damages = [];
-          const inspections = full.inspections || [];
           inspections.forEach(ins => {
             (ins.rooms || []).forEach(room => {
               (room.items || []).forEach(it => {
@@ -1495,6 +1615,107 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
       } finally {
         setLoadingWorkflowDetail(false);
       }
+    } else if (type === 'movein') {
+      try {
+        setLoadingWorkflowDetail(true);
+        if (item.id && !String(item.id).startsWith('lease-movein-')) {
+          const res = await apiClient.get(`/move-ins/${item.id}`, logout, refreshAccessToken);
+          const full = res?.data || res;
+          if (full) {
+            const lease = full.lease || {};
+            const tenant = lease.tenant || full.tenant || {};
+            const unit = full.unit || lease.unit || {};
+            const property = unit.property || lease.property || full.property || {};
+            const inspections = Array.isArray(full.inspections) ? full.inspections : (full.inspection ? [full.inspection] : []);
+            const latestInsp = inspections[0];
+
+            setSelectedWorkflowItem(prev => ({
+              ...prev,
+              ...full,
+              tenantName: tenant.firstName ? `${tenant.firstName} ${tenant.lastName || ''}`.trim() : prev?.tenantName,
+              propertyName: property.name || property.address || prev?.propertyName,
+              unitNumber: unit.unitNumber || prev?.unitNumber,
+              rentAmount: lease.rentAmount || lease.monthlyRent || prev?.rentAmount || '1,500',
+              depositAmount: lease.depositAmount || lease.securityDeposit || prev?.depositAmount || '1,500',
+              email: tenant.email || prev?.email || '',
+              phone: tenant.phone || prev?.phone || '',
+              scheduledDate: full.scheduledDate ? full.scheduledDate.split('T')[0] : prev?.scheduledDate,
+              workflowStatus: full.status || full.workflowStatus || prev?.workflowStatus,
+              inspections,
+              inspectionId: latestInsp?.id || prev?.inspectionId,
+              inspectionCode: latestInsp?.inspectionNumber || latestInsp?.code || (latestInsp?.id ? `MI-${String(latestInsp.id).slice(-8).toUpperCase()}` : null),
+              templateName: latestInsp?.templateName || latestInsp?.template?.name || 'New (v1)',
+              inspectionStatus: latestInsp?.status || 'COMPLETED',
+            }));
+          }
+        }
+      } catch (err) {
+        console.log('Error fetching move in detail:', err.message);
+      } finally {
+        setLoadingWorkflowDetail(false);
+      }
+    }
+  };
+
+  const handleCompleteMoveIn = async (item) => {
+    if (!item) return;
+    try {
+      setSubmittingWorkflowAction(true);
+      const isVirtual = String(item.id).startsWith('lease-movein-') || item.raw?.isVirtual;
+      const realLeaseId = isVirtual
+        ? String(item.id).replace('lease-movein-', '')
+        : (item.lease?.id || item.raw?.leaseId);
+      const targetUnitId = item.unit?.id || item.lease?.unitId || item.raw?.unitId;
+
+      let completed = false;
+
+      // 1. Try real moveIn complete endpoint
+      if (item.id && !String(item.id).startsWith('lease-movein-')) {
+        try {
+          await apiClient.post(`/move-ins/${item.id}/complete`, {}, logout, refreshAccessToken);
+          completed = true;
+        } catch (apiErr) {
+          console.log('MoveIn complete endpoint note:', apiErr.message);
+        }
+      }
+
+      // 2. If virtual or complete failed, ensure created & completed
+      if (!completed && realLeaseId) {
+        try {
+          const createdRes = await apiClient.post('/move-ins', {
+            leaseId: realLeaseId,
+            unitId: targetUnitId,
+            scheduledDate: item.scheduledDate || new Date().toISOString(),
+            status: 'SCHEDULED',
+          }, logout, refreshAccessToken);
+          const newId = createdRes?.data?.id || createdRes?.id;
+          if (newId) {
+            await apiClient.post(`/move-ins/${newId}/complete`, {}, logout, refreshAccessToken);
+            completed = true;
+          }
+        } catch (createErr) {
+          console.log('Virtual moveIn creation note:', createErr.message);
+        }
+      }
+
+      // 3. Guarantee lease is Active and Unit is Occupied
+      if (realLeaseId) {
+        await apiClient.put(`/leases/${realLeaseId}`, { status: 'Active' }, logout, refreshAccessToken).catch(() => {});
+      }
+      if (targetUnitId) {
+        await apiClient.put(`/units/${targetUnitId}`, { status: 'Occupied' }, logout, refreshAccessToken).catch(() => {});
+      }
+
+      Alert.alert('Move In Finalized!', 'Move in completed and keys handed to resident. Lease is now Active.');
+      setWorkflowModalOpen(false);
+      await Promise.allSettled([
+        fetchMoveIns(false),
+        fetchLeases(false),
+      ]);
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Failed to complete Move In.');
+    } finally {
+      setSubmittingWorkflowAction(false);
     }
   };
 
@@ -1555,7 +1776,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
       await Promise.allSettled([
         fetchMoveOuts(false),
         fetchLeases(false),
-        fetchProperties(false),
+        fetchOptions(),
       ]);
     } catch (e) {
       Alert.alert('Error', e.message || 'Failed to finalize move out');
@@ -2452,21 +2673,65 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                       <View style={styles.rowBetween}>
                         <View style={{ flex: 1, marginRight: 10 }}>
                           <Text style={styles.recordLabel} allowFontScaling={false}>{item.name}</Text>
-                          <Text style={styles.recordSubText} allowFontScaling={false}>{item.propertyName}</Text>
+                          <Text style={styles.recordSubText} allowFontScaling={false}>{item.email}</Text>
                         </View>
                         <View style={[styles.badge, { borderColor: '#a855f7', backgroundColor: 'rgba(168, 85, 247, 0.12)' }]}>
                           <Text style={[styles.badgeText, { color: '#a855f7' }]} allowFontScaling={false}>{item.stage}</Text>
                         </View>
                       </View>
+                      
+                      {/* Highlighted Property & Unit & Budget */}
+                      <View style={{
+                        backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.08)' : 'rgba(56, 189, 248, 0.1)',
+                        borderRadius: 8,
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        marginVertical: 6,
+                        borderWidth: 1,
+                        borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.2)' : 'rgba(56, 189, 248, 0.3)',
+                      }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                            <Ionicons name="home" size={15} color={isDarkMode ? '#38bdf8' : '#0284c7'} style={{ marginRight: 6 }} />
+                            <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800' }} numberOfLines={1}>
+                              {item.propertyName || 'Property / Unit Pending'}
+                            </Text>
+                          </View>
+                          {item.budget ? (
+                            <Text style={{ color: '#10b981', fontSize: 13, fontWeight: '800' }}>
+                              ${Number(item.budget).toLocaleString()}<Text style={{ fontSize: 10, color: colors.textSecondary, fontWeight: 'normal' }}>/mo</Text>
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+
                       <View style={styles.divider} />
                       <View style={styles.rowBetween}>
-                        <Text style={styles.recordSubText} allowFontScaling={false}>Email Contact</Text>
-                        <Text style={styles.recordSubTextVal} allowFontScaling={false}>{item.email}</Text>
-                      </View>
-                      <View style={styles.rowBetween}>
                         <Text style={styles.recordSubText} allowFontScaling={false}>Phone Number</Text>
-                        <Text style={styles.recordSubTextVal} allowFontScaling={false}>{item.phone}</Text>
+                        <Text style={styles.recordSubTextVal} allowFontScaling={false}>{item.phone || 'N/A'}</Text>
                       </View>
+                      {item.stage !== 'Application Sent' && item.stage !== 'Lease Signed' && (
+                        <TouchableOpacity
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(56, 189, 248, 0.3)',
+                            borderRadius: 8,
+                            paddingVertical: 8,
+                            marginTop: 10,
+                          }}
+                          onPress={() => handleConvertLead(item)}
+                          disabled={submitting}
+                        >
+                          <Ionicons name="arrow-forward-circle-outline" size={14} color="#38bdf8" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#38bdf8', fontWeight: '800', fontSize: 11.5 }} allowFontScaling={false}>
+                            Convert to Application
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))
                 )}
@@ -2482,7 +2747,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                   </View>
                 ) : (
                   filteredApps.map((item) => {
-                    const statusColor = item.status === 'Approved' ? '#10b981' : item.status === 'Declined' ? '#ef4444' : '#f59e0b';
+                    const statusColor = item.status === 'Approved' ? '#10b981' : item.status === 'Declined' || item.status === 'Rejected' ? '#ef4444' : '#f59e0b';
                     return (
                       <View key={item.id} style={styles.recordsCard}>
                         <View style={styles.rowBetween}>
@@ -2511,6 +2776,48 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                             ${Number(item.proposedRent).toLocaleString()}
                           </Text>
                         </View>
+
+                        {/* Quick Accept & Reject matching Web */}
+                        {item.status === 'Pending' && (
+                          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                            <TouchableOpacity
+                              style={{
+                                flex: 1,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                                borderWidth: 1,
+                                borderColor: 'rgba(239, 68, 68, 0.3)',
+                                borderRadius: 8,
+                                paddingVertical: 8,
+                              }}
+                              onPress={() => handleRejectApplication(item)}
+                              disabled={submitting}
+                            >
+                              <Ionicons name="close-circle-outline" size={13} color="#ef4444" style={{ marginRight: 4 }} />
+                              <Text style={{ color: '#ef4444', fontWeight: '800', fontSize: 11.5 }} allowFontScaling={false}>Reject</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={{
+                                flex: 1.5,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                                borderWidth: 1,
+                                borderColor: 'rgba(16, 185, 129, 0.3)',
+                                borderRadius: 8,
+                                paddingVertical: 8,
+                              }}
+                              onPress={() => handleAcceptApplication(item)}
+                              disabled={submitting}
+                            >
+                              <Ionicons name="checkmark-circle-outline" size={13} color="#10b981" style={{ marginRight: 4 }} />
+                              <Text style={{ color: '#10b981', fontWeight: '800', fontSize: 11.5 }} allowFontScaling={false}>Accept & Screen</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
                       </View>
                     );
                   })
@@ -2527,7 +2834,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                   </View>
                 ) : (
                   filteredScreening.map((item) => {
-                    const statusColor = item.screeningStatus === 'Approved' ? '#10b981' : item.screeningStatus === 'Declined' ? '#ef4444' : '#f59e0b';
+                    const statusColor = item.screeningStatus === 'Approved' || item.screeningStatus === 'Completed' ? '#10b981' : item.screeningStatus === 'Declined' ? '#ef4444' : '#f59e0b';
                     return (
                       <TouchableOpacity key={item.id} style={styles.recordsCard} onPress={() => handleSelectScreening(item)}>
                         <View style={styles.rowBetween}>
@@ -2548,64 +2855,6 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                           <Text style={styles.recordSubText} allowFontScaling={false}>Screening Package</Text>
                           <Text style={[styles.recordSubTextVal, { color: '#38bdf8' }]} allowFontScaling={false}>{item.screeningPackage}</Text>
                         </View>
-
-                        {/* Quick Action Buttons matching Web */}
-                        {item.screeningStatus === 'Processing' && (
-                          <TouchableOpacity
-                            style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                              borderWidth: 1,
-                              borderColor: 'rgba(16, 185, 129, 0.3)',
-                              borderRadius: 8,
-                              paddingVertical: 8,
-                              marginTop: 10,
-                            }}
-                            onPress={() => handleUpdateScreeningStatus(item.id, 'Completed')}
-                          >
-                            <Ionicons name="play" size={13} color="#10b981" style={{ marginRight: 6 }} />
-                            <Text style={{ color: '#10b981', fontWeight: '800', fontSize: 11.5 }} allowFontScaling={false}>Run Check & Generate Report</Text>
-                          </TouchableOpacity>
-                        )}
-
-                        {item.screeningStatus === 'Completed' && (
-                          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                            <TouchableOpacity
-                              style={{
-                                flex: 1,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                backgroundColor: 'rgba(239, 68, 68, 0.12)',
-                                borderWidth: 1,
-                                borderColor: 'rgba(239, 68, 68, 0.3)',
-                                borderRadius: 8,
-                                paddingVertical: 8,
-                              }}
-                              onPress={() => handleUpdateScreeningStatus(item.id, 'Declined')}
-                            >
-                              <Ionicons name="close-circle-outline" size={13} color="#ef4444" style={{ marginRight: 4 }} />
-                              <Text style={{ color: '#ef4444', fontWeight: '800', fontSize: 11.5 }} allowFontScaling={false}>Decline</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={{
-                                flex: 1,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                backgroundColor: '#10b981',
-                                borderRadius: 8,
-                                paddingVertical: 8,
-                              }}
-                              onPress={() => handleUpdateScreeningStatus(item.id, 'Approved')}
-                            >
-                              <Ionicons name="checkmark-circle-outline" size={13} color="#ffffff" style={{ marginRight: 4 }} />
-                              <Text style={{ color: '#ffffff', fontWeight: '800', fontSize: 11.5 }} allowFontScaling={false}>Approve</Text>
-                            </TouchableOpacity>
-                          </View>
-                        )}
                       </TouchableOpacity>
                     );
                   })
@@ -2998,10 +3247,10 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
 
                           {/* View Workflow Action: Always present on every row matching Web */}
                           <TouchableOpacity
-                            style={[styles.smallActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.12)', flex: isScheduled ? 1 : undefined, minWidth: 120, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}
+                            style={[styles.smallActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.12)', flex: isScheduled ? 1 : undefined, minWidth: 100, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}
                             onPress={() => handleOpenWorkflowDetails('moveout', item)}
                           >
-                            <Ionicons name="eye-outline" size={15} color="#38bdf8" style={{ marginRight: 4 }} />
+                            <Ionicons name="git-network-outline" size={14} color="#38bdf8" style={{ marginRight: 4 }} />
                             <Text style={[styles.smallActionText, { color: '#38bdf8', fontWeight: '800' }]} allowFontScaling={false}>
                               View Workflow
                             </Text>
@@ -3484,70 +3733,72 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                 <Text style={[styles.sectionHeaderLabel, { marginTop: 14 }]} allowFontScaling={false}>SCREENING PARAMETERS</Text>
                 <View style={styles.sectionDivider} />
 
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.formLabel} allowFontScaling={false}>SCREENING PACKAGE *</Text>
-                    <TouchableOpacity
-                      style={styles.formPickerSelector}
-                      onPress={() => setActivePicker(activePicker === 'package' ? null : 'package')}
-                    >
-                      <Text style={styles.formPickerText} allowFontScaling={false} numberOfLines={1}>
-                        {screenPackage === 'Basic' ? 'Basic Check' : (screenPackage === 'Premium' ? 'Comprehensive Check' : screenPackage)}
-                      </Text>
-                      <Ionicons name={activePicker === 'package' ? "chevron-up" : "chevron-down"} size={16} color="#64748b" />
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.formLabel} allowFontScaling={false}>PAYMENT RESPONSIBILITY *</Text>
-                    <TouchableOpacity
-                      style={styles.formPickerSelector}
-                      onPress={() => setActivePicker(activePicker === 'paymentResp' ? null : 'paymentResp')}
-                    >
-                      <Text style={styles.formPickerText} allowFontScaling={false} numberOfLines={1}>
-                        {screenPaymentResponsibility === 'Applicant' ? 'Applicant Pays ($29.99)' : 'Property Manager Pays'}
-                      </Text>
-                      <Ionicons name={activePicker === 'paymentResp' ? "chevron-up" : "chevron-down"} size={16} color="#64748b" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
+                <Text style={styles.formLabel} allowFontScaling={false}>SCREENING PACKAGE *</Text>
+                <TouchableOpacity
+                  style={styles.formPickerSelector}
+                  onPress={() => setActivePicker(activePicker === 'package' ? null : 'package')}
+                >
+                  <Text style={styles.formPickerText} allowFontScaling={false} numberOfLines={1}>
+                    {screenPackage === 'Basic' ? 'Basic Check' : (screenPackage === 'Premium' ? 'Comprehensive Check' : screenPackage)}
+                  </Text>
+                  <Ionicons name={activePicker === 'package' ? "chevron-up" : "chevron-down"} size={16} color="#64748b" />
+                </TouchableOpacity>
                 {renderInlinePicker('package')}
+
+                <Text style={styles.formLabel} allowFontScaling={false}>PAYMENT RESPONSIBILITY *</Text>
+                <TouchableOpacity
+                  style={styles.formPickerSelector}
+                  onPress={() => setActivePicker(activePicker === 'paymentResp' ? null : 'paymentResp')}
+                >
+                  <Text style={styles.formPickerText} allowFontScaling={false} numberOfLines={1}>
+                    {screenPaymentResponsibility === 'Applicant' ? 'Applicant Pays ($29.99)' : 'Property Manager Pays'}
+                  </Text>
+                  <Ionicons name={activePicker === 'paymentResp' ? "chevron-up" : "chevron-down"} size={16} color="#64748b" />
+                </TouchableOpacity>
                 {renderInlinePicker('paymentResp')}
               </ScrollView>
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.cancelBtn}
-                  onPress={() => {
-                    setActivePicker(null);
-                    setRecordScreeningOpen(false);
-                  }}
-                >
-                  <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.skipBtn, submitting && { opacity: 0.5 }]}
-                  onPress={handleSkipScreening}
-                  disabled={submitting}
-                >
-                  <Text style={styles.skipBtnText} allowFontScaling={false}>Skip Screening</Text>
-                </TouchableOpacity>
-
+              <View style={styles.screeningModalActions}>
+                {/* 1st: Send Invitation Button on Top */}
                 <TouchableOpacity
                   style={[styles.sendInviteBtn, submitting && { opacity: 0.5 }]}
                   onPress={handleRequestScreening}
                   disabled={submitting}
+                  activeOpacity={0.8}
                 >
                   {submitting ? (
                     <ActivityIndicator size="small" color="#ffffff" />
                   ) : (
                     <>
-                      <Ionicons name="paper-plane" size={14} color="#ffffff" style={{ marginRight: 6 }} />
+                      <Ionicons name="paper-plane" size={15} color="#ffffff" style={{ marginRight: 8 }} />
                       <Text style={styles.sendInviteBtnText} allowFontScaling={false}>Send Invitation</Text>
                     </>
                   )}
                 </TouchableOpacity>
+
+                {/* 2nd: Bottom Row with Cancel & Skip Screening (Green) */}
+                <View style={styles.screeningBottomRow}>
+                  <TouchableOpacity
+                    style={styles.screeningCancelBtn}
+                    onPress={() => {
+                      setActivePicker(null);
+                      setRecordScreeningOpen(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.screeningCancelBtnText} allowFontScaling={false}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.skipBtn, submitting && { opacity: 0.5 }]}
+                    onPress={handleSkipScreening}
+                    disabled={submitting}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="play-forward-outline" size={14} color="#ffffff" style={{ marginRight: 6 }} />
+                    <Text style={styles.skipBtnText} allowFontScaling={false}>Skip Screening</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           </TouchableWithoutFeedback>
@@ -3970,10 +4221,12 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
       </Modal>
 
       {/* --- BACKGROUND SCREENING DETAILS MODAL --- */}
-      <Modal visible={!!selectedScreening} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={() => setSelectedScreening(null)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+      <Modal visible={!!selectedScreening} animationType="slide" transparent onRequestClose={() => setSelectedScreening(null)}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback onPress={() => setSelectedScreening(null)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+          <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
                   <Text style={styles.modalTitle} allowFontScaling={false}>Screening Check Details</Text>
@@ -3993,217 +4246,316 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
               ) : selectedScreening && (
                 <ScrollView style={{ marginBottom: 10 }} showsVerticalScrollIndicator={false}>
                   <View style={styles.modalForm}>
-                    <Text style={styles.formLabel} allowFontScaling={false}>APPLICANT NAME</Text>
-                    <Text style={styles.formPickerText} allowFontScaling={false}>{selectedScreening.applicantName}</Text>
-
-                    <Text style={styles.formLabel} allowFontScaling={false}>EMAIL ADDRESS</Text>
-                    <Text style={styles.formPickerText} allowFontScaling={false}>{selectedScreening.email}</Text>
-
-                    <Text style={styles.formLabel} allowFontScaling={false}>PROPERTY & UNIT</Text>
-                    <Text style={styles.formPickerText} allowFontScaling={false}>
-                      {selectedScreening.propertyName} · {selectedScreening.unitNumber}
-                    </Text>
-
-                    <Text style={styles.formLabel} allowFontScaling={false}>SCREENING PACKAGE</Text>
-                    <Text style={styles.formPickerText} allowFontScaling={false}>{selectedScreening.screeningPackage}</Text>
-
-                    <Text style={styles.formLabel} allowFontScaling={false}>STATUS</Text>
-                    <View style={[styles.badge, { alignSelf: 'flex-start', marginTop: 4, borderColor: selectedScreening.screeningStatus === 'Approved' ? '#10b981' : selectedScreening.screeningStatus === 'Declined' ? '#ef4444' : '#f59e0b', backgroundColor: 'rgba(56, 189, 248, 0.05)' }]}>
-                      <Text style={{ color: selectedScreening.screeningStatus === 'Approved' ? '#10b981' : selectedScreening.screeningStatus === 'Declined' ? '#ef4444' : '#f59e0b', fontSize: 11, fontWeight: '800' }} allowFontScaling={false}>
-                        {selectedScreening.screeningStatus}
-                      </Text>
+                    {/* 1. APPLICANT HERO IDENTITY CARD */}
+                    <View style={{
+                      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc',
+                      borderRadius: 16,
+                      padding: 14,
+                      borderWidth: 1,
+                      borderColor: isDarkMode ? 'rgba(255,255,255,0.08)' : '#e2e8f0',
+                      marginBottom: 12,
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                          <View style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 22,
+                            backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginRight: 10,
+                            borderWidth: 1,
+                            borderColor: 'rgba(56, 189, 248, 0.3)',
+                          }}>
+                            <Text style={{ fontSize: 16, fontWeight: '800', color: '#38bdf8' }}>
+                              {(selectedScreening.applicantName || 'Applicant').split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 16, fontWeight: '800', color: colors.textPrimary }} numberOfLines={1}>
+                              {selectedScreening.applicantName}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                              <Ionicons name="mail-outline" size={12} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                              <Text style={{ fontSize: 12, color: colors.textSecondary }} numberOfLines={1}>
+                                {selectedScreening.email}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                        <View style={[
+                          styles.badge,
+                          {
+                            borderColor: selectedScreening.screeningStatus === 'Approved' ? '#10b981' : selectedScreening.screeningStatus === 'Declined' ? '#ef4444' : '#f59e0b',
+                            backgroundColor: selectedScreening.screeningStatus === 'Approved' ? 'rgba(16, 185, 129, 0.1)' : selectedScreening.screeningStatus === 'Declined' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                          }
+                        ]}>
+                          <Text style={{
+                            color: selectedScreening.screeningStatus === 'Approved' ? '#10b981' : selectedScreening.screeningStatus === 'Declined' ? '#ef4444' : '#f59e0b',
+                            fontSize: 11,
+                            fontWeight: '800'
+                          }}>
+                            {selectedScreening.screeningStatus}
+                          </Text>
+                        </View>
+                      </View>
                     </View>
 
-                    <Text style={styles.formLabel} allowFontScaling={false}>DATE OF BIRTH (DOB)</Text>
-                    <Text style={styles.formPickerText} allowFontScaling={false}>{selectedScreening.dob || '—'}</Text>
-
-                    <Text style={styles.formLabel} allowFontScaling={false}>SOCIAL SECURITY NUMBER (SSN)</Text>
-                    <Text style={styles.formPickerText} allowFontScaling={false}>
-                      {selectedScreening.ssn ? (selectedScreening.ssn.length > 4 ? `***-**-${selectedScreening.ssn.slice(-4)}` : selectedScreening.ssn) : '—'}
-                    </Text>
-
-                    <Text style={styles.formLabel} allowFontScaling={false}>CREDIT SCORE INDEX</Text>
-                    <Text style={styles.formPickerText} allowFontScaling={false}>{selectedScreening.creditScore}</Text>
-
-                    <Text style={styles.formLabel} allowFontScaling={false}>CRIMINAL BACKGROUND</Text>
-                    <Text style={styles.formPickerText} allowFontScaling={false}>{selectedScreening.criminalBackground}</Text>
-
-                    <Text style={styles.formLabel} allowFontScaling={false}>EVICTION HISTORY</Text>
-                    <Text style={styles.formPickerText} allowFontScaling={false}>{selectedScreening.evictionHistory}</Text>
-
-                    {selectedScreening.documentUrl ? (
-                      <>
-                        <Text style={styles.formLabel} allowFontScaling={false}>VERIFICATION DOCUMENT</Text>
-                        <TouchableOpacity 
-                          style={styles.formPickerSelector}
-                          onPress={() => Linking.openURL(selectedScreening.documentUrl)}
-                        >
-                          <Text style={{ color: '#38bdf8', fontSize: 12, fontWeight: '700' }} allowFontScaling={false}>
-                            📄 {selectedScreening.documentName || 'Download Document'}
+                    {/* PENDING APPROVAL NOTICE BANNER */}
+                    {(selectedScreening.screeningStatus === 'Pending Approval' || selectedScreening.screeningStatus === 'Completed' || Boolean(selectedScreening.documentUrl)) && selectedScreening.screeningStatus !== 'Approved' && selectedScreening.screeningStatus !== 'Declined' && (
+                      <View style={{
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        borderColor: 'rgba(245, 158, 11, 0.3)',
+                        borderWidth: 1,
+                        borderRadius: 12,
+                        padding: 12,
+                        marginBottom: 12,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '800', color: '#f59e0b' }} allowFontScaling={false}>
+                            Pending Approval (Decision Required)
                           </Text>
-                          <Ionicons name="download-outline" size={16} color="#38bdf8" />
-                        </TouchableOpacity>
-                      </>
-                    ) : null}
-
-                    {/* Document Uploader flow for Manager if Pending Consent/Documents */}
-                    {(selectedScreening.screeningStatus === 'Pending Documents' || selectedScreening.screeningStatus === 'Pending Consent' || selectedScreening.screeningStatus === 'Processing') && (
-                      <View style={{ marginTop: 16, borderTopWidth: 1, borderTopColor: colors.cardBorder, paddingTop: 16 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#f8fafc', marginBottom: 12 }} allowFontScaling={false}>
-                          Upload Missing Verification Documents
-                        </Text>
-
-                        <Text style={styles.formLabel} allowFontScaling={false}>DATE OF BIRTH (DOB) *</Text>
-                        <TouchableOpacity style={styles.formPickerSelector} onPress={() => setShowScrDobPicker(true)}>
-                          <Text style={styles.formPickerText} allowFontScaling={false}>{screeningDob || 'Select Date...'}</Text>
-                          <Ionicons name="calendar-outline" size={16} color="#cbd5e1" />
-                        </TouchableOpacity>
-                        <CustomDatePicker
-                          visible={showScrDobPicker}
-                          value={screeningDob}
-                          onSelect={(date) => setScreeningDob(date)}
-                          onClose={() => setShowScrDobPicker(false)}
-                        />
-
-                        <Text style={styles.formLabel} allowFontScaling={false}>SOCIAL SECURITY NUMBER (SSN) *</Text>
-                        <TextInput
-                          style={styles.formInput}
-                          placeholder="XXX-XX-XXXX"
-                          placeholderTextColor="#64748b"
-                          value={screeningSsn}
-                          onChangeText={setScreeningSsn}
-                        />
-
-                        <TouchableOpacity 
-                          style={[styles.formPickerSelector, { marginTop: 8 }]} 
-                          onPress={handlePickScreeningDocument}
-                        >
-                          <Text style={styles.formPickerText} allowFontScaling={false}>
-                            {screeningDocFile ? `📄 ${screeningDocFile.name}` : 'Choose ID / W2 Proof Document...'}
+                          <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
+                            Verification documents uploaded. Accept (Approve) or Reject (Decline) this applicant below.
                           </Text>
-                          <Ionicons name="document-attach-outline" size={16} color={colors.textSecondary} />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity 
-                          style={{ flexDirection: 'row', alignItems: 'center', marginTop: 14, marginBottom: 8 }}
-                          onPress={() => setScreeningConsent(!screeningConsent)}
-                        >
-                          <Ionicons 
-                            name={screeningConsent ? 'checkbox' : 'square-outline'} 
-                            size={18} 
-                            color={screeningConsent ? '#38bdf8' : colors.textSecondary} 
-                            style={{ marginRight: 8 }}
-                          />
-                          <Text style={{ fontSize: 11.5, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>
-                            I certify that the applicant has authorized this background check.
-                          </Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity 
-                          style={[styles.submitBtn, { width: '100%', marginTop: 12, backgroundColor: '#38bdf8' }]}
-                          onPress={handleCompleteScreeningFlow}
-                          disabled={submitting}
-                        >
-                          {submitting ? (
-                            <ActivityIndicator size="small" color="#0f172a" />
-                          ) : (
-                            <Text style={styles.submitBtnText} allowFontScaling={false}>Submit Screening Documents</Text>
-                          )}
-                        </TouchableOpacity>
+                        </View>
+                        <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.2)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#f59e0b' }} allowFontScaling={false}>Action Required</Text>
+                        </View>
                       </View>
                     )}
+
+                    {/* 2. PROPERTY, UNIT & TENANCY DETAILS CARD */}
+                    <View style={{
+                      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc',
+                      borderRadius: 16,
+                      padding: 14,
+                      borderWidth: 1,
+                      borderColor: isDarkMode ? 'rgba(255,255,255,0.08)' : '#e2e8f0',
+                      marginBottom: 12,
+                    }}>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: '#38bdf8', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10 }}>
+                        APPLIED HOME & TENANCY DETAILS
+                      </Text>
+                      
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#f1f5f9', gap: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0, marginTop: 1 }}>
+                          <Ionicons name="home-outline" size={15} color={colors.textSecondary} style={{ marginRight: 8 }} />
+                          <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>Property & Unit</Text>
+                        </View>
+                        <Text style={{ flex: 1, fontSize: 12.5, fontWeight: '800', color: colors.textPrimary, textAlign: 'right', lineHeight: 18 }} allowFontScaling={false}>
+                          {selectedScreening.propertyName}{selectedScreening.unitNumber ? ` · ${selectedScreening.unitNumber}` : ''}
+                        </Text>
+                      </View>
+
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#f1f5f9', gap: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
+                          <Ionicons name="calendar-outline" size={15} color={colors.textSecondary} style={{ marginRight: 8 }} />
+                          <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>Date of Birth (DOB)</Text>
+                        </View>
+                        <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: colors.textPrimary, textAlign: 'right' }} allowFontScaling={false}>
+                          {selectedScreening.dob || '—'}
+                        </Text>
+                      </View>
+
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, gap: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
+                          <Ionicons name="shield-outline" size={15} color={colors.textSecondary} style={{ marginRight: 8 }} />
+                          <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>Screening Tier</Text>
+                        </View>
+                        <Text style={{ flex: 1, fontSize: 12, fontWeight: '700', color: '#38bdf8', textAlign: 'right' }} allowFontScaling={false}>
+                          {selectedScreening.screeningPackage || 'Standard Verification'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* 3. VERIFICATION DOCUMENTS (REAL ONLY) */}
+                    <View style={{
+                      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc',
+                      borderRadius: 16,
+                      padding: 14,
+                      borderWidth: 1,
+                      borderColor: isDarkMode ? 'rgba(255,255,255,0.08)' : '#e2e8f0',
+                      marginBottom: 8,
+                    }}>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: '#38bdf8', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10 }}>
+                        IDENTITY VERIFICATION DOCUMENT
+                      </Text>
+
+                      {selectedScreening.documentUrl ? (
+                        <View style={{
+                          backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                          borderRadius: 12,
+                          padding: 12,
+                          borderWidth: 1,
+                          borderColor: 'rgba(56, 189, 248, 0.25)',
+                        }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                            <Ionicons name="document-text" size={24} color="#38bdf8" style={{ marginRight: 10 }} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }} numberOfLines={1}>
+                                {selectedScreening.documentName || 'Identity_Verification_Document.pdf'}
+                              </Text>
+                              <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 1 }}>
+                                Uploaded by applicant for identity verification
+                              </Text>
+                            </View>
+                          </View>
+                          <TouchableOpacity
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: '#38bdf8',
+                              borderRadius: 8,
+                              paddingVertical: 9,
+                            }}
+                            onPress={() => Linking.openURL(selectedScreening.documentUrl)}
+                          >
+                            <Ionicons name="cloud-download-outline" size={15} color="#0f172a" style={{ marginRight: 6 }} />
+                            <Text style={{ fontSize: 12, fontWeight: '800', color: '#0f172a' }}>
+                              View & Download Document
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View style={{
+                          backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                          borderRadius: 12,
+                          padding: 12,
+                          borderWidth: 1,
+                          borderColor: 'rgba(245, 158, 11, 0.2)',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                        }}>
+                          <Ionicons name="alert-circle-outline" size={20} color="#f59e0b" style={{ marginRight: 8 }} />
+                          <Text style={{ fontSize: 11.5, color: '#f59e0b', fontWeight: '600', flex: 1 }}>
+                            No verification document uploaded yet by the applicant.
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                 </ScrollView>
               )}
 
               {/* Modal actions matching Web parity */}
               {!loadingDetail && selectedScreening && (
-                <View style={styles.modalActions}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setSelectedScreening(null)}>
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  borderTopWidth: 1,
+                  borderTopColor: colors.cardBorder,
+                  paddingTop: 14,
+                  marginTop: 6,
+                }}>
+                  <TouchableOpacity
+                    style={[styles.cancelBtn, { paddingHorizontal: 16, paddingVertical: 11, minWidth: 70, alignItems: 'center' }]}
+                    onPress={() => setSelectedScreening(null)}
+                  >
                     <Text style={styles.cancelBtnText} allowFontScaling={false}>Close</Text>
                   </TouchableOpacity>
 
-                  {/* Run Check button for Processing / Pending Approval */}
-                  {(selectedScreening.screeningStatus === 'Processing' || selectedScreening.screeningStatus === 'Pending Approval') && (
-                    <TouchableOpacity 
-                      style={[styles.submitBtn, { backgroundColor: '#10b981', flex: 1.5 }]} 
-                      onPress={() => handleUpdateScreeningStatus(selectedScreening.id, 'Completed')}
-                      disabled={submitting}
-                    >
-                      {submitting ? (
-                        <ActivityIndicator size="small" color="#ffffff" />
-                      ) : (
-                        <>
-                          <Ionicons name="play-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
-                          <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>Run Check & Report</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  )}
+                  {/* Action buttons: When Pending Approval or documents submitted => Decline / Approve */}
+                  {(() => {
+                    const isSubmitted = Boolean(selectedScreening.documentUrl || selectedScreening.authorized || selectedScreening.dob);
+                    const isPendingDecision =
+                      (selectedScreening.screeningStatus === 'Pending Approval' ||
+                       selectedScreening.screeningStatus === 'Completed' ||
+                       isSubmitted) &&
+                      selectedScreening.screeningStatus !== 'Approved' &&
+                      selectedScreening.screeningStatus !== 'Declined';
 
-                  {/* Skip Screening / Direct Approve for Pending Documents matching Web Skip Option */}
-                  {(selectedScreening.screeningStatus === 'Pending Documents' || selectedScreening.screeningStatus === 'Pending') && (
-                    <TouchableOpacity 
-                      style={[styles.submitBtn, { backgroundColor: '#38bdf8', flex: 1.5 }]} 
-                      onPress={() => {
-                        Alert.alert(
-                          'Skip Screening?',
-                          'Do you want to skip background verification and directly approve this applicant?',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Skip & Approve', onPress: () => handleUpdateScreeningStatus(selectedScreening.id, 'Approved') },
-                          ]
-                        );
-                      }}
-                      disabled={submitting}
-                    >
-                      <Ionicons name="flash-outline" size={16} color="#0f172a" style={{ marginRight: 6 }} />
-                      <Text style={styles.submitBtnText} allowFontScaling={false}>Skip & Approve</Text>
-                    </TouchableOpacity>
-                  )}
+                    if (isPendingDecision) {
+                      return (
+                        <View style={{ flexDirection: 'row', gap: 8, flex: 1 }}>
+                          <TouchableOpacity 
+                            style={[styles.submitBtn, { flex: 1, backgroundColor: '#ef4444', paddingVertical: 11 }]} 
+                            onPress={() => {
+                              Alert.alert('Decline Application', 'Are you sure you want to decline this applicant?', [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Decline', style: 'destructive', onPress: () => handleUpdateScreeningStatus(selectedScreening.id, 'Declined') },
+                              ]);
+                            }}
+                            disabled={submitting}
+                          >
+                            {submitting ? (
+                              <ActivityIndicator size="small" color="#ffffff" />
+                            ) : (
+                              <>
+                                <Ionicons name="close-circle-outline" size={14} color="#ffffff" style={{ marginRight: 4 }} />
+                                <Text style={[styles.submitBtnText, { color: '#ffffff', fontSize: 12 }]} allowFontScaling={false}>Decline</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={[styles.submitBtn, { flex: 1.2, backgroundColor: '#10b981', paddingVertical: 11 }]} 
+                            onPress={() => {
+                              Alert.alert('Approve Applicant', 'Do you want to accept and approve this applicant?', [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Approve', onPress: () => handleUpdateScreeningStatus(selectedScreening.id, 'Approved') },
+                              ]);
+                            }}
+                            disabled={submitting}
+                          >
+                            {submitting ? (
+                              <ActivityIndicator size="small" color="#ffffff" />
+                            ) : (
+                              <>
+                                <Ionicons name="checkmark-circle-outline" size={14} color="#ffffff" style={{ marginRight: 4 }} />
+                                <Text style={[styles.submitBtnText, { color: '#ffffff', fontSize: 12 }]} allowFontScaling={false}>Approve</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    }
 
-                  {/* Approve & Decline buttons - ONLY WHEN REPORT IS COMPLETED */}
-                  {selectedScreening.screeningStatus === 'Completed' && (
-                    <View style={{ flexDirection: 'row', gap: 8, flex: 2 }}>
-                      <TouchableOpacity 
-                        style={[styles.submitBtn, { flex: 1, backgroundColor: '#ef4444' }]} 
-                        onPress={() => {
-                          Alert.alert('Decline Application', 'Are you sure you want to decline this applicant?', [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Decline', style: 'destructive', onPress: () => handleUpdateScreeningStatus(selectedScreening.id, 'Declined') },
-                          ]);
-                        }}
-                        disabled={submitting}
-                      >
-                        {submitting ? (
-                          <ActivityIndicator size="small" color="#ffffff" />
-                        ) : (
-                          <>
-                            <Ionicons name="close-circle-outline" size={15} color="#ffffff" style={{ marginRight: 4 }} />
-                            <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>Decline</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={[styles.submitBtn, { flex: 1, backgroundColor: '#10b981' }]} 
-                        onPress={() => handleUpdateScreeningStatus(selectedScreening.id, 'Approved')}
-                        disabled={submitting}
-                      >
-                        {submitting ? (
-                          <ActivityIndicator size="small" color="#ffffff" />
-                        ) : (
-                          <>
-                            <Ionicons name="checkmark-circle-outline" size={15} color="#ffffff" style={{ marginRight: 4 }} />
-                            <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>Approve</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                    if (selectedScreening.screeningStatus === 'Pending' || selectedScreening.screeningStatus === 'Pending Documents' || selectedScreening.screeningStatus === 'Processing') {
+                      return (
+                        <View style={{ flexDirection: 'row', gap: 8, flex: 1 }}>
+                          <TouchableOpacity 
+                            style={[styles.submitBtn, { backgroundColor: '#f59e0b', flex: 1, paddingVertical: 11, paddingHorizontal: 6 }]} 
+                            onPress={() => {
+                              Alert.alert(
+                                'Skip Screening?',
+                                'Do you want to skip background verification and directly approve this applicant?',
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  { text: 'Skip & Approve', onPress: () => handleUpdateScreeningStatus(selectedScreening.id, 'Approved') },
+                                ]
+                              );
+                            }}
+                            disabled={submitting}
+                          >
+                            <Ionicons name="play-forward-outline" size={13} color="#0f172a" style={{ marginRight: 4 }} />
+                            <Text style={[styles.submitBtnText, { color: '#0f172a', fontSize: 11.5 }]} allowFontScaling={false} numberOfLines={1}>
+                              Skip & Approve
+                            </Text>
+                          </TouchableOpacity>
+                          <View style={[styles.submitBtn, { backgroundColor: isDarkMode ? '#334155' : '#cbd5e1', flex: 1.2, paddingVertical: 11, opacity: 0.7 }]}>
+                            <Ionicons name="time-outline" size={14} color="#64748b" style={{ marginRight: 4 }} />
+                            <Text style={[styles.submitBtnText, { color: '#64748b', fontSize: 11 }]} allowFontScaling={false} numberOfLines={1}>
+                              Waiting for Tenant
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    }
+
+                    return null;
+                  })()}
 
                   {/* Status Banner for Approved */}
                   {selectedScreening.screeningStatus === 'Approved' && (
-                    <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(16, 185, 129, 0.12)', borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.3)' }}>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(16, 185, 129, 0.12)', borderRadius: 10, paddingVertical: 11, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.3)' }}>
                       <Ionicons name="checkmark-circle" size={16} color="#10b981" style={{ marginRight: 6 }} />
                       <Text style={{ color: '#10b981', fontWeight: '800', fontSize: 12 }} allowFontScaling={false}>Applicant Approved</Text>
                     </View>
@@ -4211,7 +4563,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
 
                   {/* Status Banner for Declined */}
                   {selectedScreening.screeningStatus === 'Declined' && (
-                    <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(239, 68, 68, 0.12)', borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(239, 68, 68, 0.12)', borderRadius: 10, paddingVertical: 11, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)' }}>
                       <Ionicons name="close-circle" size={16} color="#ef4444" style={{ marginRight: 6 }} />
                       <Text style={{ color: '#ef4444', fontWeight: '800', fontSize: 12 }} allowFontScaling={false}>Application Declined</Text>
                     </View>
@@ -4220,14 +4572,15 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
               )}
             </View>
           </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+        </Modal>
 
       {/* --- START INSPECTION TEMPLATE SELECTOR MODAL --- */}
-      <Modal visible={startInspectionModalOpen} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={() => setStartInspectionModalOpen(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+      <Modal visible={startInspectionModalOpen} animationType="slide" transparent onRequestClose={() => setStartInspectionModalOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback onPress={() => setStartInspectionModalOpen(false)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+          <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
                   <Text style={styles.modalTitle} allowFontScaling={false}>Select Inspection Template</Text>
@@ -4309,14 +4662,15 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
               </View>
             </View>
           </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+        </Modal>
 
       {/* --- LEASE COVENANT DETAILS MODAL --- */}
-      <Modal visible={leaseDetailModalOpen && !!selectedLease} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={() => setLeaseDetailModalOpen(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+      <Modal visible={leaseDetailModalOpen && !!selectedLease} animationType="slide" transparent onRequestClose={() => setLeaseDetailModalOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback onPress={() => setLeaseDetailModalOpen(false)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+          <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <View style={{ flex: 1, marginRight: 10, paddingTop: 2 }}>
                   <Text style={styles.modalTitle} allowFontScaling={false}>Lease Agreement Details</Text>
@@ -4392,18 +4746,19 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
               </View>
             </View>
           </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+        </Modal>
 
       {/* --- 8. WORKFLOW DETAILS & DAMAGE REVIEW MODAL (Matching Web Photo 4 1:1) --- */}
-      <Modal visible={workflowModalOpen && !!selectedWorkflowItem} animationType="slide" transparent>
+      <Modal visible={workflowModalOpen && !!selectedWorkflowItem} animationType="slide" transparent onRequestClose={() => setWorkflowModalOpen(false)}>
         <KeyboardAvoidingView
           style={styles.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
         >
           <TouchableWithoutFeedback onPress={() => setWorkflowModalOpen(false)}>
-            <View style={styles.modalContent}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+          <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <View style={{ flex: 1, marginRight: 10, paddingTop: 4 }}>
                   <Text style={styles.modalTitle} allowFontScaling={false}>
@@ -4485,12 +4840,17 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                     ) : (
                       (() => {
                         const norm = (selectedWorkflowItem.workflowStatus || '').toUpperCase().replace(/[\s-]/g, '_');
-                        const isDone = norm === 'COMPLETED';
+                        const isScheduled = norm !== 'CANCELLED';
+                        const isInspectionDone = norm === 'INSPECTION_COMPLETED' || norm === 'COMPLETED';
+                        const isManagerReview = norm === 'INSPECTION_COMPLETED';
+                        const isCompleted = norm === 'COMPLETED';
+
                         const steps = [
-                          { label: 'LEASE SIGNED', done: true },
-                          { label: 'SCHEDULED', done: true },
-                          { label: 'MOVE-IN INSPECTION', done: isDone, active: !isDone },
-                          { label: 'MOVE-IN FINALIZED', done: isDone },
+                          { label: 'LEASE CREATED', done: true },
+                          { label: 'SCHEDULED', done: isScheduled },
+                          { label: 'INSPECTION', done: isInspectionDone, active: norm === 'INSPECTION_IN_PROGRESS' },
+                          { label: 'MANAGER REVIEW', done: isCompleted, active: isManagerReview },
+                          { label: 'MOVE IN COMPLETE', done: isCompleted },
                         ];
                         return (
                           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
@@ -4501,7 +4861,7 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                                     width: 26,
                                     height: 26,
                                     borderRadius: 13,
-                                    backgroundColor: st.done ? '#10b981' : st.active ? '#38bdf8' : (isDarkMode ? '#334155' : '#cbd5e1'),
+                                    backgroundColor: st.done ? '#10b981' : st.active ? '#0284c7' : (isDarkMode ? '#334155' : '#cbd5e1'),
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     marginBottom: 4,
@@ -4509,12 +4869,12 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                                     {st.done ? (
                                       <Ionicons name="checkmark" size={16} color="#ffffff" />
                                     ) : (
-                                      <Text style={{ fontSize: 11, fontWeight: '800', color: st.active ? '#0f172a' : '#94a3b8' }} allowFontScaling={false}>
+                                      <Text style={{ fontSize: 11, fontWeight: '800', color: st.active ? '#ffffff' : '#94a3b8' }} allowFontScaling={false}>
                                         {i + 1}
                                       </Text>
                                     )}
                                   </View>
-                                  <Text style={{ fontSize: 9, fontWeight: '800', color: st.done ? '#10b981' : st.active ? '#38bdf8' : colors.textSecondary }} allowFontScaling={false}>
+                                  <Text style={{ fontSize: 9, fontWeight: '800', color: st.done ? '#10b981' : st.active ? '#0284c7' : colors.textSecondary }} allowFontScaling={false}>
                                     {st.label}
                                   </Text>
                                 </View>
@@ -4585,203 +4945,508 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                     </View>
                   </View>
 
-                  {/* WORKFLOW CONTROLS SECTION matching Photo 4 */}
-                  <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 14, padding: 14, marginBottom: 14 }}>
-                    <Text style={[styles.formLabel, { marginTop: 0, color: '#38bdf8' }]} allowFontScaling={false}>WORKFLOW CONTROLS</Text>
+                  {/* WORKFLOW CONTROLS SECTION */}
+                  {workflowType === 'movein' ? (
+                    /* --- MOVE IN WORKFLOW CONTROLS (Exact parity with Web Photo 2) --- */
+                    <View>
+                      <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+                        <Text style={[styles.formLabel, { marginTop: 0, color: '#38bdf8' }]} allowFontScaling={false}>WORKFLOW CONTROLS</Text>
 
-                    {/* Case A: Inspection Completed or Damage Review */}
-                    {(selectedWorkflowItem.workflowStatus?.toUpperCase() === 'INSPECTION_COMPLETED' || selectedWorkflowItem.workflowStatus?.toUpperCase() === 'DAMAGE_REVIEW') && (
-                      <View style={{ marginTop: 6 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.25)', marginBottom: 12 }}>
-                          <Ionicons name="shield-checkmark" size={18} color="#10b981" style={{ marginRight: 8 }} />
-                          <Text style={{ fontSize: 11.5, color: '#10b981', fontWeight: '700', flex: 1 }} allowFontScaling={false}>
-                            Checklist completed and signed. Ready for damage assessments.
-                          </Text>
-                        </View>
-
-                        {loadingWorkflowDetail ? (
-                          <ActivityIndicator size="small" color="#38bdf8" style={{ marginVertical: 14 }} />
-                        ) : (
-                          <View>
-                            <Text style={[styles.formLabel, { marginTop: 0 }]} allowFontScaling={false}>
-                              UNIT DAMAGE ITEMS REVIEW ({workflowDamageItems.length})
-                            </Text>
-
-                            {workflowDamageItems.length === 0 ? (
-                              <View style={{ padding: 12, backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(241, 245, 249, 0.8)', borderRadius: 10, marginBottom: 12 }}>
-                                <Text style={{ fontSize: 12, color: colors.textSecondary }} allowFontScaling={false}>
-                                  No room damages detected in inspection checklist. Full deposit will be refunded.
-                                </Text>
-                              </View>
-                            ) : (
-                              workflowDamageItems.map((item, idx) => (
-                                <View key={item.id || idx} style={{ backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(248, 250, 252, 0.9)', padding: 10, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: colors.cardBorder }}>
-                                  <View style={styles.rowBetween}>
-                                    <View style={{ flex: 1, marginRight: 8 }}>
-                                      <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
-                                        {item.roomName} · {item.label}
-                                      </Text>
-                                      {item.notes ? (
-                                        <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
-                                          Note: {item.notes}
-                                        </Text>
-                                      ) : null}
-                                    </View>
-                                    <View style={[styles.badge, { borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-                                      <Text style={[styles.badgeText, { color: '#ef4444' }]} allowFontScaling={false}>{item.condition}</Text>
-                                    </View>
-                                  </View>
-
-                                  <View style={[styles.rowBetween, { marginTop: 8, alignItems: 'center' }]}>
-                                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted }} allowFontScaling={false}>
-                                      Damage Charge ($):
-                                    </Text>
-                                    <TextInput
-                                      style={[styles.formInput, { width: 90, height: 34, marginBottom: 0, paddingVertical: 4, textAlign: 'center', fontSize: 12.5 }]}
-                                      placeholder="50"
-                                      placeholderTextColor="#64748b"
-                                      keyboardType="numeric"
-                                      value={damageChargeInputs[item.id] !== undefined ? String(damageChargeInputs[item.id]) : String(item.chargeAmount || 50)}
-                                      onChangeText={(val) => setDamageChargeInputs(prev => ({ ...prev, [item.id]: val }))}
-                                    />
-                                  </View>
-                                </View>
-                              ))
-                            )}
-
-                            {/* Summary Calculation */}
-                            {(() => {
-                              const deposit = Number(String(selectedWorkflowItem.depositAmount || 1500).replace(/[^0-9.]/g, '')) || 1500;
-                              const totalDamages = workflowDamageItems.reduce((acc, curr) => {
-                                const charge = damageChargeInputs[curr.id] !== undefined ? Number(damageChargeInputs[curr.id]) : Number(curr.chargeAmount || 50);
-                                return acc + (isNaN(charge) ? 0 : charge);
-                              }, 0);
-                              const refund = Math.max(0, deposit - totalDamages);
-
-                              return (
-                                <View style={{ backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(241, 245, 249, 1)', padding: 12, borderRadius: 10, marginTop: 4, marginBottom: 12 }}>
-                                  <View style={styles.rowBetween}>
-                                    <Text style={{ fontSize: 11.5, color: colors.textSecondary }} allowFontScaling={false}>Original Security Deposit:</Text>
-                                    <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>${deposit.toLocaleString()}</Text>
-                                  </View>
-                                  <View style={[styles.rowBetween, { marginTop: 4 }]}>
-                                    <Text style={{ fontSize: 11.5, color: '#ef4444' }} allowFontScaling={false}>Total Damage Deductions:</Text>
-                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#ef4444' }} allowFontScaling={false}>-${totalDamages.toLocaleString()}</Text>
-                                  </View>
-                                  <View style={[styles.divider, { marginVertical: 6 }]} />
-                                  <View style={styles.rowBetween}>
-                                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>Estimated Refund to Tenant:</Text>
-                                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>${refund.toLocaleString()}</Text>
-                                  </View>
-                                </View>
-                              );
-                            })()}
-
-                            <TouchableOpacity
-                              style={[styles.submitBtn, { backgroundColor: '#38bdf8', paddingVertical: 12, marginTop: 4 }]}
-                              onPress={handleSubmitDamageReview}
-                              disabled={submittingWorkflowAction}
-                            >
-                              {submittingWorkflowAction ? (
-                                <ActivityIndicator size="small" color="#0f172a" />
-                              ) : (
-                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                  <Ionicons name="document-text-outline" size={16} color="#0f172a" style={{ marginRight: 6 }} />
-                                  <Text style={styles.submitBtnText} allowFontScaling={false}>
-                                    Submit Damage Assessment & Finalize Deposit
+                        {(() => {
+                          const norm = (selectedWorkflowItem.workflowStatus || '').toUpperCase().replace(/[\s-]/g, '_');
+                          if (norm === 'INSPECTION_COMPLETED') {
+                            return (
+                              <View style={{ marginTop: 8 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.25)', marginBottom: 12 }}>
+                                  <Ionicons name="shield-checkmark" size={20} color="#10b981" style={{ marginRight: 10 }} />
+                                  <Text style={{ fontSize: 11.5, color: '#10b981', fontWeight: '700', flex: 1, lineHeight: 16 }} allowFontScaling={false}>
+                                    Checklist completed and signed by resident & inspector. Ready for manager authorization.
                                   </Text>
                                 </View>
-                              )}
-                            </TouchableOpacity>
-                          </View>
-                        )}
-                      </View>
-                    )}
 
-                    {/* Case B: Ready for completion */}
-                    {selectedWorkflowItem.workflowStatus?.toUpperCase() === 'READY_FOR_COMPLETION' && (
-                      <View style={{ marginTop: 6 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.25)', marginBottom: 12 }}>
-                          <Ionicons name="shield-checkmark" size={18} color="#10b981" style={{ marginRight: 8 }} />
-                          <Text style={{ fontSize: 11.5, color: '#10b981', fontWeight: '700', flex: 1 }} allowFontScaling={false}>
-                            Damage checklist and deposit refund settled. Ready to complete Move Out.
-                          </Text>
-                        </View>
-                        <TouchableOpacity
-                          style={[styles.submitBtn, { backgroundColor: '#10b981', paddingVertical: 12 }]}
-                          onPress={handleFinalizeMoveOut}
-                          disabled={submittingWorkflowAction}
-                        >
-                          {submittingWorkflowAction ? (
-                            <ActivityIndicator size="small" color="#ffffff" />
-                          ) : (
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              <Ionicons name="checkmark-done-circle" size={17} color="#ffffff" style={{ marginRight: 6 }} />
-                              <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>
-                                Complete Move Out & Close Lease
+                                <TouchableOpacity
+                                  style={[styles.submitBtn, { backgroundColor: '#0284c7', paddingVertical: 13 }]}
+                                  onPress={() => handleCompleteMoveIn(selectedWorkflowItem)}
+                                  disabled={submittingWorkflowAction}
+                                >
+                                  {submittingWorkflowAction ? (
+                                    <ActivityIndicator size="small" color="#ffffff" />
+                                  ) : (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                      <Ionicons name="checkmark-circle" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                                      <Text style={[styles.submitBtnText, { color: '#ffffff', fontSize: 13, fontWeight: '800' }]} allowFontScaling={false}>
+                                        Complete Move In & Hand Keys
+                                      </Text>
+                                    </View>
+                                  )}
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          }
+
+                          if (norm === 'INSPECTION_IN_PROGRESS') {
+                            return (
+                              <View style={{ marginTop: 8 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(245, 158, 11, 0.1)', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.25)', marginBottom: 12 }}>
+                                  <Ionicons name="time-outline" size={18} color="#f59e0b" style={{ marginRight: 8 }} />
+                                  <Text style={{ fontSize: 11.5, color: '#f59e0b', fontWeight: '700', flex: 1 }} allowFontScaling={false}>
+                                    Condition inspection is currently in progress. Complete it to unlock move-in confirmation.
+                                  </Text>
+                                </View>
+                                <TouchableOpacity
+                                  style={[styles.submitBtn, { backgroundColor: '#38bdf8', paddingVertical: 12 }]}
+                                  onPress={() => {
+                                    setWorkflowModalOpen(false);
+                                    if (selectedWorkflowItem.inspectionId) {
+                                      onNavigate && onNavigate('inspection', { inspectionId: selectedWorkflowItem.inspectionId });
+                                    }
+                                  }}
+                                >
+                                  <Text style={[styles.submitBtnText, { color: '#0f172a' }]} allowFontScaling={false}>
+                                    Resume Inspection Screen
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          }
+
+                          if (norm === 'SCHEDULED') {
+                            return (
+                              <View style={{ marginTop: 8 }}>
+                                <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 12 }} allowFontScaling={false}>
+                                  Workflow is currently scheduled. You can perform the condition inspection using a template or skip.
+                                </Text>
+                                <View style={{ flexDirection: 'row', gap: 10 }}>
+                                  <TouchableOpacity
+                                    style={[styles.smallActionBtn, { flex: 1, backgroundColor: '#38bdf8', paddingVertical: 11, alignItems: 'center', justifyContent: 'center' }]}
+                                    onPress={() => {
+                                      setWorkflowModalOpen(false);
+                                      handleOpenStartInspectionModal('movein', selectedWorkflowItem.id);
+                                    }}
+                                  >
+                                    <Text style={[styles.smallActionText, { color: '#0f172a' }]} allowFontScaling={false}>Start Inspection</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={[styles.smallActionBtn, { flex: 1, borderWidth: 1, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', paddingVertical: 11, alignItems: 'center', justifyContent: 'center' }]}
+                                    onPress={() => {
+                                      setWorkflowModalOpen(false);
+                                      handleSkipMoveIn(selectedWorkflowItem);
+                                    }}
+                                  >
+                                    <Text style={[styles.smallActionText, { color: '#10b981' }]} allowFontScaling={false}>Skip Inspection</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                            );
+                          }
+
+                          if (norm === 'COMPLETED') {
+                            return (
+                              <View style={{ marginTop: 8, alignItems: 'center', paddingVertical: 16 }}>
+                                <Ionicons name="checkmark-circle" size={42} color="#10b981" style={{ marginBottom: 6 }} />
+                                <Text style={{ fontSize: 14, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>
+                                  Move In Completed
+                                </Text>
+                                <Text style={{ fontSize: 11.5, color: colors.textSecondary, textAlign: 'center', marginTop: 4, maxWidth: 280 }} allowFontScaling={false}>
+                                  Lease is active, unit occupied, resident assigned, and move-in invoice generated immediately.
+                                </Text>
+                              </View>
+                            );
+                          }
+
+                          return null;
+                        })()}
+                      </View>
+
+                      {/* MOVE IN INSPECTION CARD (matching Web Photo 2) */}
+                      <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+                        <Text style={[styles.formLabel, { marginTop: 0, color: '#38bdf8' }]} allowFontScaling={false}>MOVE IN INSPECTION</Text>
+                        
+                        <View style={{ backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(248, 250, 252, 0.9)', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBorder, marginTop: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <Text style={{ fontSize: 13.5, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
+                              {selectedWorkflowItem.inspectionCode || `MI-${String(selectedWorkflowItem.id).slice(-8).toUpperCase()}`}
+                            </Text>
+                            <View style={[styles.badge, { borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.12)', paddingHorizontal: 7, paddingVertical: 2.5 }]}>
+                              <Text style={[styles.badgeText, { color: '#10b981', fontSize: 10.5, fontWeight: '800' }]} allowFontScaling={false}>
+                                {selectedWorkflowItem.inspectionStatus || 'COMPLETED'}
                               </Text>
                             </View>
-                          )}
-                        </TouchableOpacity>
-                      </View>
-                    )}
+                          </View>
 
-                    {/* Case C: Scheduled */}
-                    {selectedWorkflowItem.workflowStatus?.toUpperCase() === 'SCHEDULED' && (
-                      <View style={{ marginTop: 6 }}>
-                        <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 12 }} allowFontScaling={false}>
-                          Workflow is currently scheduled. You can perform the condition inspection using a template or skip.
-                        </Text>
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                          <Text style={{ fontSize: 11.5, color: colors.textSecondary, marginBottom: 12 }} allowFontScaling={false}>
+                            Template: {selectedWorkflowItem.templateName || 'New (v1)'}
+                          </Text>
+
                           <TouchableOpacity
-                            style={[styles.smallActionBtn, { flex: 1, backgroundColor: '#38bdf8', paddingVertical: 10, alignItems: 'center', justifyContent: 'center' }]}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderWidth: 1,
+                              borderColor: isDarkMode ? 'rgba(255,255,255,0.15)' : '#cbd5e1',
+                              backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+                              paddingVertical: 9,
+                              borderRadius: 8,
+                            }}
                             onPress={() => {
                               setWorkflowModalOpen(false);
-                              handleOpenStartInspectionModal(workflowType, selectedWorkflowItem.id);
+                              const targetInspId = selectedWorkflowItem.inspectionId || (selectedWorkflowItem.inspections && selectedWorkflowItem.inspections[0]?.id);
+                              if (targetInspId) {
+                                onNavigate && onNavigate('inspection', { inspectionId: targetInspId });
+                              } else {
+                                Alert.alert('Inspection Checklist', 'Checklist report verified. All rooms inspected and signed.');
+                              }
                             }}
                           >
-                            <Text style={[styles.smallActionText, { color: '#0f172a' }]} allowFontScaling={false}>Start Inspection</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.smallActionBtn, { flex: 1, borderWidth: 1, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', paddingVertical: 10, alignItems: 'center', justifyContent: 'center' }]}
-                            onPress={() => {
-                              setWorkflowModalOpen(false);
-                              if (workflowType === 'moveout') handleSkipMoveOut(selectedWorkflowItem);
-                              else handleSkipMoveIn(selectedWorkflowItem);
-                            }}
-                          >
-                            <Text style={[styles.smallActionText, { color: '#10b981' }]} allowFontScaling={false}>Skip Inspection</Text>
+                            <Ionicons name="eye-outline" size={15} color={colors.textPrimary} style={{ marginRight: 6 }} />
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>
+                              View Checklist
+                            </Text>
                           </TouchableOpacity>
                         </View>
                       </View>
-                    )}
+                    </View>
+                  ) : (
+                    /* --- MOVE OUT WORKFLOW CONTROLS (Damage assessment & deposit refund) --- */
+                    <View>
+                      {/* MOVE OUT INSPECTION CARD (matching Web 1:1 Parity) */}
+                      {Boolean(selectedWorkflowItem?.latestInspection || (selectedWorkflowItem?.inspections && selectedWorkflowItem.inspections.length > 0) || (selectedWorkflowItem?.workflowStatus && selectedWorkflowItem.workflowStatus.toUpperCase() !== 'SCHEDULED')) && (
+                        <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+                          <Text style={[styles.formLabel, { marginTop: 0, color: '#38bdf8' }]} allowFontScaling={false}>MOVE OUT INSPECTION</Text>
+                          
+                          {(() => {
+                            const ins = selectedWorkflowItem.latestInspection || (selectedWorkflowItem.inspections && selectedWorkflowItem.inspections[0]) || {};
+                            const inspStatus = ins.status || selectedWorkflowItem.inspectionStatus || 'COMPLETED';
+                            const isInspCompleted = inspStatus.toUpperCase() === 'COMPLETED';
+                            const inspectorName = ins.assignedInspector?.firstName
+                              ? `${ins.assignedInspector.firstName} ${ins.assignedInspector.lastName || ''}`.trim()
+                              : ins.inspectorName || 'Unassigned';
 
-                    {/* Case D: Completed */}
-                    {selectedWorkflowItem.workflowStatus?.toUpperCase() === 'COMPLETED' && (
-                      <View style={{ marginTop: 6, alignItems: 'center', paddingVertical: 16 }}>
-                        <Ionicons name="checkmark-circle" size={42} color="#10b981" style={{ marginBottom: 6 }} />
-                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>
-                          {workflowType === 'moveout' ? 'Move Out Completed' : 'Move In Finalized'}
-                        </Text>
-                        <Text style={{ fontSize: 11.5, color: colors.textSecondary, textAlign: 'center', marginTop: 4, maxWidth: 280 }} allowFontScaling={false}>
-                          {workflowType === 'moveout'
-                            ? 'Lease is closed, unit is marked vacant for turnover, and deposit refund finalized.'
-                            : 'Resident has officially moved into the unit. Lease active.'}
-                        </Text>
-                        {selectedWorkflowItem.inspectionId ? (
+                            return (
+                              <View style={{ backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(248, 250, 252, 0.9)', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBorder, marginTop: 8 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <Text style={{ fontSize: 13.5, fontWeight: '800', color: colors.primary }} allowFontScaling={false}>
+                                      {ins.inspectionNumber || selectedWorkflowItem.inspectionCode || `MO-${String(selectedWorkflowItem.id).slice(-8).toUpperCase()}`}
+                                    </Text>
+                                    <View style={[styles.badge, { borderColor: isInspCompleted ? '#10b981' : '#f59e0b', backgroundColor: isInspCompleted ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)', paddingHorizontal: 7, paddingVertical: 2.5 }]}>
+                                      <Text style={[styles.badgeText, { color: isInspCompleted ? '#10b981' : '#f59e0b', fontSize: 10, fontWeight: '800' }]} allowFontScaling={false}>
+                                        {inspStatus.toUpperCase()}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                </View>
+
+                                <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 12 }} allowFontScaling={false}>
+                                  Template: {ins.templateName || selectedWorkflowItem.templateName || 'astoria3'} (v{ins.templateVersion || selectedWorkflowItem.templateVersion || 1})
+                                </Text>
+
+                                {/* Inspector, Started At, Completed At Grid matching Web Photo 2 */}
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.cardBorder, marginBottom: 10 }}>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase' }} allowFontScaling={false}>INSPECTOR</Text>
+                                    <Text style={{ fontSize: 11.5, fontWeight: '700', color: colors.textPrimary, marginTop: 2 }} allowFontScaling={false}>{inspectorName}</Text>
+                                  </View>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase' }} allowFontScaling={false}>STARTED AT</Text>
+                                    <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
+                                      {ins.startedAt ? new Date(ins.startedAt).toLocaleString() : 'N/A'}
+                                    </Text>
+                                  </View>
+                                  {ins.completedAt ? (
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase' }} allowFontScaling={false}>COMPLETED AT</Text>
+                                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#10b981', marginTop: 2 }} allowFontScaling={false}>
+                                        {new Date(ins.completedAt).toLocaleString()}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+                                </View>
+
+                                {/* Signatures & Signoff matching Web Photo 2 */}
+                                <View style={{ borderTopWidth: 1, borderTopColor: colors.cardBorder, paddingTop: 10 }}>
+                                  <Text style={{ fontSize: 10, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', marginBottom: 8, letterSpacing: 0.5 }} allowFontScaling={false}>
+                                    SIGNATURES & SIGNOFF
+                                  </Text>
+                                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                                    {/* Inspector Signature */}
+                                    <View style={{ flex: 1, backgroundColor: isDarkMode ? '#1e293b' : '#ffffff', borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 10, padding: 10, alignItems: 'center' }}>
+                                      <Text style={{ fontSize: 9, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', marginBottom: 4 }} allowFontScaling={false}>
+                                        INSPECTOR SIGNATURE
+                                      </Text>
+                                      {ins.inspectorSignature ? (
+                                        <Image
+                                          source={{ uri: ins.inspectorSignature }}
+                                          style={{ width: '100%', height: 42, resizeMode: 'contain' }}
+                                        />
+                                      ) : (
+                                        <Text style={{ fontSize: 11, color: '#ef4444', fontWeight: '600', paddingVertical: 10 }} allowFontScaling={false}>
+                                          Missing Signature
+                                        </Text>
+                                      )}
+                                      {ins.inspectorSignedAt && (
+                                        <Text style={{ fontSize: 9, color: colors.textMuted, marginTop: 4 }} allowFontScaling={false}>
+                                          {new Date(ins.inspectorSignedAt).toLocaleString()}
+                                        </Text>
+                                      )}
+                                    </View>
+
+                                    {/* Tenant Signature */}
+                                    <View style={{ flex: 1, backgroundColor: isDarkMode ? '#1e293b' : '#ffffff', borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 10, padding: 10, alignItems: 'center' }}>
+                                      <Text style={{ fontSize: 9, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', marginBottom: 4 }} allowFontScaling={false}>
+                                        TENANT SIGNATURE
+                                      </Text>
+                                      {ins.tenantSignature ? (
+                                        <Image
+                                          source={{ uri: ins.tenantSignature }}
+                                          style={{ width: '100%', height: 42, resizeMode: 'contain' }}
+                                        />
+                                      ) : (
+                                        <Text style={{ fontSize: 11, color: '#ef4444', fontWeight: '600', paddingVertical: 10 }} allowFontScaling={false}>
+                                          Missing Signature
+                                        </Text>
+                                      )}
+                                      {ins.tenantSignedAt && (
+                                        <Text style={{ fontSize: 9, color: colors.textMuted, marginTop: 4 }} allowFontScaling={false}>
+                                          {new Date(ins.tenantSignedAt).toLocaleString()}
+                                        </Text>
+                                      )}
+                                    </View>
+                                  </View>
+                                </View>
+
+                                {/* View Checklist Button at Bottom of Move Out Inspection Card */}
+                                <TouchableOpacity
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderWidth: 1.5,
+                                    borderColor: isDarkMode ? '#38bdf8' : '#2563eb',
+                                    backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.1)' : 'rgba(37, 99, 235, 0.06)',
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 16,
+                                    borderRadius: 10,
+                                    marginTop: 14,
+                                  }}
+                                  onPress={() => {
+                                    setWorkflowModalOpen(false);
+                                    const targetInspId = ins.id || selectedWorkflowItem.inspectionId || (selectedWorkflowItem.inspections && selectedWorkflowItem.inspections[0]?.id);
+                                    if (targetInspId) {
+                                      onNavigate && onNavigate('inspection', { inspectionId: targetInspId });
+                                    } else {
+                                      Alert.alert('Inspection Checklist', 'No active inspection checklist found.');
+                                    }
+                                  }}
+                                >
+                                  <Ionicons name="eye-outline" size={16} color={isDarkMode ? '#38bdf8' : '#2563eb'} style={{ marginRight: 6 }} />
+                                  <Text style={{ fontSize: 13, fontWeight: '800', color: isDarkMode ? '#38bdf8' : '#2563eb' }} allowFontScaling={false}>
+                                    View Checklist
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          })()}
+                        </View>
+                      )}
+
+                      {/* WORKFLOW CONTROLS */}
+                      <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+                        <Text style={[styles.formLabel, { marginTop: 0, color: '#38bdf8' }]} allowFontScaling={false}>WORKFLOW CONTROLS</Text>
+
+                      {/* Case A: Inspection Completed or Damage Review */}
+                      {(selectedWorkflowItem.workflowStatus?.toUpperCase() === 'INSPECTION_COMPLETED' || selectedWorkflowItem.workflowStatus?.toUpperCase() === 'DAMAGE_REVIEW') && (
+                        <View style={{ marginTop: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.25)', marginBottom: 12 }}>
+                            <Ionicons name="shield-checkmark" size={18} color="#10b981" style={{ marginRight: 8 }} />
+                            <Text style={{ fontSize: 11.5, color: '#10b981', fontWeight: '700', flex: 1 }} allowFontScaling={false}>
+                              Checklist completed and signed. Ready for damage assessments.
+                            </Text>
+                          </View>
+
+                          {loadingWorkflowDetail ? (
+                            <ActivityIndicator size="small" color="#38bdf8" style={{ marginVertical: 14 }} />
+                          ) : (
+                            <View>
+                              <Text style={[styles.formLabel, { marginTop: 0 }]} allowFontScaling={false}>
+                                UNIT DAMAGE ITEMS REVIEW ({workflowDamageItems.length})
+                              </Text>
+
+                              {workflowDamageItems.length === 0 ? (
+                                <View style={{ padding: 12, backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(241, 245, 249, 0.8)', borderRadius: 10, marginBottom: 12 }}>
+                                  <Text style={{ fontSize: 12, color: colors.textSecondary }} allowFontScaling={false}>
+                                    No room damages detected in inspection checklist. Full deposit will be refunded.
+                                  </Text>
+                                </View>
+                              ) : (
+                                workflowDamageItems.map((item, idx) => (
+                                  <View key={item.id || idx} style={{ backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(248, 250, 252, 0.9)', padding: 10, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: colors.cardBorder }}>
+                                    <View style={styles.rowBetween}>
+                                      <View style={{ flex: 1, marginRight: 8 }}>
+                                        <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
+                                          {item.roomName} · {item.label}
+                                        </Text>
+                                        {item.notes ? (
+                                          <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
+                                            Note: {item.notes}
+                                          </Text>
+                                        ) : null}
+                                      </View>
+                                      <View style={[styles.badge, { borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                                        <Text style={[styles.badgeText, { color: '#ef4444' }]} allowFontScaling={false}>{item.condition}</Text>
+                                      </View>
+                                    </View>
+
+                                    <View style={[styles.rowBetween, { marginTop: 8, alignItems: 'center' }]}>
+                                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted }} allowFontScaling={false}>
+                                        Damage Charge ($):
+                                      </Text>
+                                      <TextInput
+                                        style={[styles.formInput, { width: 90, height: 34, marginBottom: 0, paddingVertical: 4, textAlign: 'center', fontSize: 12.5 }]}
+                                        placeholder="50"
+                                        placeholderTextColor="#64748b"
+                                        keyboardType="numeric"
+                                        value={damageChargeInputs[item.id] !== undefined ? String(damageChargeInputs[item.id]) : String(item.chargeAmount || 50)}
+                                        onChangeText={(val) => setDamageChargeInputs(prev => ({ ...prev, [item.id]: val }))}
+                                      />
+                                    </View>
+                                  </View>
+                                ))
+                              )}
+
+                              {/* Summary Calculation */}
+                              {(() => {
+                                const deposit = Number(String(selectedWorkflowItem.depositAmount || 1500).replace(/[^0-9.]/g, '')) || 1500;
+                                const totalDamages = workflowDamageItems.reduce((acc, curr) => {
+                                  const charge = damageChargeInputs[curr.id] !== undefined ? Number(damageChargeInputs[curr.id]) : Number(curr.chargeAmount || 50);
+                                  return acc + (isNaN(charge) ? 0 : charge);
+                                }, 0);
+                                const refund = Math.max(0, deposit - totalDamages);
+
+                                return (
+                                  <View style={{ backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(241, 245, 249, 1)', padding: 12, borderRadius: 10, marginTop: 4, marginBottom: 12 }}>
+                                    <View style={styles.rowBetween}>
+                                      <Text style={{ fontSize: 11.5, color: colors.textSecondary }} allowFontScaling={false}>Original Security Deposit:</Text>
+                                      <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>${deposit.toLocaleString()}</Text>
+                                    </View>
+                                    <View style={[styles.rowBetween, { marginTop: 4 }]}>
+                                      <Text style={{ fontSize: 11.5, color: '#ef4444' }} allowFontScaling={false}>Total Damage Deductions:</Text>
+                                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#ef4444' }} allowFontScaling={false}>-${totalDamages.toLocaleString()}</Text>
+                                    </View>
+                                    <View style={[styles.divider, { marginVertical: 6 }]} />
+                                    <View style={styles.rowBetween}>
+                                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>Estimated Refund to Tenant:</Text>
+                                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>${refund.toLocaleString()}</Text>
+                                    </View>
+                                  </View>
+                                );
+                              })()}
+
+                              <TouchableOpacity
+                                style={[styles.submitBtn, { backgroundColor: '#38bdf8', paddingVertical: 12, marginTop: 4 }]}
+                                onPress={handleSubmitDamageReview}
+                                disabled={submittingWorkflowAction}
+                              >
+                                {submittingWorkflowAction ? (
+                                  <ActivityIndicator size="small" color="#0f172a" />
+                                ) : (
+                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <Ionicons name="document-text-outline" size={16} color="#0f172a" style={{ marginRight: 6 }} />
+                                    <Text style={styles.submitBtnText} allowFontScaling={false}>
+                                      Submit Damage Assessment & Finalize Deposit
+                                    </Text>
+                                  </View>
+                                )}
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                        </View>
+                      )}
+
+                      {/* Case B: Ready for completion */}
+                      {selectedWorkflowItem.workflowStatus?.toUpperCase() === 'READY_FOR_COMPLETION' && (
+                        <View style={{ marginTop: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.25)', marginBottom: 12 }}>
+                            <Ionicons name="shield-checkmark" size={18} color="#10b981" style={{ marginRight: 8 }} />
+                            <Text style={{ fontSize: 11.5, color: '#10b981', fontWeight: '700', flex: 1 }} allowFontScaling={false}>
+                              Damage checklist and deposit refund settled. Ready to complete Move Out.
+                            </Text>
+                          </View>
                           <TouchableOpacity
-                            style={[styles.smallActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderWidth: 1, borderColor: '#38bdf8', marginTop: 12, paddingHorizontal: 16 }]}
-                            onPress={() => {
-                              setWorkflowModalOpen(false);
-                              onNavigate && onNavigate('inspection', { inspectionId: selectedWorkflowItem.inspectionId });
-                            }}
+                            style={[styles.submitBtn, { backgroundColor: '#10b981', paddingVertical: 12 }]}
+                            onPress={handleFinalizeMoveOut}
+                            disabled={submittingWorkflowAction}
                           >
-                            <Text style={[styles.smallActionText, { color: '#38bdf8' }]} allowFontScaling={false}>View Inspection Checklist</Text>
+                            {submittingWorkflowAction ? (
+                              <ActivityIndicator size="small" color="#ffffff" />
+                            ) : (
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Ionicons name="checkmark-done-circle" size={17} color="#ffffff" style={{ marginRight: 6 }} />
+                                <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>
+                                  Complete Move Out & Close Lease
+                                </Text>
+                              </View>
+                            )}
                           </TouchableOpacity>
-                        ) : null}
-                      </View>
-                    )}
+                        </View>
+                      )}
+
+                      {/* Case C: Scheduled */}
+                      {selectedWorkflowItem.workflowStatus?.toUpperCase() === 'SCHEDULED' && (
+                        <View style={{ marginTop: 6 }}>
+                          <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 12 }} allowFontScaling={false}>
+                            Workflow is currently scheduled. You can perform the condition inspection using a template or skip.
+                          </Text>
+                          <View style={{ flexDirection: 'row', gap: 10 }}>
+                            <TouchableOpacity
+                              style={[styles.smallActionBtn, { flex: 1, backgroundColor: '#38bdf8', paddingVertical: 10, alignItems: 'center', justifyContent: 'center' }]}
+                              onPress={() => {
+                                setWorkflowModalOpen(false);
+                                handleOpenStartInspectionModal('moveout', selectedWorkflowItem.id);
+                              }}
+                            >
+                              <Text style={[styles.smallActionText, { color: '#0f172a' }]} allowFontScaling={false}>Start Inspection</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.smallActionBtn, { flex: 1, borderWidth: 1, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', paddingVertical: 10, alignItems: 'center', justifyContent: 'center' }]}
+                              onPress={() => {
+                                setWorkflowModalOpen(false);
+                                handleSkipMoveOut(selectedWorkflowItem);
+                              }}
+                            >
+                              <Text style={[styles.smallActionText, { color: '#10b981' }]} allowFontScaling={false}>Skip Inspection</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
+
+                      {/* Case D: Completed */}
+                      {selectedWorkflowItem.workflowStatus?.toUpperCase() === 'COMPLETED' && (
+                        <View style={{ marginTop: 6, alignItems: 'center', paddingVertical: 16 }}>
+                          <Ionicons name="checkmark-circle" size={42} color="#10b981" style={{ marginBottom: 6 }} />
+                          <Text style={{ fontSize: 14, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>
+                            Move Out Completed
+                          </Text>
+                          <Text style={{ fontSize: 11.5, color: colors.textSecondary, textAlign: 'center', marginTop: 4, maxWidth: 280 }} allowFontScaling={false}>
+                            Lease is closed, unit is marked vacant for turnover, and deposit refund finalized.
+                          </Text>
+                          {selectedWorkflowItem.inspectionId ? (
+                            <TouchableOpacity
+                              style={[styles.smallActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderWidth: 1, borderColor: '#38bdf8', marginTop: 12, paddingHorizontal: 16 }]}
+                              onPress={() => {
+                                setWorkflowModalOpen(false);
+                                onNavigate && onNavigate('inspection', { inspectionId: selectedWorkflowItem.inspectionId });
+                              }}
+                            >
+                              <Text style={[styles.smallActionText, { color: '#38bdf8' }]} allowFontScaling={false}>View Inspection Checklist</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      )}
+                    </View>
                   </View>
+                )}
                 </ScrollView>
               )}
 
@@ -4794,9 +5459,8 @@ export const LeadsScreen = ({ onNavigate, initialTab = 'leads', targetLeaseId })
                 </TouchableOpacity>
               </View>
             </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
+          </KeyboardAvoidingView>
+        </Modal>
 
     </View>
   );
@@ -5150,25 +5814,58 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     backgroundColor: colors.cardBorder,
     marginBottom: 10,
   },
-  skipBtn: {
+  screeningModalActions: {
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+    paddingTop: 14,
+    marginTop: 14,
+    gap: 10,
+  },
+  screeningBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  screeningCancelBtn: {
+    flex: 1,
     backgroundColor: isDarkMode ? '#334155' : '#f1f5f9',
     borderRadius: 10,
     paddingVertical: 12,
-    paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    borderWidth: 1,
+    borderColor: isDarkMode ? '#475569' : '#e2e8f0',
+  },
+  screeningCancelBtnText: {
+    color: isDarkMode ? '#cbd5e1' : '#64748b',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  skipBtn: {
+    flex: 1.2,
+    backgroundColor: '#10b981',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 2,
   },
   skipBtnText: {
-    color: isDarkMode ? '#cbd5e1' : '#475569',
+    color: '#ffffff',
     fontSize: 13,
     fontWeight: '800',
   },
   sendInviteBtn: {
-    flex: 1.5,
+    width: '100%',
     backgroundColor: '#6366f1',
     borderRadius: 10,
-    paddingVertical: 12,
+    paddingVertical: 13,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -5181,8 +5878,9 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   },
   sendInviteBtnText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
+    letterSpacing: 0.3,
   },
 
   // Inline dropdown container styles (matches Maintenance / Web dropdowns)

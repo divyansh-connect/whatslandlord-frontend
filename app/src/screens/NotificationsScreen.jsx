@@ -266,8 +266,15 @@ export const NotificationsScreen = ({ onNavigate }) => {
       targetUrl.includes('maintenance') ||
       title.includes('maintenance') ||
       title.includes('service request') ||
-      title.includes('work order')
+      title.includes('work order') ||
+      targetUrl.includes('staff')
     ) {
+      if (displayRole === 'Maintenance Staff' || user?.role === 'Maintenance Staff') {
+        if (onNavigate) {
+          onNavigate('mytasks', { id: targetId });
+        }
+        return;
+      }
       targetTab = 'maintenance';
       targetSubTab = targetUrl.includes('work-order') || title.includes('work order') ? 'work_orders' : 'requests';
     } else if (

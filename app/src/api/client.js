@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
-import * as FileSystem from 'expo-file-system';
 
 // Safe storage wrapper to prevent native module crashes in Expo Go
 let localCache = {};
@@ -42,7 +41,7 @@ const safeStorage = {
 
 const getBaseUrl = () => {
   // Use live production Railway backend URL matching Web App
-  return process.env.EXPO_PUBLIC_API_URL || 'https://whatsland-backend-production.up.railway.app/api/v1';
+  return process.env.EXPO_PUBLIC_API_URL || 'https://whatslandlord-backend-production.up.railway.app/api/v1';
 };
 
 const BASE_URL = getBaseUrl();
@@ -75,6 +74,36 @@ async function handleUnauthorized(logoutFn, refreshFn) {
   }
 }
 
+function formatValidationErrorMessage(rawMessage, details) {
+  const isValidation = (rawMessage && (rawMessage.toLowerCase().includes('payload') || rawMessage.toLowerCase().includes('validation failed')));
+  if (!isValidation && (!details || !Array.isArray(details) || details.length === 0)) {
+    return rawMessage;
+  }
+
+  if (Array.isArray(details) && details.length > 0) {
+    const fieldNames = details.map((d) => {
+      let f = d.field || (Array.isArray(d.path) ? d.path.join('.') : d.path) || '';
+      if (typeof f === 'string') {
+        f = f.replace(/^(body|query|params)\./i, '');
+        f = f.replace(/([A-Z])/g, ' $1').replace(/[._]/g, ' ').trim();
+        if (f) {
+          f = f.charAt(0).toUpperCase() + f.slice(1);
+        }
+      }
+      const msg = d.message && d.message.toLowerCase() !== 'required' ? ` (${d.message})` : '';
+      return f ? `${f}${msg}` : d.message;
+    }).filter(Boolean);
+
+    if (fieldNames.length === 1) {
+      return `Please fill the required field: ${fieldNames[0]}`;
+    } else if (fieldNames.length > 1) {
+      return `Please fill the required fields:\n• ${fieldNames.join('\n• ')}`;
+    }
+  }
+
+  return 'Please fill all required input fields before submitting.';
+}
+
 async function handleResponseError(response) {
   let message = 'API request failed';
   let code = 'API_ERROR';
@@ -97,10 +126,22 @@ async function handleResponseError(response) {
     // Ignore JSON parsing failure
   }
 
-  const err = new Error(message);
+  // Format validation errors into clean user-friendly field instructions
+  const friendlyMessage = formatValidationErrorMessage(message, details);
+
+  const err = new Error(friendlyMessage);
   err.status = response.status;
   err.code = code;
   err.details = details;
+  // Provide Axios-compatible response object for screens checking e.response?.data
+  err.response = {
+    status: response.status,
+    data: {
+      message: friendlyMessage,
+      error: { message: friendlyMessage, code, details },
+      errors: Array.isArray(details) ? details : undefined,
+    },
+  };
   throw err;
 }
 
@@ -380,50 +421,127 @@ export const apiClient = {
     }
   },
 
-  uploadFile: async (rawUrl, fileUri, options = {}, logoutFn, refreshFn) => {
+  uploadFile: async (rawUrl, fileInput, options = {}, logoutFn, refreshFn) => {
     const url = normalizeUrl(rawUrl);
     const token = await apiClient.getToken();
-    const headers = {
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
+
+    let uri = '';
+    let rawFileName = '';
+    let inputMimeType = '';
+
+    if (typeof fileInput === 'string') {
+      uri = fileInput;
+    } else if (fileInput && typeof fileInput === 'object') {
+      uri = fileInput.uri || '';
+      rawFileName = fileInput.name || '';
+      inputMimeType = fileInput.mimeType || fileInput.type || '';
+    }
+
+    const pathPart = uri.split('/').pop() || `doc_${Date.now()}`;
+    const fileName = options.fileName || options.parameters?.name || rawFileName || pathPart;
+    const ext = (fileName.split('.').pop() || pathPart.split('.').pop() || '').toLowerCase();
+
+    let mimeType = inputMimeType || options.mimeType;
+    if (!mimeType || mimeType === 'application/octet-stream') {
+      if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+      else if (ext === 'png') mimeType = 'image/png';
+      else if (ext === 'webp') mimeType = 'image/webp';
+      else if (ext === 'gif') mimeType = 'image/gif';
+      else if (ext === 'pdf') mimeType = 'application/pdf';
+      else if (ext === 'csv') mimeType = 'text/csv';
+      else if (ext === 'doc') mimeType = 'application/msword';
+      else if (ext === 'docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      else if (ext === 'xls') mimeType = 'application/vnd.ms-excel';
+      else if (ext === 'xlsx') mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      else if (ext === 'txt') mimeType = 'text/plain';
+      else mimeType = 'application/octet-stream';
+    }
+
+    // Use React Native's native FormData polyfill with XMLHttpRequest to bypass Expo's WinterCG fetch limitation
+    const formData = new FormData();
+    formData.append(options.fieldName || 'file', {
+      uri,
+      name: fileName,
+      type: mimeType,
+    });
+
+    if (options.parameters) {
+      Object.keys(options.parameters).forEach((key) => {
+        const val = options.parameters[key];
+        if (val !== undefined && val !== null && val !== '') {
+          formData.append(key, String(val));
+        }
+      });
+    }
+
+    const doXhrUpload = (authToken) => {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(options.method || 'POST', `${BASE_URL}${url}`);
+
+        xhr.setRequestHeader('Accept', 'application/json');
+        if (authToken) {
+          xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+        }
+        if (options.headers) {
+          Object.keys(options.headers).forEach((h) => {
+            if (h.toLowerCase() !== 'content-type') {
+              xhr.setRequestHeader(h, options.headers[h]);
+            }
+          });
+        }
+
+        xhr.onload = () => {
+          let responseData = xhr.response || xhr.responseText;
+          try {
+            responseData = JSON.parse(responseData);
+          } catch (_) {}
+
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(responseData);
+          } else {
+            let errorMsg = 'Upload failed';
+            if (responseData) {
+              if (responseData.error && typeof responseData.error === 'object') {
+                errorMsg = responseData.error.message || errorMsg;
+              } else if (responseData.message) {
+                errorMsg = responseData.message;
+              } else if (typeof responseData.error === 'string') {
+                errorMsg = responseData.error;
+              }
+            }
+            const err = new Error(errorMsg);
+            err.status = xhr.status;
+            err.response = responseData;
+            reject(err);
+          }
+        };
+
+        xhr.onerror = () => {
+          reject(new Error('Network request failed during document upload'));
+        };
+
+        xhr.ontimeout = () => {
+          reject(new Error('Document upload timed out'));
+        };
+
+        xhr.timeout = 60000;
+        xhr.send(formData);
+      });
     };
 
-    const uploadOptions = {
-      fieldName: options.fieldName || 'file',
-      httpMethod: options.method || 'POST',
-      uploadType: FileSystem.FileSystemUploadType?.MULTIPART || 1,
-      headers,
-      parameters: options.parameters || {},
-    };
-
-    const res = await FileSystem.uploadAsync(`${BASE_URL}${url}`, fileUri, uploadOptions);
-    if (res.status === 401 && (logoutFn || refreshFn)) {
-      const refreshed = await handleUnauthorized(logoutFn, refreshFn);
-      if (refreshed) {
-        const newToken = await apiClient.getToken();
-        uploadOptions.headers.Authorization = `Bearer ${newToken}`;
-        const retryRes = await FileSystem.uploadAsync(`${BASE_URL}${url}`, fileUri, uploadOptions);
-        if (retryRes.status >= 200 && retryRes.status < 300) {
-          try { return JSON.parse(retryRes.body); } catch { return retryRes.body; }
+    try {
+      return await doXhrUpload(token);
+    } catch (err) {
+      if (err.status === 401 && (logoutFn || refreshFn)) {
+        const refreshed = await handleUnauthorized(logoutFn, refreshFn);
+        if (refreshed) {
+          const newToken = await apiClient.getToken();
+          return await doXhrUpload(newToken);
         }
       }
+      throw err;
     }
-
-    if (res.status >= 200 && res.status < 300) {
-      try {
-        return JSON.parse(res.body);
-      } catch (e) {
-        return res.body;
-      }
-    }
-
-    let errorMsg = 'Upload failed';
-    try {
-      const parsed = JSON.parse(res.body);
-      errorMsg = parsed.message || parsed.error?.message || errorMsg;
-    } catch {}
-    throw new Error(errorMsg);
   },
 };
 

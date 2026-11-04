@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,10 +12,11 @@ import {
   Image,
   Alert,
   useWindowDimensions,
+  Animated,
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
-import { useAuthStore, useThemeStore } from '../store/useStore';
+import { useAuthStore, useThemeStore, safeStorage } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
@@ -23,6 +24,123 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const { width } = Dimensions.get('window');
+
+// In-Memory cache for 0ms instantaneous tab switching
+let memoryDashboardCache = null;
+
+// Shimmer Skeleton item with smooth breathing pulse
+const SkeletonItem = ({ width: w, height: h, borderRadius = 10, style, isDarkMode }) => {
+  const animatedValue = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(animatedValue, {
+          toValue: 0.85,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+        Animated.timing(animatedValue, {
+          toValue: 0.3,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [animatedValue]);
+
+  const baseColor = isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: w || '100%',
+          height: h || 20,
+          borderRadius,
+          backgroundColor: baseColor,
+          opacity: animatedValue,
+        },
+        style,
+      ]}
+    />
+  );
+};
+
+// Shimmer Skeleton for dynamic cards under the top banner/image
+const DashboardDataSkeleton = ({ colors, isDarkMode }) => {
+  const cardBg = isDarkMode ? '#1e293b' : '#ffffff';
+  const borderCol = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+
+  return (
+    <View style={{ paddingTop: 14, gap: 14 }}>
+      {/* 1. Revenue Hero Card Skeleton */}
+      <View style={{ backgroundColor: cardBg, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: borderCol }}>
+        <SkeletonItem width="40%" height={12} isDarkMode={isDarkMode} />
+        <View style={{ height: 10 }} />
+        <SkeletonItem width="65%" height={32} borderRadius={8} isDarkMode={isDarkMode} />
+        <View style={{ height: 14 }} />
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <SkeletonItem width="48%" height={18} isDarkMode={isDarkMode} />
+          <SkeletonItem width="48%" height={18} isDarkMode={isDarkMode} />
+        </View>
+      </View>
+
+      {/* 2. 2x2 Metric Cards Grid Skeleton */}
+      <View style={{ flexDirection: 'row', gap: 12 }}>
+        <View style={{ flex: 1, backgroundColor: cardBg, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: borderCol }}>
+          <SkeletonItem width={36} height={36} borderRadius={18} isDarkMode={isDarkMode} />
+          <View style={{ height: 12 }} />
+          <SkeletonItem width="50%" height={22} isDarkMode={isDarkMode} />
+          <View style={{ height: 8 }} />
+          <SkeletonItem width="80%" height={12} isDarkMode={isDarkMode} />
+        </View>
+        <View style={{ flex: 1, backgroundColor: cardBg, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: borderCol }}>
+          <SkeletonItem width={36} height={36} borderRadius={18} isDarkMode={isDarkMode} />
+          <View style={{ height: 12 }} />
+          <SkeletonItem width="50%" height={22} isDarkMode={isDarkMode} />
+          <View style={{ height: 8 }} />
+          <SkeletonItem width="80%" height={12} isDarkMode={isDarkMode} />
+        </View>
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 12 }}>
+        <View style={{ flex: 1, backgroundColor: cardBg, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: borderCol }}>
+          <SkeletonItem width={36} height={36} borderRadius={18} isDarkMode={isDarkMode} />
+          <View style={{ height: 12 }} />
+          <SkeletonItem width="50%" height={22} isDarkMode={isDarkMode} />
+          <View style={{ height: 8 }} />
+          <SkeletonItem width="80%" height={12} isDarkMode={isDarkMode} />
+        </View>
+        <View style={{ flex: 1, backgroundColor: cardBg, borderRadius: 14, padding: 16, borderWidth: 1, borderColor: borderCol }}>
+          <SkeletonItem width={36} height={36} borderRadius={18} isDarkMode={isDarkMode} />
+          <View style={{ height: 12 }} />
+          <SkeletonItem width="50%" height={22} isDarkMode={isDarkMode} />
+          <View style={{ height: 8 }} />
+          <SkeletonItem width="80%" height={12} isDarkMode={isDarkMode} />
+        </View>
+      </View>
+
+      {/* 3. Financial Chart Card Skeleton */}
+      <View style={{ backgroundColor: cardBg, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: borderCol }}>
+        <SkeletonItem width="45%" height={16} isDarkMode={isDarkMode} />
+        <View style={{ height: 14 }} />
+        <SkeletonItem width="100%" height={130} borderRadius={12} isDarkMode={isDarkMode} />
+      </View>
+
+      {/* 4. Operational Lists Skeleton */}
+      <View style={{ backgroundColor: cardBg, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: borderCol }}>
+        <SkeletonItem width="35%" height={16} isDarkMode={isDarkMode} />
+        <View style={{ height: 14 }} />
+        <SkeletonItem width="100%" height={48} borderRadius={8} isDarkMode={isDarkMode} />
+        <View style={{ height: 10 }} />
+        <SkeletonItem width="100%" height={48} borderRadius={8} isDarkMode={isDarkMode} />
+      </View>
+    </View>
+  );
+};
 
 export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
   const { width: windowWidth } = useWindowDimensions();
@@ -95,32 +213,98 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
   const [loadingLeaseDetail, setLoadingLeaseDetail] = useState(false);
   const [previousMetric, setPreviousMetric] = useState(null);
 
-  // Fetch live dashboard data matching Web Frontend APIs strictly from real DB
+  // Apply cached snapshot immediately without waiting for network (0 ms)
+  const applyCachedData = (cached) => {
+    if (!cached) return;
+    if (cached.metrics) setMetrics(cached.metrics);
+    if (Array.isArray(cached.chartData)) setChartData(cached.chartData);
+    if (Array.isArray(cached.outstandingInvoices)) setOutstandingInvoices(cached.outstandingInvoices);
+    if (Array.isArray(cached.pendingPaymentsList)) setPendingPaymentsList(cached.pendingPaymentsList);
+    if (Array.isArray(cached.recentWorkOrders)) setRecentWorkOrders(cached.recentWorkOrders);
+    if (Array.isArray(cached.openServiceRequestsList)) setOpenServiceRequestsList(cached.openServiceRequestsList);
+    if (Array.isArray(cached.upcomingLeases)) setUpcomingLeases(cached.upcomingLeases);
+    if (Array.isArray(cached.allLeasesList)) setAllLeasesList(cached.allLeasesList);
+    if (Array.isArray(cached.propertiesList)) setPropertiesList(cached.propertiesList);
+    if (Array.isArray(cached.unitsList)) setUnitsList(cached.unitsList);
+    if (Array.isArray(cached.expensesList)) setExpensesList(cached.expensesList);
+    if (Array.isArray(cached.tenantsList)) setTenantsList(cached.tenantsList);
+    if (cached.taskStats) setTaskStats(cached.taskStats);
+    if (cached.portalStats) setPortalStats(cached.portalStats);
+    if (typeof cached.unreadCount === 'number') setUnreadCount(cached.unreadCount);
+  };
+
+  // Progressive live data fetch: Stage 1 (Fast Critical Metrics) + Stage 2 (Background Sync)
   const fetchDashboardData = async () => {
     try {
+      // --- STAGE 1: Fast Critical Metrics (0.2s) ---
+      // Fetch only top metrics, properties, and units first so user sees cards instantly
+      const [metricsRes, propsRes, unitsRes] = await Promise.all([
+        apiClient.get('/dashboard/metrics', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/properties', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/units', logout, refreshAccessToken).catch(() => null),
+      ]);
+
+      const rawProps = Array.isArray(propsRes) ? propsRes : (propsRes?.data || []);
+      const propArray = Array.isArray(rawProps) ? rawProps : [];
+      setPropertiesList(propArray);
+
+      const rawUnits = Array.isArray(unitsRes) ? unitsRes : (unitsRes?.data || []);
+      const unitArray = Array.isArray(rawUnits) ? rawUnits : [];
+      setUnitsList(unitArray);
+
+      const m = metricsRes?.data || metricsRes || {};
+      const totalU = Number(m.totalUnits !== undefined && m.totalUnits !== null ? m.totalUnits : unitArray.length);
+      const occU = Number(
+        m.occupiedUnits !== undefined && m.occupiedUnits !== null
+          ? m.occupiedUnits
+          : unitArray.filter((u) => String(u.status || '').toLowerCase() === 'occupied').length
+      );
+      const vacU = Number(
+        m.vacantUnits !== undefined && m.vacantUnits !== null
+          ? m.vacantUnits
+          : (totalU >= occU ? totalU - occU : unitArray.filter((u) => String(u.status || '').toLowerCase() === 'vacant').length)
+      );
+      const occRate = Number(
+        m.occupancyRate !== undefined && m.occupancyRate !== null
+          ? m.occupancyRate
+          : (totalU > 0 ? Math.round((occU / totalU) * 100) : 0)
+      );
+
+      setMetrics((prev) => ({
+        ...prev,
+        totalProperties: Number(m.totalProperties !== undefined && m.totalProperties !== null ? m.totalProperties : propArray.length),
+        totalUnits: totalU,
+        occupiedUnits: occU,
+        vacantUnits: vacU,
+        occupancyRate: occRate,
+        monthlyRevenue: Number(m.monthlyRevenue || prev.monthlyRevenue || 0),
+        pendingRent: Number(m.pendingRent || prev.pendingRent || 0),
+        expenses: Number(m.expenses !== undefined && m.expenses !== null ? m.expenses : prev.expenses),
+        openMaintenance: Number(m.openMaintenance !== undefined && m.openMaintenance !== null ? m.openMaintenance : prev.openMaintenance),
+        leasesExpiringSoon: Number(m.leasesExpiringSoon !== undefined && m.leasesExpiringSoon !== null ? m.leasesExpiringSoon : prev.leasesExpiringSoon),
+      }));
+
+      // Release full-screen loading spinner immediately!
+      setLoading(false);
+
+      // --- STAGE 2: Secondary / Heavy Lists in Background ---
       const [
-        metricsRes,
         chartsRes,
         invoicesRes,
         paymentsRes,
         woRes,
         serviceRequestsRes,
         leasesRes,
-        propsRes,
-        unitsRes,
         expensesRes,
         tenantsRes,
         notifsRes,
       ] = await Promise.all([
-        apiClient.get('/dashboard/metrics', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/dashboard/charts', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/invoices', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/payments', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/work-orders', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/service-requests', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/leases', logout, refreshAccessToken).catch(() => null),
-        apiClient.get('/properties', logout, refreshAccessToken).catch(() => null),
-        apiClient.get('/units', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/portal/expenses', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/tenants', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/notifications?role=Property Manager', logout, refreshAccessToken).catch(() => null),
@@ -131,15 +315,6 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
       const notifArray = Array.isArray(rawNotifs) ? rawNotifs : [];
       const unread = notifArray.filter((n) => !n.read && !n.isRead).length;
       setUnreadCount(unread);
-
-      // 1. Process Live Properties, Units & Tenants from DB
-      const rawProps = Array.isArray(propsRes) ? propsRes : (propsRes?.data || []);
-      const propArray = Array.isArray(rawProps) ? rawProps : [];
-      setPropertiesList(propArray);
-
-      const rawUnits = Array.isArray(unitsRes) ? unitsRes : (unitsRes?.data || []);
-      const unitArray = Array.isArray(rawUnits) ? rawUnits : [];
-      setUnitsList(unitArray);
 
       const rawTenants = Array.isArray(tenantsRes) ? tenantsRes : (tenantsRes?.data || []);
       const tenantArray = Array.isArray(rawTenants) ? rawTenants : [];
@@ -349,25 +524,7 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
         paymentSetUpPct: totalT > 0 ? Math.round((paymentSetUpCount / totalT) * 100) : 0,
       });
 
-      // 7. Process Core Metrics
-      const m = metricsRes?.data || metricsRes || {};
-      const totalU = Number(m.totalUnits !== undefined && m.totalUnits !== null ? m.totalUnits : unitArray.length);
-      const occU = Number(
-        m.occupiedUnits !== undefined && m.occupiedUnits !== null
-          ? m.occupiedUnits
-          : unitArray.filter((u) => String(u.status || '').toLowerCase() === 'occupied').length
-      );
-      const vacU = Number(
-        m.vacantUnits !== undefined && m.vacantUnits !== null
-          ? m.vacantUnits
-          : (totalU >= occU ? totalU - occU : unitArray.filter((u) => String(u.status || '').toLowerCase() === 'vacant').length)
-      );
-      const occRate = Number(
-        m.occupancyRate !== undefined && m.occupancyRate !== null
-          ? m.occupancyRate
-          : (totalU > 0 ? Math.round((occU / totalU) * 100) : 0)
-      );
-
+      // 7. Update Combined Metrics
       setMetrics({
         totalProperties: Number(m.totalProperties !== undefined && m.totalProperties !== null ? m.totalProperties : propArray.length),
         totalUnits: totalU,
@@ -390,14 +547,81 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
       });
 
       // 8. Process Financial Trends from /dashboard/charts
+      let finalChartData = [];
       if (chartsRes) {
         const c = chartsRes.data || chartsRes;
         const incExp = c.incomeVsExpenses || [];
         if (Array.isArray(incExp) && incExp.length > 0) {
+          finalChartData = incExp;
           setChartData(incExp);
         } else {
           setChartData([]);
         }
+      }
+
+      // Save snapshot to Memory & Disk Cache (Last Session Cache)
+      try {
+        const finalMetrics = {
+          totalProperties: Number(m.totalProperties !== undefined && m.totalProperties !== null ? m.totalProperties : propArray.length),
+          totalUnits: totalU,
+          occupiedUnits: occU,
+          vacantUnits: vacU,
+          occupancyRate: occRate,
+          monthlyRevenue: Number(m.monthlyRevenue || computedMonthlyRev || 0),
+          pendingRent: Number(
+            Number(m.pendingRent) > 0 
+              ? m.pendingRent 
+              : (totalPendingRent > 0 ? totalPendingRent : (m.pendingRent || 0))
+          ),
+          expenses: Number(m.expenses !== undefined && m.expenses !== null ? m.expenses : totalExpensesSum),
+          openMaintenance: Number(m.openMaintenance !== undefined && m.openMaintenance !== null ? m.openMaintenance : (woNotStarted + woInProgress + woOverdue + taskNotStarted + taskInProgress + taskOverdue)),
+          leasesExpiringSoon: Number(
+            activeUpcoming.length > 0
+              ? activeUpcoming.length
+              : (m.leasesExpiringSoon !== undefined && m.leasesExpiringSoon !== null ? m.leasesExpiringSoon : 0)
+          ),
+        };
+
+        const cacheBundle = {
+          metrics: finalMetrics,
+          propertiesList: propArray,
+          unitsList: unitArray,
+          tenantsList: tenantArray,
+          expensesList: expArray,
+          allLeasesList: enrichedLeases,
+          upcomingLeases: activeUpcoming,
+          outstandingInvoices: unpaidInvoices,
+          pendingPaymentsList: pendingPayments,
+          recentWorkOrders: woList.slice(0, 10),
+          openServiceRequestsList: openSR.slice(0, 10),
+          chartData: finalChartData,
+          taskStats: {
+            notStarted: woNotStarted + taskNotStarted,
+            inProgress: woInProgress + taskInProgress,
+            overdue: woOverdue + taskOverdue,
+            woNotStarted,
+            woInProgress,
+            woOverdue,
+            taskNotStarted,
+            taskInProgress,
+            taskOverdue,
+          },
+          portalStats: {
+            adoptionRate: totalT > 0 ? Math.round((activatedCount / totalT) * 100) : 0,
+            missingContactPct: totalT > 0 ? Math.round((missingContactCount / totalT) * 100) : 0,
+            invalidEmailPct: totalT > 0 ? Math.round((invalidEmailCount / totalT) * 100) : 0,
+            inactivePct: totalT > 0 ? Math.round((inactiveCount / totalT) * 100) : 100,
+            activatedPct: totalT > 0 ? Math.round((activatedCount / totalT) * 100) : 0,
+            paymentSetUpPct: totalT > 0 ? Math.round((paymentSetUpCount / totalT) * 100) : 0,
+          },
+          unreadCount: unread,
+          timestamp: Date.now(),
+        };
+
+        memoryDashboardCache = cacheBundle;
+        safeStorage.setItem('cache_manager_dashboard', JSON.stringify(cacheBundle)).catch(() => {});
+      } catch (cacheErr) {
+        console.log('Error writing dashboard cache:', cacheErr.message);
       }
 
     } catch (e) {
@@ -409,24 +633,37 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
   };
 
   useEffect(() => {
-    fetchDashboardData();
+    let isMounted = true;
+    const initData = async () => {
+      // 1. Instant RAM Cache (0 ms)
+      if (memoryDashboardCache) {
+        applyCachedData(memoryDashboardCache);
+        setLoading(false);
+      } else {
+        // 2. Last Session Disk Cache (0.01s)
+        try {
+          const saved = await safeStorage.getItem('cache_manager_dashboard');
+          if (saved && isMounted) {
+            const parsed = JSON.parse(saved);
+            memoryDashboardCache = parsed;
+            applyCachedData(parsed);
+            setLoading(false);
+          }
+        } catch (_) {}
+      }
+
+      // 3. Progressive live background sync
+      fetchDashboardData();
+    };
+
+    initData();
+    return () => { isMounted = false; };
   }, []);
 
   const handleRefresh = () => {
     setRefreshing(true);
     fetchDashboardData();
   };
-
-  if (loading && !refreshing) {
-    return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={[styles.loadingText, { color: colors.textSecondary }]} allowFontScaling={false}>
-          {language === 'es' ? 'Cargando datos en vivo...' : language === 'hi' ? 'लाइव डेटा लोड हो रहा है...' : 'Loading live dashboard...'}
-        </Text>
-      </View>
-    );
-  }
 
   // Lease metrics calculations for chart & breakdown
   const activeLeasesList = allLeasesList.filter((l) => String(l.status || '').toLowerCase() === 'active');
@@ -637,8 +874,10 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
           }));
       }
 
-      case 'monthlyRevenue':
-        return allLeasesList
+      case 'monthlyRevenue': {
+        const activeOnly = allLeasesList.filter((l) => String(l.status || '').toLowerCase() === 'active');
+        const listToUse = activeOnly.length > 0 ? activeOnly : allLeasesList;
+        return listToUse
           .filter((l) => Number(l.rentAmount) > 0)
           .filter((l) => !q || (l.tenantName && l.tenantName.toLowerCase().includes(q)) || (l.propertyName && l.propertyName.toLowerCase().includes(q)))
           .map((l) => ({
@@ -646,12 +885,13 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
             isLease: true,
             rawLease: l,
             title: l.tenantName || 'Resident',
-            subtitle: `${l.propertyName || 'Property'} · ${l.unitNumber || 'Unit'}`,
+            subtitle: `${l.propertyName || 'Property'} · ${l.unitNumber || 'Unit'}${l.status && String(l.status).toLowerCase() !== 'active' ? ` (${l.status})` : ''}`,
             badge: `$${Number(l.rentAmount || 0).toLocaleString()}/mo`,
             badgeColor: '#10b981',
             targetScreen: 'leasing',
             targetParams: { leaseId: l.id },
           }));
+      }
 
       case 'expenses':
         return expensesList
@@ -939,6 +1179,83 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
     );
   };
 
+  // Multi-Segment Ring Gauge for Portfolio Breakdowns (Active, Expiring, M2M, Vacant)
+  const renderMultiSegmentDonut = (segments, size = 130, strokeWidth = 11, centerMainText = '', centerSubText = '') => {
+    const totalSegments = 40;
+    const ticks = [];
+    const rawTotal = segments.reduce((sum, s) => sum + (s.percent || 0), 0) || 100;
+
+    segments.forEach((seg) => {
+      const segPercent = seg.percent || 0;
+      if (segPercent <= 0) return;
+      const count = Math.round((segPercent / rawTotal) * totalSegments);
+      for (let i = 0; i < count && ticks.length < totalSegments; i++) {
+        ticks.push(seg.color);
+      }
+    });
+
+    const fallbackColor = segments.find((s) => s.percent > 0)?.color || '#94a3b8';
+    while (ticks.length < totalSegments) {
+      ticks.push(fallbackColor);
+    }
+
+    const radius = size / 2;
+    const tickWidth = 4;
+    const tickHeight = strokeWidth;
+    const innerSize = size - strokeWidth * 2 - 12;
+
+    return (
+      <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+        {/* Radial multi-colored segmented dial */}
+        {ticks.map((color, index) => {
+          const angle = (index / totalSegments) * 360;
+          return (
+            <View
+              key={`tick-${index}`}
+              style={{
+                position: 'absolute',
+                width: tickWidth,
+                height: tickHeight,
+                borderRadius: tickWidth / 2,
+                backgroundColor: color,
+                top: radius - tickHeight / 2,
+                left: radius - tickWidth / 2,
+                transform: [
+                  { rotate: `${angle}deg` },
+                  { translateY: -(radius - tickHeight / 2) },
+                ],
+              }}
+            />
+          );
+        })}
+
+        {/* Center circle showing percentage & status */}
+        <View
+          style={{
+            position: 'absolute',
+            width: innerSize,
+            height: innerSize,
+            borderRadius: innerSize / 2,
+            backgroundColor: colors.surface,
+            justifyContent: 'center',
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: colors.cardBorder,
+          }}
+        >
+          <Text style={{ fontSize: 20, fontWeight: '800', color: colors.textPrimary }} allowFontScaling={false}>
+            {centerMainText}
+          </Text>
+          {Boolean(centerSubText) && (
+            <Text style={{ fontSize: 9.5, fontWeight: '700', color: colors.textSecondary, marginTop: 2, letterSpacing: 0.3 }} allowFontScaling={false}>
+              {centerSubText}
+            </Text>
+          )}
+        </View>
+      </View>
+    );
+  };
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -1025,8 +1342,15 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
       </View>
 
       {/* =========================================================================
-          3. HERO REVENUE CARD (Monthly Contracted Revenue + Live DB Data)
+          DYNAMIC DATA CONTENT OR SHIMMER SKELETON
           ========================================================================= */}
+      {loading && !refreshing ? (
+        <DashboardDataSkeleton colors={colors} isDarkMode={isDarkMode} />
+      ) : (
+        <>
+          {/* =========================================================================
+              3. HERO REVENUE CARD (Monthly Contracted Revenue + Live DB Data)
+              ========================================================================= */}
       <View style={[styles.revenueHeroCard, { backgroundColor: isDarkMode ? '#1e293b' : '#0f172a' }]}>
         <TouchableOpacity
           style={styles.revenueHeroTop}
@@ -1095,9 +1419,18 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
         </Text>
 
         <View style={styles.donutRow}>
-          {/* Circular Donut Ring with Occupancy % inside */}
+          {/* Multi-Segment Circular Donut Ring with Occupancy & Vacancy */}
           <View style={styles.donutWrapper}>
-            {renderDonutChart(occupancyPct, '#2563eb', '#ec4899', 130, 12, `${occupancyPct}%`)}
+            {renderMultiSegmentDonut(
+              [
+                { percent: occupancyPct, color: '#2563eb' },
+                { percent: vacancyPct, color: '#ec4899' },
+              ],
+              130,
+              11,
+              `${occupancyPct}%`,
+              'OCCUPIED'
+            )}
           </View>
 
           {/* Legend Items (Matching Screenshot 4) */}
@@ -1298,9 +1631,20 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
         </View>
 
         <View style={styles.donutRow}>
-          {/* Circular Donut Ring with Active Lease % inside */}
+          {/* Multi-Segment Circular Donut Ring representing Active, Expiring, and Vacant */}
           <View style={styles.donutWrapper}>
-            {renderDonutChart(activePct, '#10b981', '#cbd5e1', 130, 12, `${activePct}%`)}
+            {renderMultiSegmentDonut(
+              [
+                { percent: activePct, color: '#10b981' },
+                { percent: expiringPct, color: '#f59e0b' },
+                { percent: m2mPct, color: '#0284c7' },
+                { percent: vacantPct, color: '#ef4444' },
+              ],
+              130,
+              11,
+              `${activePct}%`,
+              'ACTIVE'
+            )}
           </View>
 
           {/* Right Detailed Breakdown (Interactive / Clickable) */}
@@ -1420,6 +1764,8 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
           <Text style={[styles.metricLink, { color: '#6366f1' }]} allowFontScaling={false}>Manage units →</Text>
         </TouchableOpacity>
       </View>
+        </>
+      )}
 
       {/* =========================================================================
           9. METRIC DETAILS MODAL
