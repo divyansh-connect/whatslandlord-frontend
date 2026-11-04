@@ -65,7 +65,7 @@ const AnimatedTouchable = ({ children, onPress, style, disabled }) => {
   );
 };
 
-export const TenantDocumentsScreen = ({ onNavigate, initialTab }) => {
+export const TenantDocumentsScreen = ({ onNavigate, onBack, initialTab }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -703,9 +703,17 @@ export const TenantDocumentsScreen = ({ onNavigate, initialTab }) => {
         {/* Header */}
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-            {!!onNavigate && (
+            {(!!onNavigate || !!onBack) && (
               <TouchableOpacity
-                onPress={() => onNavigate('dashboard')}
+                onPress={() => {
+                  if (activeTab !== (initialTab || 'all')) {
+                    setActiveTab(initialTab || 'all');
+                  } else if (onBack) {
+                    onBack();
+                  } else if (onNavigate) {
+                    onNavigate('back');
+                  }
+                }}
                 style={{ marginRight: 8, padding: 4 }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 activeOpacity={0.7}

@@ -19,7 +19,7 @@ import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
-export const TenantProfileScreen = ({ onNavigate }) => {
+export const TenantProfileScreen = ({ onNavigate, onBack }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language, setLanguage, theme, toggleTheme } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -189,10 +189,10 @@ export const TenantProfileScreen = ({ onNavigate }) => {
       {/* Top Header matching Web "Resident Profile" */}
       <View style={styles.header}>
         <View style={styles.headerTitleRow}>
-          {onNavigate && (
+          {(onNavigate || onBack) && (
             <TouchableOpacity
               style={styles.backBtn}
-              onPress={() => onNavigate('dashboard')}
+              onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)}
               activeOpacity={0.7}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >

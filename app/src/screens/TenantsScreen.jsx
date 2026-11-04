@@ -164,6 +164,7 @@ export const TenantsScreen = ({
   initialAdoptionFilter = null,
   targetTenantId = null,
   onNavigate,
+  onBack,
 }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
@@ -591,7 +592,7 @@ export const TenantsScreen = ({
         <View style={styles.header}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
             <TouchableOpacity
-              onPress={() => (onNavigate ? onNavigate('dashboard') : null)}
+              onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)}
               style={{ marginRight: 10, padding: 4 }}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               activeOpacity={0.7}

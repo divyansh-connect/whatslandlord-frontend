@@ -22,7 +22,7 @@ import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
-export const ManagerCommunicationScreen = ({ onNavigate }) => {
+export const ManagerCommunicationScreen = ({ onNavigate, onBack }) => {
   const { user, logout, refreshAccessToken } = useAuthStore();
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
@@ -379,8 +379,10 @@ export const ManagerCommunicationScreen = ({ onNavigate }) => {
             onPress={() => {
               if (activeContactName !== null) {
                 setActiveContactName(null);
+              } else if (onBack) {
+                onBack();
               } else if (onNavigate) {
-                onNavigate('dashboard');
+                onNavigate('back');
               }
             }}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}

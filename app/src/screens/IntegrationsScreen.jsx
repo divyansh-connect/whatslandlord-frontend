@@ -17,7 +17,7 @@ import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 
-export const IntegrationsScreen = ({ onNavigate }) => {
+export const IntegrationsScreen = ({ onNavigate, onBack }) => {
   const { logout, refreshAccessToken } = useAuthStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
@@ -167,7 +167,7 @@ export const IntegrationsScreen = ({ onNavigate }) => {
     <View style={styles.mainWrapper}>
       {/* FIXED NAVIGATION HEADER */}
       <View style={styles.fixedHeader}>
-        <TouchableOpacity onPress={() => onNavigate && onNavigate('dashboard')} style={styles.backButton}>
+        <TouchableOpacity onPress={() => (onBack ? onBack() : onNavigate ? onNavigate('back') : null)} style={styles.backButton}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} style={{ marginRight: 6 }} />
           <Text style={styles.title} allowFontScaling={false}>Integrations Marketplace</Text>
         </TouchableOpacity>
