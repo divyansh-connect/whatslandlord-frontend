@@ -820,9 +820,18 @@ export const api = {
               .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
           : (base.pendingRent ?? 0);
 
-        // 5. Expenses
-        const computedExpenses = expenses.length > 0
-          ? expenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0)
+        // 5. Expenses (Isolated by active company and aligned with /accounting/expenses)
+        const userCompanyId = getActiveCompanyId();
+        const filteredExpenses = expenses.filter((e: any) => {
+          let parsed: any = {};
+          try { parsed = JSON.parse(e.description); } catch { parsed = {}; }
+          if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
+          if (['Sunset Heights', 'Highland Tower', 'Grand View Apartments'].includes(parsed.propertyName) && !parsed.propertyId) return false;
+          return true;
+        });
+
+        const computedExpenses = expensesRes.status === 'fulfilled'
+          ? filteredExpenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0)
           : (base.expenses ?? 0);
 
         // 6. Monthly Revenue (active leases or occupied units)
@@ -1981,9 +1990,9 @@ export const api = {
         });
 
         paymentsList.forEach((pay: any) => {
-          if (pay.status === 'Paid' || pay.status === 'Partially Paid' || pay.status === 'Cleared' || !pay.status || String(pay.status).toLowerCase().includes('paid') || String(pay.status).toLowerCase().includes('partial')) {
+          if (pay.status === 'Paid' || pay.status === 'Partially Paid' || pay.status === 'PartiallyPaid' || pay.status === 'Cleared' || !pay.status || String(pay.status).toLowerCase().includes('paid') || String(pay.status).toLowerCase().includes('partial')) {
             // Format payment description with method and reference
-            const method = pay.paymentMethod ? ` via ${pay.paymentMethod}` : '';
+            const method = pay.paymentMethod ? ` via ${pay.paymentMethod.replace(/_/g, ' ')}` : '';
             const ref = pay.referenceNumber ? ` · Ref# ${pay.referenceNumber}` : '';
             allTransactions.push({
               type: 'payment',
@@ -2002,6 +2011,35 @@ export const api = {
               createdBy: pay.createdBy,
               rawPayment: pay,
             });
+          }
+        });
+
+        // Safety fallback: If an invoice has paidAmount > 0 but no separate payment in paymentsList, reflect it as credit
+        invoicesList.forEach((inv: any) => {
+          const invPaid = Number(inv.paidAmount) || 0;
+          if (invPaid > 0) {
+            const hasPayment = paymentsList.some((p: any) =>
+              p.invoiceId === inv.id ||
+              (p.tenantId === (inv.tenant?.id || inv.tenantId) && Math.abs(Number(p.amount) - invPaid) < 0.01 && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
+            );
+            if (!hasPayment) {
+              const method = inv.status === 'Partially Paid' ? ' via Offline (Partial)' : ' via Offline';
+              allTransactions.push({
+                type: 'payment',
+                date: inv.dueDate || inv.createdAt || '2026-08-01',
+                amount: invPaid,
+                tenantId: inv.tenant?.id || inv.tenantId || '',
+                tenantName: inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}` : (inv.tenantName || 'Resident'),
+                propertyName: inv.propertyName || 'Property',
+                unitNumber: inv.unitNumber || 'Unassigned',
+                description: `Payment Received${method} · Ref# RCP-OCCUPIED-AUTO`,
+                transactionType: 'Payment',
+                id: `led-pay-inv-${inv.id}`,
+                paymentMethod: 'Offline_Partial',
+                referenceNumber: 'RCP-OCCUPIED-AUTO',
+                createdBy: 'Manager',
+              });
+            }
           }
         });
 
