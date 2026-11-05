@@ -111,27 +111,52 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
       // 4. Status Filter
       if (filters.status) {
         const statusVal = item.status || item.leaseStatus || item.unitStatus || item.paymentStatus;
-        if (statusVal) {
-          const sv = String(statusVal).toLowerCase().replace(/[\s_-]/g, '');
-          const fv = String(filters.status).toLowerCase().replace(/[\s_-]/g, '');
-          if (sv !== fv && !sv.includes(fv) && !fv.includes(sv)) {
-            return false;
-          }
+        if (!statusVal) {
+          return false;
+        }
+        const sv = String(statusVal).toLowerCase().replace(/[\s_-]/g, '');
+        const fv = String(filters.status).toLowerCase().replace(/[\s_-]/g, '');
+        if (sv !== fv && !sv.includes(fv) && !fv.includes(sv)) {
+          return false;
         }
       }
 
       // 5. Priority Filter (Maintenance)
-      if (filters.priority) {
-        const priorityVal = item.priority;
-        if (priorityVal && String(priorityVal).toLowerCase() !== String(filters.priority).toLowerCase()) {
+      if (filters.priority && filters.priority !== 'All Priorities') {
+        const priorityVal = String(item.priority || '').toLowerCase().trim();
+        const filterVal = String(filters.priority || '').toLowerCase().trim();
+
+        if (!priorityVal) {
+          return false;
+        }
+
+        const isMediumMatch =
+          (filterVal === 'medium' || filterVal === 'normal') &&
+          (priorityVal === 'medium' || priorityVal === 'normal');
+
+        const isEmergencyMatch =
+          (filterVal.includes('emergency') || filterVal.includes('urgent')) &&
+          (priorityVal.includes('emergency') || priorityVal.includes('urgent'));
+
+        const isLowMatch = filterVal === 'low' && priorityVal === 'low';
+        const isHighMatch = filterVal === 'high' && priorityVal === 'high';
+
+        const isExactMatch = priorityVal === filterVal;
+
+        if (!isMediumMatch && !isEmergencyMatch && !isLowMatch && !isHighMatch && !isExactMatch) {
           return false;
         }
       }
 
       // 6. Payment Method Filter (Payment History)
-      if (filters.paymentMethod) {
+      if (filters.paymentMethod && filters.paymentMethod !== 'All Methods' && filters.paymentMethod !== 'all') {
         const methodVal = item.paymentMethod;
-        if (methodVal && String(methodVal).toLowerCase() !== String(filters.paymentMethod).toLowerCase()) {
+        if (!methodVal) {
+          return false;
+        }
+        const mv = String(methodVal).toLowerCase().replace(/[\s_-]/g, '');
+        const fv = String(filters.paymentMethod).toLowerCase().replace(/[\s_-]/g, '');
+        if (mv !== fv && !mv.includes(fv) && !fv.includes(mv)) {
           return false;
         }
       }
@@ -153,18 +178,35 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
       if (filters.startDate || filters.endDate) {
         const itemStartDateStr = item.startDate && item.startDate !== 'N/A' ? item.startDate : null;
         const itemEndDateStr = item.endDate && item.endDate !== 'N/A' ? item.endDate : null;
-        const itemGeneralDateStr = item.date || item.dueDate || item.paidDate || item.paymentDate || item.createdAt;
-        const itemDateStr = itemGeneralDateStr && itemGeneralDateStr !== 'N/A' ? itemGeneralDateStr : null;
+        const itemGeneralDateStr =
+          item.createdDate ||
+          item.date ||
+          item.dueDate ||
+          item.paidDate ||
+          item.paymentDate ||
+          item.completedDate ||
+          item.createdAt;
+        const itemDateStr =
+          itemGeneralDateStr && itemGeneralDateStr !== 'N/A' && itemGeneralDateStr !== 'Pending'
+            ? itemGeneralDateStr
+            : null;
 
         if (!itemStartDateStr && !itemEndDateStr && !itemDateStr) {
           return false;
         }
 
         if (filters.startDate) {
-          const filterStart = new Date(filters.startDate).getTime();
-          const targetStart = itemStartDateStr ? new Date(itemStartDateStr).getTime() : (itemDateStr ? new Date(itemDateStr).getTime() : null);
-          if (targetStart !== null && targetStart < filterStart) {
-            return false;
+          const filterStart = new Date(filters.startDate);
+          filterStart.setHours(0, 0, 0, 0);
+          const filterStartTime = filterStart.getTime();
+
+          const targetStartStr = itemStartDateStr || itemDateStr;
+          if (targetStartStr) {
+            const targetStart = new Date(targetStartStr);
+            targetStart.setHours(0, 0, 0, 0);
+            if (targetStart.getTime() < filterStartTime) {
+              return false;
+            }
           }
         }
 
@@ -173,9 +215,13 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
           filterEnd.setHours(23, 59, 59, 999);
           const filterEndTime = filterEnd.getTime();
 
-          const targetEnd = itemEndDateStr ? new Date(itemEndDateStr).getTime() : (itemDateStr ? new Date(itemDateStr).getTime() : (itemStartDateStr ? new Date(itemStartDateStr).getTime() : null));
-          if (targetEnd !== null && targetEnd > filterEndTime) {
-            return false;
+          const targetEndStr = itemEndDateStr || itemDateStr;
+          if (targetEndStr) {
+            const targetEnd = new Date(targetEndStr);
+            targetEnd.setHours(0, 0, 0, 0);
+            if (targetEnd.getTime() > filterEndTime) {
+              return false;
+            }
           }
         }
       }

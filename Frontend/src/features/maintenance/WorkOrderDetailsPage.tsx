@@ -11,7 +11,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { FormDialog } from '../../components/FormDialog';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
-import { Printer, Calendar, DollarSign, User, Wrench, ShieldAlert, Coins, Clock } from 'lucide-react';
+import { Printer, Calendar, DollarSign, User, Wrench, ShieldAlert, Coins, Clock, CheckCircle2 } from 'lucide-react';
 import { extractPreferredVisit } from '../../utils/maintenanceHelpers';
 
 export const WorkOrderDetailsPage: React.FC = () => {
@@ -83,6 +83,21 @@ export const WorkOrderDetailsPage: React.FC = () => {
     return <LoadingSkeleton type="details" />;
   }
 
+  const assignedVendorObj = vendorsList.find((v: any) => v.id === wo.vendorId);
+  const assignedVendorDisplayName = assignedVendorObj
+    ? `${assignedVendorObj.name} (${assignedVendorObj.category || assignedVendorObj.serviceType || 'General'})`
+    : (wo.vendorName ? (wo.vendorName.includes('(') ? wo.vendorName : `${wo.vendorName}${wo.assignedTechnician && wo.assignedTechnician !== wo.vendorName ? ` (${wo.assignedTechnician})` : ''}`) : 'Assigned Vendor');
+
+  const statusClean = String(wo.status || '').toLowerCase().trim();
+  const hasVendor = Boolean(wo.vendorId || wo.vendorName);
+  const isVendorLocked = hasVendor && (
+    statusClean.includes('accept') ||
+    statusClean.includes('progress') ||
+    statusClean.includes('assign') ||
+    statusClean.includes('complete') ||
+    statusClean.includes('closed')
+  );
+
   return (
     <div className="space-y-6 text-foreground max-w-4xl">
       <PageHeader
@@ -108,26 +123,34 @@ export const WorkOrderDetailsPage: React.FC = () => {
           )}
         </div>
 
-        <div className="flex space-x-2">
-          {wo.status !== 'Completed' && wo.status !== 'Closed' && wo.status !== 'Cancelled' && (
-            <div className="flex items-center space-x-1">
-              <span className="text-xs text-muted-foreground mr-2">
-                {wo.vendorId || wo.vendorName ? 'Assigned Vendor:' : 'Assign Vendor:'}
+        <div className="flex space-x-2 items-center">
+          {isVendorLocked ? (
+            <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg border border-border/80 bg-secondary/15 text-xs">
+              <span className="text-muted-foreground font-medium">Assigned Vendor:</span>
+              <span className="font-bold text-foreground flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                {assignedVendorDisplayName}
               </span>
-              <select
-                className="text-xs p-1.5 rounded-lg border bg-card text-foreground font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                onChange={(e) => assignMutation.mutate(e.target.value)}
-                value={wo.vendorId || ''}
-                disabled={assignMutation.isPending}
-              >
-                <option value="" disabled>Select Vendor / Contractor...</option>
-                {vendorsList.map((v: any) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name} ({v.category})
-                  </option>
-                ))}
-              </select>
             </div>
+          ) : (
+            wo.status !== 'Completed' && wo.status !== 'Closed' && wo.status !== 'Cancelled' && (
+              <div className="flex items-center space-x-1">
+                <span className="text-xs text-muted-foreground mr-2">Assign Vendor:</span>
+                <select
+                  className="text-xs p-1.5 rounded-lg border bg-card text-foreground font-semibold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  onChange={(e) => assignMutation.mutate(e.target.value)}
+                  value={wo.vendorId || ''}
+                  disabled={assignMutation.isPending}
+                >
+                  <option value="" disabled>Select Vendor / Contractor...</option>
+                  {vendorsList.map((v: any) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.category || v.serviceType || 'General'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )
           )}
           {wo.status === 'Assigned' && (
             <Button size="sm" onClick={() => completeMutation.mutate()} loading={completeMutation.isPending}>Mark Complete</Button>

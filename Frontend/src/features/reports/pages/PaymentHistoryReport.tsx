@@ -115,9 +115,9 @@ export const PaymentHistoryReport: React.FC = () => {
         onChange={setFilterVal}
         onReset={resetFilters}
         showStatusFilter={true}
-        statusOptions={['Paid', 'Pending', 'PartiallyPaid', 'Failed', 'Refunded']}
+        statusOptions={['Paid', 'Pending', 'Partially Paid', 'Failed', 'Refunded']}
         showPaymentMethodFilter={true}
-        paymentMethodOptions={['ACH', 'CreditCard', 'DebitCard', 'BankTransfer', 'WireTransfer', 'Cash', 'Check', 'MoneyOrder', 'Zelle']}
+        paymentMethodOptions={['ACH', 'Credit Card', 'Debit Card', 'Bank Transfer', 'Wire Transfer', 'Cash', 'Check', 'Money Order', 'Zelle']}
       />
 
       {/* KPI Cards Header */}

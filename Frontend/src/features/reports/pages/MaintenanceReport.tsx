@@ -27,9 +27,18 @@ export const MaintenanceReport: React.FC = () => {
 
   const summary = useMemo(() => {
     const beSummary = (data as any)?.summary;
-    const hasClientFilter = Boolean(filters.search || filters.unitId);
+    const hasFilter = Boolean(
+      filters.status ||
+      filters.priority ||
+      filters.propertyId ||
+      filters.unitId ||
+      filters.tenantId ||
+      filters.search ||
+      filters.startDate ||
+      filters.endDate
+    );
 
-    if (beSummary && !hasClientFilter) {
+    if (beSummary && !hasFilter) {
       return {
         totalWorkOrders: beSummary.totalWorkOrders ?? 0,
         totalEstimatedCost: beSummary.totalEstimatedCost ?? 0,
@@ -41,14 +50,31 @@ export const MaintenanceReport: React.FC = () => {
       };
     }
 
-    const completed = filteredReportItems.filter((i: any) => i.status === 'Completed' || i.status === 'Closed').length;
+    const completed = filteredReportItems.filter((i: any) => {
+      const st = String(i.status || '').toLowerCase().replace(/[\s_-]/g, '');
+      return st === 'completed' || st === 'closed';
+    }).length;
+
+    const inProgress = filteredReportItems.filter((i: any) => {
+      const st = String(i.status || '').toLowerCase().replace(/[\s_-]/g, '');
+      return st === 'inprogress' || st === 'assigned';
+    }).length;
+
+    const open = filteredReportItems.filter((i: any) => {
+      const st = String(i.status || '').toLowerCase().replace(/[\s_-]/g, '');
+      return st === 'open' || st === 'new' || st === 'pending' || st === 'notstarted';
+    }).length;
+
+    const totalEst = filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.estimatedCost || 0), 0);
+    const totalAct = filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.actualCost || curr.estimatedCost || 0), 0);
+
     return {
       totalWorkOrders: filteredReportItems.length,
-      totalEstimatedCost: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.estimatedCost || 0), 0),
-      totalActualCost: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.actualCost || curr.estimatedCost || 0), 0),
+      totalEstimatedCost: totalEst,
+      totalActualCost: totalAct || totalEst,
       completedCount: completed,
-      inProgressCount: filteredReportItems.filter((i: any) => i.status === 'InProgress' || i.status === 'Assigned').length,
-      openCount: filteredReportItems.filter((i: any) => i.status === 'Open').length,
+      inProgressCount: inProgress,
+      openCount: open,
       completionRate: filteredReportItems.length > 0 ? parseFloat(((completed / filteredReportItems.length) * 100).toFixed(1)) : 0.0,
     };
   }, [data, filteredReportItems, filters]);
@@ -61,17 +87,26 @@ export const MaintenanceReport: React.FC = () => {
     {
       key: 'priority',
       header: 'Priority',
-      render: (row: any) => (
-        <span
-          className={`px-2.5 py-0.5 rounded text-xs font-bold ${
-            row.priority === 'Emergency' || row.priority === 'High'
-              ? 'bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
-              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-          }`}
-        >
-          {row.priority}
-        </span>
-      ),
+      render: (row: any) => {
+        const p = String(row.priority || '').toLowerCase();
+        const isUrgentOrEmergency = p.includes('urgent') || p.includes('emergency');
+        const isHigh = p === 'high';
+        const isMedium = p === 'medium' || p === 'normal';
+
+        const badgeClass = isUrgentOrEmergency
+          ? 'bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
+          : isHigh
+          ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
+          : isMedium
+          ? 'bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
+          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300';
+
+        return (
+          <span className={`px-2.5 py-0.5 rounded text-xs font-bold ${badgeClass}`}>
+            {row.priority}
+          </span>
+        );
+      },
     },
     {
       key: 'status',
@@ -149,9 +184,9 @@ export const MaintenanceReport: React.FC = () => {
         onChange={setFilterVal}
         onReset={resetFilters}
         showStatusFilter={true}
-        statusOptions={['Open', 'Assigned', 'InProgress', 'Completed', 'Closed']}
+        statusOptions={['Open', 'Assigned', 'In Progress', 'Completed', 'Closed']}
         showPriorityFilter={true}
-        priorityOptions={['Low', 'Normal', 'High', 'Emergency']}
+        priorityOptions={['Low', 'Medium', 'High', 'Urgent / Emergency']}
       />
 
       {/* KPI Cards Header */}
