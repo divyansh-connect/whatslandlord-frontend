@@ -82,12 +82,14 @@
   * {
     @apply border-border;
   }
+
   html {
     overflow-x: hidden;
     max-width: 100vw;
     width: 100%;
     -webkit-text-size-adjust: 100%;
   }
+
   body {
     @apply bg-background text-foreground antialiased font-sans transition-colors duration-300;
     overflow-x: hidden;
@@ -95,9 +97,18 @@
     width: 100%;
     min-height: 100vh;
   }
-  img, svg, video, canvas, audio, iframe, embed, object {
+
+  img,
+  svg,
+  video,
+  canvas,
+  audio,
+  iframe,
+  embed,
+  object {
     max-width: 100%;
   }
+
   .overflow-x-auto {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-x: contain;
@@ -109,9 +120,11 @@
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   @apply bg-transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/30 transition-colors;
 }
@@ -123,4 +136,68 @@
 
 .glass-header {
   @apply sticky top-0 z-30 bg-background/80 backdrop-blur-md border-b border-border/40;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    position: static !important;
+  }
+
+  #root,
+  #root>div,
+  .h-screen,
+  .min-h-screen,
+  .overflow-hidden,
+  .overflow-y-auto,
+  .overflow-x-auto,
+  main {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    display: block !important;
+    position: static !important;
+  }
+
+  aside,
+  nav,
+  header,
+  [role="navigation"],
+  .no-print,
+  .sidebar {
+    display: none !important;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tbody {
+    display: table-row-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
 }

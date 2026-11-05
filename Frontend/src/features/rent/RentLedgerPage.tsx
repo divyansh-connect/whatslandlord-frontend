@@ -32,7 +32,7 @@ export const RentLedgerPage: React.FC = () => {
   const [propertyFilter, setPropertyFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [editingPayment, setEditingPayment] = useState<any | null>(null);
-  
+
   const search: any = useSearch({ strict: false });
   const navigate = useNavigate();
   const selectedTenantId = search.tenantId || '';
@@ -65,6 +65,22 @@ export const RentLedgerPage: React.FC = () => {
     queryFn: () => api.userProfile.get(),
   });
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const selectedTenant = tenants.find((t) => t.id === selectedTenantId);
   const tenantProperty = selectedTenant ? properties.find((p) => p.id === selectedTenant.propertyId) : null;
   const propertyAddress = tenantProperty ? tenantProperty.address : (selectedTenant?.propertyName ? `${selectedTenant.propertyName}, Austin, TX` : 'N/A');
@@ -77,10 +93,10 @@ export const RentLedgerPage: React.FC = () => {
       if (item.tenantId && item.tenantId === selectedTenantId) return true;
       return item.tenantName === tenantFullName;
     });
-    
+
     // Sort items by date ascending
     const sorted = [...items].sort((a, b) => a.date.localeCompare(b.date));
-    
+
     // Recalculate running balance (includes Late Fee as a debit charge)
     let runningBalance = 0;
     return sorted.map((item) => {
@@ -91,10 +107,12 @@ export const RentLedgerPage: React.FC = () => {
       } else if (item.transactionType === 'Payment') {
         runningBalance -= credit;
       }
+
       return {
         ...item,
-        balance: runningBalance
+        balance: runningBalance,
       };
+
     });
   }, [ledger, selectedTenant, selectedTenantId]);
 
@@ -199,7 +217,7 @@ export const RentLedgerPage: React.FC = () => {
       cell: ({ row }) => {
         const item = row.original as any;
         const tenantObj = tenants.find((tItem) => `${tItem.firstName} ${tItem.lastName}` === item.tenantName);
-        
+
         const isPayment = item.transactionType === 'Payment';
         const isTenantOnline =
           item.createdBy === 'Tenant' ||
@@ -258,55 +276,193 @@ export const RentLedgerPage: React.FC = () => {
     },
   ];
 
+  const handlePrintLedger = () => {
+    const targetId = selectedTenant ? 'printable-rent-ledger' : 'printable-full-ledger';
+    const printElement = document.getElementById(targetId);
+    if (!printElement) {
+      window.print();
+      return;
+    }
+
+    const oldIframe = document.getElementById('ledger-print-iframe');
+    if (oldIframe) {
+      oldIframe.remove();
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.id = 'ledger-print-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.visibility = 'hidden';
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentWindow?.document;
+    if (!iframeDoc) {
+      window.print();
+      return;
+    }
+
+    const clone = printElement.cloneNode(true) as HTMLElement;
+    clone.classList.remove('hidden');
+    clone.style.display = 'block';
+    clone.style.overflow = 'visible';
+    clone.querySelectorAll('.no-print').forEach((el) => el.remove());
+
+    const title = selectedTenant
+      ? `Rent Ledger - ${selectedTenant.firstName} ${selectedTenant.lastName}`
+      : 'Rent Ledger Statement';
+
+    iframeDoc.open();
+    iframeDoc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${title}</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 12mm 10mm 12mm 10mm;
+            }
+            *, *::before, *::after {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            html, body {
+              margin: 0 !important;
+              padding: 10px !important;
+              background: #ffffff !important;
+              color: #0f172a !important;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+              font-size: 11px !important;
+              line-height: 1.4 !important;
+              height: auto !important;
+              min-height: 0 !important;
+              overflow: visible !important;
+            }
+            .no-print {
+              display: none !important;
+            }
+            table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+              page-break-inside: auto !important;
+              margin-top: 12px;
+            }
+            thead {
+              display: table-header-group !important;
+            }
+            tbody {
+              display: table-row-group !important;
+            }
+            tr {
+              page-break-inside: avoid !important;
+              page-break-after: auto !important;
+            }
+            th {
+              border-bottom: 2px solid #cbd5e1 !important;
+              padding: 8px 6px !important;
+              font-size: 10px !important;
+              font-weight: 800 !important;
+              text-transform: uppercase !important;
+              color: #475569 !important;
+              background: #f8fafc !important;
+              text-align: left !important;
+            }
+            td {
+              border-bottom: 1px solid #e2e8f0 !important;
+              padding: 8px 6px !important;
+              font-size: 11px !important;
+              color: #1e293b !important;
+            }
+            .text-right { text-align: right !important; }
+            .text-center { text-align: center !important; }
+            .font-bold { font-weight: 700 !important; }
+            .font-extrabold { font-weight: 800 !important; }
+            .font-black { font-weight: 900 !important; }
+            .text-rose-500, .text-rose-600 { color: #e11d48 !important; }
+            .text-emerald-500, .text-emerald-600 { color: #059669 !important; }
+            .text-amber-500, .text-amber-600 { color: #d97706 !important; }
+            .text-purple-500, .text-purple-600 { color: #7c3aed !important; }
+            .text-orange-500, .text-orange-600 { color: #ea580c !important; }
+            .text-primary { color: #1d4ed8 !important; }
+            .text-muted-foreground { color: #64748b !important; }
+            .text-foreground { color: #0f172a !important; }
+            .border { border: 1px solid #e2e8f0 !important; }
+            .border-b { border-bottom: 1px solid #e2e8f0 !important; }
+            .border-t { border-top: 1px solid #e2e8f0 !important; }
+            .rounded-xl { border-radius: 10px !important; }
+            .rounded-2xl { border-radius: 12px !important; }
+            .rounded-full { border-radius: 9999px !important; }
+            .p-4 { padding: 14px !important; }
+            .p-6 { padding: 16px !important; }
+            .pt-4 { padding-top: 14px !important; }
+            .pb-4 { padding-bottom: 14px !important; }
+            .py-2\\.5 { padding-top: 8px !important; padding-bottom: 8px !important; }
+            .px-2\\.5 { padding-left: 10px !important; padding-right: 10px !important; }
+            .px-2 { padding-left: 8px !important; padding-right: 8px !important; }
+            .py-0\\.5 { padding-top: 2px !important; padding-bottom: 2px !important; }
+            .gap-2 { gap: 8px !important; }
+            .gap-3 { gap: 12px !important; }
+            .gap-4 { gap: 14px !important; }
+            .gap-6 { gap: 20px !important; }
+            .space-y-1 > * + * { margin-top: 4px !important; }
+            .space-y-1\\.5 > * + * { margin-top: 6px !important; }
+            .space-y-2 > * + * { margin-top: 8px !important; }
+            .space-y-4 > * + * { margin-top: 14px !important; }
+            .space-y-6 > * + * { margin-top: 18px !important; }
+            .grid { display: grid !important; }
+            .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)) !important; }
+            .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+            .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+            .flex { display: flex !important; }
+            .flex-wrap { flex-wrap: wrap !important; }
+            .justify-between { justify-content: space-between !important; }
+            .items-start { align-items: flex-start !important; }
+            .items-center { align-items: center !important; }
+            .uppercase { text-transform: uppercase !important; }
+            .bg-secondary\\/10 { background-color: #f1f5f9 !important; }
+            .bg-rose-500\\/8 { background-color: #fff1f2 !important; }
+            .border-rose-500\\/20 { border-color: #fecdd3 !important; }
+            .bg-emerald-500\\/8 { background-color: #ecfdf5 !important; }
+            .border-emerald-500\\/20 { border-color: #a7f3d0 !important; }
+            .bg-amber-500\\/8 { background-color: #fffbeb !important; }
+            .border-amber-500\\/20 { border-color: #fde68a !important; }
+            .bg-purple-500\\/8 { background-color: #faf5ff !important; }
+            .border-purple-500\\/20 { border-color: #e9d5ff !important; }
+            .bg-orange-500\\/8 { background-color: #fff7ed !important; }
+            .border-orange-500\\/20 { border-color: #fed7aa !important; }
+            .bg-emerald-500\\/15 { background-color: #d1fae5 !important; }
+            .bg-amber-500\\/15 { background-color: #fef3c7 !important; }
+            .bg-rose-500\\/15 { background-color: #ffe4e6 !important; }
+            .text-xs { font-size: 11px !important; }
+            .text-sm { font-size: 13px !important; }
+            .text-lg { font-size: 16px !important; }
+            .text-xl { font-size: 18px !important; }
+            .text-2xl { font-size: 22px !important; }
+            .overflow-x-auto, .overflow-y-auto { overflow: visible !important; }
+          </style>
+        </head>
+        <body>
+          ${clone.outerHTML}
+        </body>
+      </html>
+    `);
+    iframeDoc.close();
+
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    }, 300);
+  };
+
   return (
     <div>
-      <style>{`
-        @page {
-          size: A4 portrait;
-          margin: 15mm 15mm 15mm 15mm;
-        }
-        @media print {
-          body {
-            background: white !important;
-            color: black !important;
-          }
-          body * {
-            visibility: hidden !important;
-          }
-          #printable-rent-ledger, #printable-rent-ledger *,
-          #printable-full-ledger, #printable-full-ledger * {
-            visibility: visible !important;
-          }
-          #printable-rent-ledger, #printable-full-ledger {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            border: none !important;
-            box-shadow: none !important;
-            background: white !important;
-            color: black !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-          table {
-            width: 100% !important;
-            border-collapse: collapse !important;
-          }
-          th, td {
-            border-bottom: 1px solid #e2e8f0 !important;
-            padding: 8px 4px !important;
-            color: black !important;
-          }
-          th {
-            font-weight: 800 !important;
-          }
-        }
-      `}</style>
-
       <PageHeader
         title={t('rentLedgerPage.title')}
         description={t('rentLedgerPage.desc')}
@@ -323,7 +479,7 @@ export const RentLedgerPage: React.FC = () => {
             <span className="text-xs font-bold text-muted-foreground uppercase">
               {t('rentLedgerPage.showingItems', { count: filteredLedger.length })}
             </span>
-            <Button variant="outline" size="sm" onClick={() => window.print()} className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
+            <Button variant="outline" size="sm" onClick={handlePrintLedger} className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
               <Download className="w-3.5 h-3.5" />
               {t('rentLedgerPage.exportCsv')}
             </Button>
@@ -403,11 +559,10 @@ export const RentLedgerPage: React.FC = () => {
                     <span className="font-black text-xs text-primary uppercase tracking-wider flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-primary" /> AI Payment Health Assessment
                     </span>
-                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                      selectedTenantLedger.length === 0 || selectedTenantLedger[selectedTenantLedger.length - 1]?.balance <= 0
-                        ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-                        : 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
-                    }`}>
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${selectedTenantLedger.length === 0 || selectedTenantLedger[selectedTenantLedger.length - 1]?.balance <= 0
+                      ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                      }`}>
                       {selectedTenantLedger.length === 0 || selectedTenantLedger[selectedTenantLedger.length - 1]?.balance <= 0
                         ? '🟢 98% On-Time Reliability'
                         : '🟡 Follow-up Recommended'}
@@ -453,9 +608,18 @@ export const RentLedgerPage: React.FC = () => {
               const totalCharged = selectedTenantLedger.reduce((sum, e) => sum + (e.debit || 0), 0);
               const totalPaid = selectedTenantLedger.reduce((sum, e) => sum + (e.credit || 0), 0);
               const outstanding = totalCharged - totalPaid;
-              const lateFees = selectedTenantLedger
-                .filter((e) => e.transactionType === 'Late Fee')
-                .reduce((sum, e) => sum + (e.debit || 0), 0);
+              const lateFees = selectedTenantLedger.reduce((sum, e: any) => {
+                if (e.transactionType === 'Late Fee') return sum + (e.debit || 0);
+                const rawInv = e.rawInvoice;
+                if (rawInv) {
+                  try {
+                    const lineItems = typeof rawInv.lineItems === 'string' ? JSON.parse(rawInv.lineItems) : (rawInv.lineItems || []);
+                    const feeItem = Array.isArray(lineItems) && lineItems.find((li: any) => (li.description || '').toLowerCase().includes('late fee'));
+                    if (feeItem && Number(feeItem.amount) > 0) return sum + Number(feeItem.amount);
+                  } catch { }
+                }
+                return sum;
+              }, 0);
               return (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
                   <div className="bg-rose-500/8 border border-rose-500/20 rounded-xl p-4 text-center">
@@ -468,19 +632,16 @@ export const RentLedgerPage: React.FC = () => {
                     <p className="text-lg font-black text-emerald-500">${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                     <p className="text-[9px] text-muted-foreground mt-0.5">Payments Received</p>
                   </div>
-                  <div className={`border rounded-xl p-4 text-center ${
-                    outstanding > 0
-                      ? 'bg-amber-500/8 border-amber-500/20'
-                      : outstanding < 0
+                  <div className={`border rounded-xl p-4 text-center ${outstanding > 0
+                    ? 'bg-amber-500/8 border-amber-500/20'
+                    : outstanding < 0
                       ? 'bg-purple-500/8 border-purple-500/20'
                       : 'bg-emerald-500/8 border-emerald-500/20'
-                  }`}>
-                    <p className={`text-[9px] uppercase font-extrabold tracking-widest mb-1 ${
-                      outstanding > 0 ? 'text-amber-400' : outstanding < 0 ? 'text-purple-400' : 'text-emerald-400'
-                    }`}>Outstanding</p>
-                    <p className={`text-lg font-black ${
-                      outstanding > 0 ? 'text-amber-500' : outstanding < 0 ? 'text-purple-500' : 'text-emerald-500'
-                    }`}>${Math.abs(outstanding).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    }`}>
+                    <p className={`text-[9px] uppercase font-extrabold tracking-widest mb-1 ${outstanding > 0 ? 'text-amber-400' : outstanding < 0 ? 'text-purple-400' : 'text-emerald-400'
+                      }`}>Outstanding</p>
+                    <p className={`text-lg font-black ${outstanding > 0 ? 'text-amber-500' : outstanding < 0 ? 'text-purple-500' : 'text-emerald-500'
+                      }`}>${Math.abs(outstanding).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                     <p className="text-[9px] text-muted-foreground mt-0.5">
                       {outstanding > 0 ? 'Balance Due' : outstanding < 0 ? 'Credit (Overpaid)' : '✓ Fully Cleared'}
                     </p>
@@ -515,19 +676,18 @@ export const RentLedgerPage: React.FC = () => {
                           <span>{entry.description}</span>
                           {entry.invoiceStatus && (
                             <span
-                              className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
-                                entry.invoiceStatus === 'Paid'
-                                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                                  : entry.invoiceStatus === 'Partially Paid'
+                              className={`text-[9px] font-black px-2 py-0.5 rounded-full ${entry.invoiceStatus === 'Paid'
+                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                : entry.invoiceStatus === 'Partially Paid'
                                   ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                                   : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
-                              }`}
+                                }`}
                             >
                               {entry.invoiceStatus === 'Partially Paid'
                                 ? `Partially Paid ($${Number(entry.invoicePaidAmount || 0).toLocaleString()} Paid)`
                                 : entry.invoiceStatus === 'Paid'
-                                ? 'Fully Paid'
-                                : 'Unpaid'}
+                                  ? 'Fully Paid'
+                                  : 'Unpaid'}
                             </span>
                           )}
                         </div>
@@ -570,19 +730,21 @@ export const RentLedgerPage: React.FC = () => {
                   <Button variant="outline" size="sm" onClick={() => setSelectedTenantId('')} className="no-print h-9 font-bold">
                     {t('rentLedgerPage.closeStatement')}
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={() => {
-                      // Trigger clean PDF export print dialog
-                      window.print();
-                    }} 
-                    className="no-print flex items-center gap-1.5 h-9 font-bold border-primary/30 text-primary hover:bg-primary/10"
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePrintLedger}
+                    className="no-print flex items-center gap-1.5 h-9 font-bold border-primary/30 text-primary hover:bg-primary/10 cursor-pointer"
                   >
                     <Download className="w-4 h-4 text-primary" /> Download PDF
                   </Button>
-                  <Button variant="default" size="sm" onClick={() => window.print()} className="no-print flex items-center gap-1.5 h-9 font-bold bg-primary text-primary-foreground hover:bg-primary/95">
-                    <Printer className="w-4 h-4" /> {t('rentLedgerPage.printStatement')}
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handlePrintLedger}
+                    className="no-print flex items-center gap-1.5 h-9 font-bold bg-primary text-primary-foreground hover:bg-primary/95 cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4" /> Export PDF
                   </Button>
                 </div>
               </div>
@@ -592,7 +754,7 @@ export const RentLedgerPage: React.FC = () => {
       ) : (
         <>
           <DataTable columns={columns} data={filteredLedger} loading={isLoading} error={error ? error.message : null} />
-          
+
           <div id="printable-full-ledger" className="hidden print:block space-y-6">
             {/* Ledger Header */}
             <div className="border-b pb-4 space-y-2 text-foreground">

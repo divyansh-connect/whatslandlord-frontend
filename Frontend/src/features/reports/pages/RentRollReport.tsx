@@ -28,7 +28,17 @@ export const RentRollReport: React.FC = () => {
 
   const summary = useMemo(() => {
     const beSummary = (data as any)?.summary;
-    if (beSummary && !filters.search) {
+    const hasActiveFilters = Boolean(
+      filters.propertyId ||
+      filters.unitId ||
+      filters.tenantId ||
+      filters.status ||
+      filters.startDate ||
+      filters.endDate ||
+      filters.search
+    );
+
+    if (beSummary && !hasActiveFilters) {
       return {
         totalMonthlyRent: beSummary.totalMonthlyRent ?? 0,
         totalSecurityDeposits: beSummary.totalSecurityDeposits ?? 0,

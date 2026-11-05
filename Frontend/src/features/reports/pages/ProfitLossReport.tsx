@@ -29,15 +29,24 @@ export const ProfitLossReport: React.FC = () => {
   const computedIncome = filteredTransactions.filter((t: any) => t.type === 'Income').reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
   const computedExpenses = filteredTransactions.filter((t: any) => t.type === 'Expense').reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
 
-  const displayIncome = computedIncome > 0 ? computedIncome : (pl.summary?.totalIncome || 0);
-  const displayExpenses = computedExpenses > 0 ? computedExpenses : (pl.summary?.totalExpenses || 0);
+  const hasActiveFilters = Boolean(
+    filters.propertyId ||
+    filters.unitId ||
+    filters.tenantId ||
+    filters.startDate ||
+    filters.endDate ||
+    filters.search
+  );
+
+  const displayIncome = hasActiveFilters ? computedIncome : (computedIncome > 0 ? computedIncome : (pl.summary?.totalIncome || 0));
+  const displayExpenses = hasActiveFilters ? computedExpenses : (computedExpenses > 0 ? computedExpenses : (pl.summary?.totalExpenses || 0));
   const displayNetProfit = displayIncome - displayExpenses;
 
   const incomeCategories = (pl.income && pl.income.length > 0)
     ? pl.income.map((item: any) => ({
-        ...item,
-        amount: item.name === 'Rental Revenue' && displayIncome > 0 ? displayIncome : item.amount,
-      }))
+      ...item,
+      amount: item.name === 'Rental Revenue' && displayIncome > 0 ? displayIncome : item.amount,
+    }))
     : [{ name: 'Rental Revenue', amount: displayIncome }];
 
   const columns = [
@@ -55,11 +64,10 @@ export const ProfitLossReport: React.FC = () => {
       header: 'Type',
       render: (row: any) => (
         <span
-          className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-            row.type === 'Income'
+          className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${row.type === 'Income'
               ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
               : 'bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
-          }`}
+            }`}
         >
           {row.type}
         </span>
@@ -70,11 +78,10 @@ export const ProfitLossReport: React.FC = () => {
       header: 'Amount',
       render: (row: any) => (
         <span
-          className={`font-black ${
-            row.type === 'Income'
+          className={`font-black ${row.type === 'Income'
               ? 'text-emerald-600 dark:text-emerald-400'
               : 'text-rose-600 dark:text-rose-400'
-          }`}
+            }`}
         >
           {row.type === 'Income' ? '+' : '-'}${Number(row.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
         </span>
@@ -155,11 +162,10 @@ export const ProfitLossReport: React.FC = () => {
         </div>
 
         {/* Net Profit Card */}
-        <div className={`p-6 border rounded-2xl flex items-center justify-between ${
-          displayNetProfit >= 0
+        <div className={`p-6 border rounded-2xl flex items-center justify-between ${displayNetProfit >= 0
             ? 'bg-indigo-50 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-900/50 text-indigo-700 dark:text-indigo-300'
             : 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300'
-        }`}>
+          }`}>
           <div>
             <span className="text-xs font-bold uppercase tracking-wide">Net Profit</span>
             <h3 className="text-2xl font-black mt-1">

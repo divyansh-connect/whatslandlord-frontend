@@ -2021,6 +2021,7 @@ export const api = {
             invoicePaidAmount: Number(inv.paidAmount) || 0,
             invoiceBalance: Number(inv.balance) || Number(inv.amount) || 0,
             id: `led-chg-${inv.id}`,
+            rawInvoice: inv,
           });
         });
 
@@ -2049,15 +2050,35 @@ export const api = {
           }
         });
 
-        // Safety fallback: If an invoice has paidAmount > 0 but no separate payment in paymentsList, reflect it as credit
+        // Reflect invoice payments where no separate payment receipt exists in paymentsList
         invoicesList.forEach((inv: any) => {
-          const invPaid = Number(inv.paidAmount) || 0;
+          const invStatus = String(inv.status || '').toLowerCase().trim();
+          const isFullyPaid = invStatus === 'paid' || invStatus === 'fully paid' || invStatus === 'fullypaid';
+          const invPaid = Number(inv.paidAmount) || (isFullyPaid ? Number(inv.amount) || 0 : 0);
           if (invPaid > 0) {
-            const hasPayment = paymentsList.some((p: any) =>
+            const existingPayments = paymentsList.filter((p: any) =>
+              p.invoiceId === inv.id ||
+              (p.tenantId === (inv.tenant?.id || inv.tenantId) && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
+            );
+            const totalAlreadyPaid = existingPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+            const remainingUnrecordedPaid = Math.max(0, invPaid - totalAlreadyPaid);
+            const hasPayment = existingPayments.length > 0 || remainingUnrecordedPaid <= 0 || paymentsList.some((p: any) =>
               p.invoiceId === inv.id ||
               (p.tenantId === (inv.tenant?.id || inv.tenantId) && Math.abs(Number(p.amount) - invPaid) < 0.01 && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
             );
-            if (!hasPayment) {
+            const invTenantId = inv.tenant?.id || inv.tenantId || '';
+            const invMonth = String(inv.dueDate || inv.createdAt || '').slice(0, 7);
+            const invTenantName = String(inv.tenantName || (inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}` : '')).toLowerCase().trim();
+
+            const isAlreadyPaidInPayments = paymentsList.some((p: any) => {
+              if (p.invoiceId && inv.id && p.invoiceId === inv.id) return true;
+              const pTenantId = p.tenant?.id || p.tenantId || '';
+              const pDate = String(p.paidDate || p.dueDate || p.createdAt || '').slice(0, 7);
+              const pTenantName = String(p.tenantName || (p.tenant ? `${p.tenant.firstName} ${p.tenant.lastName}` : '')).toLowerCase().trim();
+              const tenantMatch = (pTenantId && invTenantId && pTenantId === invTenantId) || (pTenantName && invTenantName && pTenantName === invTenantName);
+              return Boolean(tenantMatch && pDate && invMonth && pDate === invMonth);
+            });
+            if (!isAlreadyPaidInPayments) {
               const method = inv.status === 'Partially Paid' ? ' via Offline (Partial)' : ' via Offline';
               allTransactions.push({
                 type: 'payment',
@@ -2067,11 +2088,11 @@ export const api = {
                 tenantName: inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}` : (inv.tenantName || 'Resident'),
                 propertyName: inv.propertyName || 'Property',
                 unitNumber: inv.unitNumber || 'Unassigned',
-                description: `Payment Received${method} · Ref# RCP-OCCUPIED-AUTO`,
+                description: `Payment Received${method} · Ref# ${inv.invoiceNumber ? `INV-${inv.invoiceNumber}` : `INV-PAY-${inv.id ? String(inv.id).slice(0, 8) : 'SETTLED'}`}`,
                 transactionType: 'Payment',
                 id: `led-pay-inv-${inv.id}`,
                 paymentMethod: 'Offline_Partial',
-                referenceNumber: 'RCP-OCCUPIED-AUTO',
+                referenceNumber: inv.invoiceNumber ? `INV-${inv.invoiceNumber}` : `INV-PAY-${inv.id ? String(inv.id).slice(0, 8) : 'SETTLED'}`,
                 createdBy: 'Manager',
               });
             }
@@ -2104,6 +2125,7 @@ export const api = {
               invoiceStatus: tx.invoiceStatus,
               invoicePaidAmount: tx.invoicePaidAmount,
               invoiceBalance: tx.invoiceBalance,
+              rawInvoice: tx.rawInvoice,
             });
           } else {
             tenantRunningBalances[tenantKey] -= tx.amount;

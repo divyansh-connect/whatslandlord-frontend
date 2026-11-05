@@ -67,13 +67,15 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
 
       // 2. Unit Filter
       if (filters.unitId) {
-        const itemUnitId = item.unitId || item.unit?.id;
+        const itemUnitId = item.unitId || item.unit?.id || item.tenant?.unitId;
         const targetUnitNum = selectedUnit?.unitNumber?.toString().toLowerCase().replace(/^unit\s*/i, '').trim();
         const itemUnitNum = (item.unitNumber || item.unit?.unitNumber)?.toString().toLowerCase().replace(/^unit\s*/i, '').trim();
 
         const idMatches = itemUnitId && itemUnitId === filters.unitId;
         const numMatches = targetUnitNum && itemUnitNum && (
           itemUnitNum === targetUnitNum ||
+          itemUnitNum.includes(targetUnitNum) ||
+          targetUnitNum.includes(itemUnitNum) ||
           itemUnitNum.endsWith(targetUnitNum) ||
           targetUnitNum.endsWith(itemUnitNum)
         );
@@ -145,6 +147,37 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
 
         const matchesSearch = pName.includes(q) || uNum.includes(q) || tName.includes(q) || desc.includes(q) || code.includes(q);
         if (!matchesSearch) return false;
+      }
+
+      // 8. Date Range Filter (startDate & endDate)
+      if (filters.startDate || filters.endDate) {
+        const itemStartDateStr = item.startDate && item.startDate !== 'N/A' ? item.startDate : null;
+        const itemEndDateStr = item.endDate && item.endDate !== 'N/A' ? item.endDate : null;
+        const itemGeneralDateStr = item.date || item.dueDate || item.paidDate || item.paymentDate || item.createdAt;
+        const itemDateStr = itemGeneralDateStr && itemGeneralDateStr !== 'N/A' ? itemGeneralDateStr : null;
+
+        if (!itemStartDateStr && !itemEndDateStr && !itemDateStr) {
+          return false;
+        }
+
+        if (filters.startDate) {
+          const filterStart = new Date(filters.startDate).getTime();
+          const targetStart = itemStartDateStr ? new Date(itemStartDateStr).getTime() : (itemDateStr ? new Date(itemDateStr).getTime() : null);
+          if (targetStart !== null && targetStart < filterStart) {
+            return false;
+          }
+        }
+
+        if (filters.endDate) {
+          const filterEnd = new Date(filters.endDate);
+          filterEnd.setHours(23, 59, 59, 999);
+          const filterEndTime = filterEnd.getTime();
+
+          const targetEnd = itemEndDateStr ? new Date(itemEndDateStr).getTime() : (itemDateStr ? new Date(itemDateStr).getTime() : (itemStartDateStr ? new Date(itemStartDateStr).getTime() : null));
+          if (targetEnd !== null && targetEnd > filterEndTime) {
+            return false;
+          }
+        }
       }
 
       return true;
