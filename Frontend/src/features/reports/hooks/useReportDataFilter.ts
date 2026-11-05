@@ -67,13 +67,15 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
 
       // 2. Unit Filter
       if (filters.unitId) {
-        const itemUnitId = item.unitId || item.unit?.id;
+        const itemUnitId = item.unitId || item.unit?.id || item.tenant?.unitId;
         const targetUnitNum = selectedUnit?.unitNumber?.toString().toLowerCase().replace(/^unit\s*/i, '').trim();
         const itemUnitNum = (item.unitNumber || item.unit?.unitNumber)?.toString().toLowerCase().replace(/^unit\s*/i, '').trim();
 
         const idMatches = itemUnitId && itemUnitId === filters.unitId;
         const numMatches = targetUnitNum && itemUnitNum && (
           itemUnitNum === targetUnitNum ||
+          itemUnitNum.includes(targetUnitNum) ||
+          targetUnitNum.includes(itemUnitNum) ||
           itemUnitNum.endsWith(targetUnitNum) ||
           targetUnitNum.endsWith(itemUnitNum)
         );

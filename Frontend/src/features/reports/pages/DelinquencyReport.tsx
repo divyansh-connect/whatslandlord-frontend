@@ -27,7 +27,7 @@ export const DelinquencyReport: React.FC = () => {
 
   const summary = useMemo(() => {
     const beSummary = (data as any)?.summary;
-    const hasClientFilter = Boolean(filters.search || filters.unitId);
+    const hasClientFilter = Boolean(filters.propertyId || filters.unitId || filters.tenantId || filters.status || filters.startDate || filters.endDate || filters.search);
 
     if (beSummary && !hasClientFilter) {
       return {
