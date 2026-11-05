@@ -147,6 +147,37 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
         if (!matchesSearch) return false;
       }
 
+      // 8. Date Range Filter (startDate & endDate)
+      if (filters.startDate || filters.endDate) {
+        const itemStartDateStr = item.startDate && item.startDate !== 'N/A' ? item.startDate : null;
+        const itemEndDateStr = item.endDate && item.endDate !== 'N/A' ? item.endDate : null;
+        const itemGeneralDateStr = item.date || item.dueDate || item.paidDate || item.paymentDate || item.createdAt;
+        const itemDateStr = itemGeneralDateStr && itemGeneralDateStr !== 'N/A' ? itemGeneralDateStr : null;
+
+        if (!itemStartDateStr && !itemEndDateStr && !itemDateStr) {
+          return false;
+        }
+
+        if (filters.startDate) {
+          const filterStart = new Date(filters.startDate).getTime();
+          const targetStart = itemStartDateStr ? new Date(itemStartDateStr).getTime() : (itemDateStr ? new Date(itemDateStr).getTime() : null);
+          if (targetStart !== null && targetStart < filterStart) {
+            return false;
+          }
+        }
+
+        if (filters.endDate) {
+          const filterEnd = new Date(filters.endDate);
+          filterEnd.setHours(23, 59, 59, 999);
+          const filterEndTime = filterEnd.getTime();
+
+          const targetEnd = itemEndDateStr ? new Date(itemEndDateStr).getTime() : (itemDateStr ? new Date(itemDateStr).getTime() : (itemStartDateStr ? new Date(itemStartDateStr).getTime() : null));
+          if (targetEnd !== null && targetEnd > filterEndTime) {
+            return false;
+          }
+        }
+      }
+
       return true;
     });
   }, [reportItems, filters, selectedProperty, selectedUnit, selectedTenant]);

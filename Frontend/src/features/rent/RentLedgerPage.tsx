@@ -608,9 +608,18 @@ export const RentLedgerPage: React.FC = () => {
               const totalCharged = selectedTenantLedger.reduce((sum, e) => sum + (e.debit || 0), 0);
               const totalPaid = selectedTenantLedger.reduce((sum, e) => sum + (e.credit || 0), 0);
               const outstanding = totalCharged - totalPaid;
-              const lateFees = selectedTenantLedger
-                .filter((e) => e.transactionType === 'Late Fee')
-                .reduce((sum, e) => sum + (e.debit || 0), 0);
+              const lateFees = selectedTenantLedger.reduce((sum, e: any) => {
+                if (e.transactionType === 'Late Fee') return sum + (e.debit || 0);
+                const rawInv = e.rawInvoice;
+                if (rawInv) {
+                  try {
+                    const lineItems = typeof rawInv.lineItems === 'string' ? JSON.parse(rawInv.lineItems) : (rawInv.lineItems || []);
+                    const feeItem = Array.isArray(lineItems) && lineItems.find((li: any) => (li.description || '').toLowerCase().includes('late fee'));
+                    if (feeItem && Number(feeItem.amount) > 0) return sum + Number(feeItem.amount);
+                  } catch { }
+                }
+                return sum;
+              }, 0);
               return (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
                   <div className="bg-rose-500/8 border border-rose-500/20 rounded-xl p-4 text-center">
