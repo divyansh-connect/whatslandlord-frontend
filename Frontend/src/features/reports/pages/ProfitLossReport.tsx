@@ -16,38 +16,68 @@ export const ProfitLossReport: React.FC = () => {
   const { isExporting, handleExport } = useReportExport();
   const [selectedRow, setSelectedRow] = useState<any>(null);
 
-  // Query P&L data
+  // Query P&L data (always fetch live DB data on mount, zero fake fallback)
   const { data, isLoading } = useQuery({
-    queryKey: ['report-profit-loss', filters],
+    queryKey: ['report-profit-loss', filters.propertyId],
     queryFn: () => reportApi.getProfitLoss(filters),
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const pl = data?.data || { income: [], expenses: [], transactions: [], summary: { totalIncome: 0, totalExpenses: 0, netProfit: 0 } };
   const rawTransactions = (data as any)?.transactions || pl.transactions || [];
   const filteredTransactions = useReportDataFilter(rawTransactions, filters);
 
-  const computedIncome = filteredTransactions.filter((t: any) => t.type === 'Income').reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
-  const computedExpenses = filteredTransactions.filter((t: any) => t.type === 'Expense').reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
+  // Apply column sorting
+  const sortedTransactions = [...filteredTransactions].sort((a: any, b: any) => {
+    const sortBy = filters.sortBy || 'date';
+    const order = filters.sortOrder === 'asc' ? 1 : -1;
+    if (sortBy === 'amount') {
+      return ((Number(a.amount) || 0) - (Number(b.amount) || 0)) * order;
+    }
+    if (sortBy === 'propertyName' || sortBy === 'unitNumber' || sortBy === 'category' || sortBy === 'type' || sortBy === 'description') {
+      return String(a[sortBy] || '').localeCompare(String(b[sortBy] || '')) * order;
+    }
+    const dateA = a.date && a.date !== 'N/A' ? new Date(a.date).getTime() : 0;
+    const dateB = b.date && b.date !== 'N/A' ? new Date(b.date).getTime() : 0;
+    return (dateA - dateB) * order;
+  });
 
-  const hasActiveFilters = Boolean(
-    filters.propertyId ||
-    filters.unitId ||
-    filters.tenantId ||
-    filters.startDate ||
-    filters.endDate ||
-    filters.search
-  );
+  // Strictly compute KPI totals and category breakdowns from active filtered transactions (0 when empty, no fallback)
+  const displayIncome = filteredTransactions
+    .filter((t: any) => t.type === 'Income')
+    .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
 
-  const displayIncome = hasActiveFilters ? computedIncome : (computedIncome > 0 ? computedIncome : (pl.summary?.totalIncome || 0));
-  const displayExpenses = hasActiveFilters ? computedExpenses : (computedExpenses > 0 ? computedExpenses : (pl.summary?.totalExpenses || 0));
+  const displayExpenses = filteredTransactions
+    .filter((t: any) => t.type === 'Expense')
+    .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
+
   const displayNetProfit = displayIncome - displayExpenses;
 
-  const incomeCategories = (pl.income && pl.income.length > 0)
-    ? pl.income.map((item: any) => ({
-      ...item,
-      amount: item.name === 'Rental Revenue' && displayIncome > 0 ? displayIncome : item.amount,
-    }))
-    : [{ name: 'Rental Revenue', amount: displayIncome }];
+  const incomeCategoryMap: Record<string, number> = {};
+  const expenseCategoryMap: Record<string, number> = {};
+
+  filteredTransactions.forEach((t: any) => {
+    const amt = Number(t.amount || 0);
+    if (amt <= 0) return;
+    const cat = t.category || (t.type === 'Income' ? 'Rental Revenue' : 'Property Maintenance & Repairs');
+    if (t.type === 'Income') {
+      incomeCategoryMap[cat] = (incomeCategoryMap[cat] || 0) + amt;
+    } else if (t.type === 'Expense') {
+      expenseCategoryMap[cat] = (expenseCategoryMap[cat] || 0) + amt;
+    }
+  });
+
+  const incomeCategories = Object.keys(incomeCategoryMap).map((name) => ({
+    name,
+    amount: incomeCategoryMap[name],
+  }));
+
+  const expenseCategories = Object.keys(expenseCategoryMap).map((name) => ({
+    name,
+    amount: expenseCategoryMap[name],
+  }));
 
   const columns = [
     {
@@ -102,17 +132,6 @@ export const ProfitLossReport: React.FC = () => {
     },
   ];
 
-  if (isLoading) {
-    return (
-      <ReportLayout title="Profit & Loss Statement" description="Revenues and expenses summary.">
-        <div className="flex flex-col items-center justify-center py-20 space-y-4">
-          <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-          <p className="text-sm font-semibold text-slate-500">Calculating statement...</p>
-        </div>
-      </ReportLayout>
-    );
-  }
-
   return (
     <ReportLayout
       title="Profit & Loss Statement"
@@ -123,15 +142,21 @@ export const ProfitLossReport: React.FC = () => {
           handleExport({
             reportType: 'PROFIT_LOSS',
             filters,
-            data: filteredTransactions.length > 0 ? filteredTransactions : [...pl.income, ...pl.expenses],
-            totalRecords: filteredTransactions.length || (pl.income.length + pl.expenses.length),
+            data: sortedTransactions,
+            totalRecords: sortedTransactions.length,
             fileType,
           })
         }
         isExporting={isExporting}
       />
 
-      <ReportFilters filters={filters} onChange={setFilterVal} onReset={resetFilters} />
+      <ReportFilters
+        filters={filters}
+        onChange={setFilterVal}
+        onReset={resetFilters}
+        showStatusFilter={true}
+        statusOptions={['Income', 'Expense']}
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -204,14 +229,14 @@ export const ProfitLossReport: React.FC = () => {
           <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 border-b border-slate-100 dark:border-slate-800 pb-2">
             Operating Expenses
           </h4>
-          {pl.expenses.length === 0 ? (
+          {expenseCategories.length === 0 ? (
             <p className="text-xs text-slate-400">No expense records found.</p>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
-              {pl.expenses.map((item, idx) => (
+              {expenseCategories.map((item: any, idx: number) => (
                 <div key={idx} className="flex justify-between px-4 py-3 text-sm">
                   <span className="text-slate-600 dark:text-slate-400 font-semibold">{item.name}</span>
-                  <span className="font-bold text-red-500">${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span className="font-bold text-red-500">${Number(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
               ))}
             </div>
@@ -226,12 +251,12 @@ export const ProfitLossReport: React.FC = () => {
             Statement Ledger Transactions
           </h4>
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-            {filteredTransactions.length} records found
+            {sortedTransactions.length} records found
           </span>
         </div>
         <ReportTable
           columns={columns}
-          data={filteredTransactions}
+          data={sortedTransactions}
           isLoading={isLoading}
           pagination={(data as any)?.pagination}
           onPageChange={(page) => setFilterVal('page', page)}

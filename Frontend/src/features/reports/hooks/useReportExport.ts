@@ -22,8 +22,16 @@ export const useReportExport = () => {
     return data.map((item) => {
       const row: Record<string, any> = {};
       Object.keys(item).forEach((k) => {
-        // Exclude internal metadata IDs or complex nested objects unless stringifiable
-        if (k === 'id' || k === 'propertyId' || k === 'unitId' || k === 'tenantId' || k === 'companyId') {
+        // Exclude internal metadata IDs or helper sort fields
+        if (
+          k === 'id' ||
+          k === 'leaseId' ||
+          k === 'propertyId' ||
+          k === 'unitId' ||
+          k === 'tenantId' ||
+          k === 'companyId' ||
+          k === 'daysToExpiryNum'
+        ) {
           return;
         }
         const val = item[k];

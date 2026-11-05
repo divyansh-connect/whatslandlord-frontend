@@ -27,30 +27,38 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
   showPaymentMethodFilter = false,
   paymentMethodOptions = [],
 }) => {
-  // Query properties
+  // Query properties (exclude Inactive, Deleted, Draft)
   const { data: propertiesData = [] } = useQuery({
     queryKey: ['properties'],
     queryFn: () => api.property.getAll(),
   });
-  const properties = Array.isArray(propertiesData) ? propertiesData : [];
+  const properties = (Array.isArray(propertiesData) ? propertiesData : []).filter(
+    (p: any) => p && !['Inactive', 'Deleted', 'Draft'].includes(p.status)
+  );
+  const activePropertyIds = new Set(properties.map((p: any) => p.id));
 
-  // Query units (optionally filtered by selected property)
+  // Query units (only belonging to active properties, optionally filtered by selected property)
   const { data: unitsData = [] } = useQuery({
     queryKey: ['units'],
     queryFn: () => api.unit.getAll(),
   });
-  const units = Array.isArray(unitsData) ? unitsData : [];
+  const units = (Array.isArray(unitsData) ? unitsData : []).filter((u: any) => {
+    const pId = u?.propertyId || u?.property?.id;
+    return u && (!pId || activePropertyIds.size === 0 || activePropertyIds.has(pId));
+  });
 
   const filteredUnits = filters.propertyId
     ? units.filter((u: any) => u.propertyId === filters.propertyId || u.property?.id === filters.propertyId)
     : units;
 
-  // Query tenants
+  // Query tenants (exclude Inactive/soft-deleted tenants)
   const { data: tenantsData = [] } = useQuery({
     queryKey: ['tenants'],
     queryFn: () => api.tenant.getAll(),
   });
-  const tenants = Array.isArray(tenantsData) ? tenantsData : [];
+  const tenants = (Array.isArray(tenantsData) ? tenantsData : []).filter(
+    (t: any) => t && t.status !== 'Inactive'
+  );
 
   // Cascading tenant filter based on selected Unit or Property
   const filteredTenants = tenants.filter((t: any) => {

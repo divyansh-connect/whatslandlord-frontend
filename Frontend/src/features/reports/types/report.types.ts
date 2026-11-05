@@ -34,8 +34,12 @@ export interface RentRollItem {
   tenantName: string;
   startDate: string;
   endDate: string;
+  daysToExpiry?: string;
+  daysToExpiryNum?: number | null;
   leaseStatus: string;
+  potentialRent?: number;
   monthlyRent: number;
+  vacancyLoss?: number;
   securityDeposit: number;
   unitStatus: string;
 }

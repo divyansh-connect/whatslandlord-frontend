@@ -110,13 +110,29 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
 
       // 4. Status Filter
       if (filters.status) {
-        const statusVal = item.status || item.leaseStatus || item.unitStatus || item.paymentStatus;
-        if (!statusVal) {
+        const fv = String(filters.status).toLowerCase().replace(/[\s_-]/g, '');
+        const candidateStatuses = [
+          item.status,
+          item.leaseStatus,
+          item.unitStatus,
+          item.paymentStatus,
+          item.type,
+        ]
+          .filter(Boolean)
+          .map((s) => String(s).toLowerCase().replace(/[\s_-]/g, ''));
+
+        if (candidateStatuses.length === 0) {
           return false;
         }
-        const sv = String(statusVal).toLowerCase().replace(/[\s_-]/g, '');
-        const fv = String(filters.status).toLowerCase().replace(/[\s_-]/g, '');
-        if (sv !== fv && !sv.includes(fv) && !fv.includes(sv)) {
+
+        const isOccupiedOrActiveFilter = fv === 'active' || fv === 'occupied';
+        const matchesStatus = candidateStatuses.some((sv) => {
+          if (isOccupiedOrActiveFilter && (sv === 'active' || sv === 'occupied')) {
+            return true;
+          }
+          return sv === fv || sv.includes(fv) || fv.includes(sv);
+        });
+        if (!matchesStatus) {
           return false;
         }
       }
@@ -167,7 +183,7 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
         const pName = String(item.propertyName || item.property?.name || '').toLowerCase();
         const uNum = String(item.unitNumber || item.unit?.unitNumber || '').toLowerCase();
         const tName = String(item.tenantName || (item.tenant ? `${item.tenant.firstName || ''} ${item.tenant.lastName || ''}` : '') || '').toLowerCase();
-        const desc = String(item.description || item.title || item.notes || '').toLowerCase();
+        const desc = String(item.description || item.title || item.notes || item.category || item.type || item.leaseStatus || item.unitStatus || '').toLowerCase();
         const code = String(item.id || item.workOrderNumber || item.invoiceNumber || '').toLowerCase();
 
         const matchesSearch = pName.includes(q) || uNum.includes(q) || tName.includes(q) || desc.includes(q) || code.includes(q);
