@@ -8,6 +8,9 @@ interface ReportFiltersProps {
   filters: ReportFiltersState;
   onChange: (key: keyof ReportFiltersState, value: any) => void;
   onReset: () => void;
+  showUnitFilter?: boolean;
+  showTenantFilter?: boolean;
+  showDateFilters?: boolean;
   showStatusFilter?: boolean;
   statusOptions?: string[];
   showPriorityFilter?: boolean;
@@ -20,6 +23,9 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
   filters,
   onChange,
   onReset,
+  showUnitFilter = true,
+  showTenantFilter = true,
+  showDateFilters = true,
   showStatusFilter = false,
   statusOptions = [],
   showPriorityFilter = false,
@@ -107,60 +113,68 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
       </div>
 
       {/* Unit Select */}
-      <div>
-        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Unit</label>
-        <select
-          value={filters.unitId || ''}
-          onChange={(e) => handleUnitChange(e.target.value)}
-          className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          <option value="">All Units</option>
-          {filteredUnits.map((u: any) => (
-            <option key={u.id} value={u.id}>
-              Unit {u.unitNumber} {u.propertyName || u.property?.name ? `(${u.propertyName || u.property?.name})` : ''}
-            </option>
-          ))}
-        </select>
-      </div>
+      {showUnitFilter && (
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Unit</label>
+          <select
+            value={filters.unitId || ''}
+            onChange={(e) => handleUnitChange(e.target.value)}
+            className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">All Units</option>
+            {filteredUnits.map((u: any) => (
+              <option key={u.id} value={u.id}>
+                Unit {u.unitNumber} {u.propertyName || u.property?.name ? `(${u.propertyName || u.property?.name})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Tenant Select */}
-      <div>
-        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Tenant</label>
-        <select
-          value={filters.tenantId || ''}
-          onChange={(e) => onChange('tenantId', e.target.value)}
-          className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          <option value="">All Tenants</option>
-          {filteredTenants.map((t: any) => (
-            <option key={t.id} value={t.id}>
-              {t.firstName || ''} {t.lastName || ''} {t.unit?.unitNumber ? `(Unit ${t.unit.unitNumber})` : ''}
-            </option>
-          ))}
-        </select>
-      </div>
+      {showTenantFilter && (
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Tenant</label>
+          <select
+            value={filters.tenantId || ''}
+            onChange={(e) => onChange('tenantId', e.target.value)}
+            className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">All Tenants</option>
+            {filteredTenants.map((t: any) => (
+              <option key={t.id} value={t.id}>
+                {t.firstName || ''} {t.lastName || ''} {t.unit?.unitNumber ? `(Unit ${t.unit.unitNumber})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Start Date */}
-      <div>
-        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Start Date</label>
-        <input
-          type="date"
-          value={filters.startDate || ''}
-          onChange={(e) => onChange('startDate', e.target.value)}
-          className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-      </div>
+      {showDateFilters && (
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Start Date</label>
+          <input
+            type="date"
+            value={filters.startDate || ''}
+            onChange={(e) => onChange('startDate', e.target.value)}
+            className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+      )}
 
       {/* End Date */}
-      <div>
-        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">End Date</label>
-        <input
-          type="date"
-          value={filters.endDate || ''}
-          onChange={(e) => onChange('endDate', e.target.value)}
-          className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-      </div>
+      {showDateFilters && (
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">End Date</label>
+          <input
+            type="date"
+            value={filters.endDate || ''}
+            onChange={(e) => onChange('endDate', e.target.value)}
+            className="w-full h-10 px-3 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+      )}
 
       {/* Status Filter */}
       {showStatusFilter && (

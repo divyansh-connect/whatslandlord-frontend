@@ -75,8 +75,8 @@ export const CollectionDashboardPage: React.FC = () => {
           title={t('collectionDashboard.tenantCollections')}
           value={`$${(metrics?.monthlyRevenue ?? 0).toLocaleString()}`}
           icon={<ArrowUpRight className="w-5 h-5 text-emerald-500" />}
-          trend="up"
-          trendLabel="+12.4%"
+          trend={(metrics?.monthlyRevenue ?? 0) > 0 ? "up" : "neutral"}
+          trendLabel={(metrics?.monthlyRevenue ?? 0) > 0 ? `${metrics?.occupiedUnits ?? 0} Active` : "0%"}
           description={t('collectionDashboard.grossInflow')}
           loading={loadingMetrics}
         />
@@ -84,8 +84,8 @@ export const CollectionDashboardPage: React.FC = () => {
           title={t('collectionDashboard.tenantOverdue')}
           value={`$${(metrics?.pendingRent ?? 0).toLocaleString()}`}
           icon={<AlertCircle className="w-5 h-5 text-rose-500" />}
-          trend="down"
-          trendLabel="-8.5%"
+          trend={(metrics?.pendingRent ?? 0) > 0 ? "down" : "neutral"}
+          trendLabel={(metrics?.pendingRent ?? 0) > 0 ? `${(metrics as any)?.pendingInvoicesCount || 1} Overdue` : "0%"}
           description={t('collectionDashboard.pendingAccounts')}
           loading={loadingMetrics}
         />

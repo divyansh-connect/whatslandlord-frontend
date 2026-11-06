@@ -130,6 +130,18 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
           if (isOccupiedOrActiveFilter && (sv === 'active' || sv === 'occupied')) {
             return true;
           }
+          if (fv === 'paid') {
+            return sv === 'paid' || sv === 'cleared' || sv === 'completed';
+          }
+          if (fv === 'partiallypaid' || fv === 'partial') {
+            return sv === 'partiallypaid' || sv === 'partial';
+          }
+          if (fv === 'unpaid') {
+            return sv === 'unpaid';
+          }
+          if (fv === 'overdue') {
+            return sv === 'overdue';
+          }
           return sv === fv || sv.includes(fv) || fv.includes(sv);
         });
         if (!matchesStatus) {
@@ -183,8 +195,28 @@ export const useReportDataFilter = (reportItems: any[], filters: ReportFiltersSt
         const pName = String(item.propertyName || item.property?.name || '').toLowerCase();
         const uNum = String(item.unitNumber || item.unit?.unitNumber || '').toLowerCase();
         const tName = String(item.tenantName || (item.tenant ? `${item.tenant.firstName || ''} ${item.tenant.lastName || ''}` : '') || '').toLowerCase();
-        const desc = String(item.description || item.title || item.notes || item.category || item.type || item.leaseStatus || item.unitStatus || '').toLowerCase();
-        const code = String(item.id || item.workOrderNumber || item.invoiceNumber || '').toLowerCase();
+        const desc = String(
+          item.description ||
+          item.title ||
+          item.notes ||
+          item.category ||
+          item.type ||
+          item.leaseStatus ||
+          item.unitStatus ||
+          item.paymentStatus ||
+          item.paymentMethod ||
+          ''
+        ).toLowerCase();
+        const code = String(
+          item.id ||
+          item.workOrderNumber ||
+          item.invoiceNumber ||
+          item.referenceNumber ||
+          item.receiptNo ||
+          item.invoiceId ||
+          item.paymentId ||
+          ''
+        ).toLowerCase();
 
         const matchesSearch = pName.includes(q) || uNum.includes(q) || tName.includes(q) || desc.includes(q) || code.includes(q);
         if (!matchesSearch) return false;

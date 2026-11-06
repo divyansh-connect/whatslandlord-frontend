@@ -152,6 +152,32 @@ export interface MonthChipItem {
   dueDate: string;
 }
 
+export const getEffectiveUnitLateFee = (
+  rentAmount?: number | string,
+  isLateFeeEnabled?: boolean,
+  lateFeeType?: 'FLAT' | 'PERCENTAGE',
+  lateFeeAmount?: number | string
+): number => {
+  const rent = Number(rentAmount || 0);
+  const rawFee =
+    lateFeeAmount !== undefined && lateFeeAmount !== '' && lateFeeAmount !== null
+      ? Number(lateFeeAmount)
+      : 50;
+  if (isLateFeeEnabled && lateFeeType === 'PERCENTAGE') {
+    return Math.round(((rent * rawFee) / 100) * 100) / 100;
+  }
+  return rawFee > 0 ? rawFee : 50;
+};
+
+export const doesMonthHaveLateFee = (
+  detail?: MonthPaymentStatus,
+  applyGlobalLateFee?: boolean
+): boolean => {
+  if (!detail || detail.status === 'Paid') return false;
+  if (detail.applyLateFee !== undefined) return Boolean(detail.applyLateFee);
+  return detail.status === 'Unpaid' && Boolean(applyGlobalLateFee);
+};
+
 export const generateMonthListFromMoveIn = (moveInDateStr: string): MonthChipItem[] => {
   if (!moveInDateStr) return [];
   const moveInDate = new Date(moveInDateStr);
@@ -217,32 +243,53 @@ export const NewUnitPage: React.FC = () => {
     setUnitItems((prev) =>
       prev.map((item) => {
         if (item.id !== unitId) return item;
-        const updatedItem = { ...item, applyGlobalLateFee: enabled };
 
         const pastMonths = generateMonthListFromMoveIn(item.tenantInvoiceStartDate || item.tenantMoveInDate);
         const rentVal = Number(item.rentAmount || 0);
-        const lateFeeVal = enabled ? Number(item.lateFeeAmount || 50) : 0;
-        const details = item.monthPaymentDetails || {};
+        const lateFeeVal = getEffectiveUnitLateFee(
+          item.rentAmount,
+          item.isLateFeeEnabled,
+          item.lateFeeType,
+          item.lateFeeAmount
+        );
+        const existingDetails = item.monthPaymentDetails || {};
+        const updatedDetails: Record<string, MonthPaymentStatus> = { ...existingDetails };
 
         let totalUnpaidBalance = 0;
         const unpaidMonthsList: string[] = [];
 
         pastMonths.forEach((m) => {
-          const detail = details[m.id] || { status: 'Unpaid', paidAmount: 0 };
-          const pAmt = detail.status === 'Paid'
-            ? rentVal
-            : (detail.status === 'Partial' ? Math.min(rentVal, Number(detail.paidAmount || 0)) : 0);
+          const prevDetail = existingDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
+          const nextDetail: MonthPaymentStatus = {
+            ...prevDetail,
+            applyLateFee:
+              prevDetail.status === 'Unpaid'
+                ? enabled
+                : prevDetail.status === 'Paid'
+                ? false
+                : prevDetail.applyLateFee,
+          };
+          updatedDetails[m.id] = nextDetail;
 
-          const monthLateFee = (enabled || detail.applyLateFee) && detail.status !== 'Paid' ? lateFeeVal : 0;
+          const pAmt =
+            nextDetail.status === 'Paid'
+              ? rentVal
+              : nextDetail.status === 'Partial'
+              ? Math.min(rentVal, Number(nextDetail.paidAmount || 0))
+              : 0;
+
+          const monthLateFee = doesMonthHaveLateFee(nextDetail, enabled) ? lateFeeVal : 0;
           const due = Math.max(0, rentVal + monthLateFee - pAmt);
-          if (due > 0 || detail.status !== 'Paid') {
+          if (due > 0 || nextDetail.status !== 'Paid') {
             unpaidMonthsList.push(m.id);
           }
           totalUnpaidBalance += due;
         });
 
         return {
-          ...updatedItem,
+          ...item,
+          applyGlobalLateFee: enabled,
+          monthPaymentDetails: updatedDetails,
           unpaidMonths: unpaidMonthsList,
           tenantPreviousBalance: totalUnpaidBalance,
         };
@@ -263,7 +310,12 @@ export const NewUnitPage: React.FC = () => {
 
         const pastMonths = generateMonthListFromMoveIn(item.tenantInvoiceStartDate || item.tenantMoveInDate);
         const rentVal = Number(item.rentAmount || 0);
-        const lateFeeVal = Number(item.lateFeeAmount || 50);
+        const lateFeeVal = getEffectiveUnitLateFee(
+          item.rentAmount,
+          item.isLateFeeEnabled,
+          item.lateFeeType,
+          item.lateFeeAmount
+        );
 
         const existingDetails = item.monthPaymentDetails || {};
         let newPaidAmt = 0;
@@ -276,13 +328,18 @@ export const NewUnitPage: React.FC = () => {
         }
 
         const currentMonthDetail = existingDetails[monthId] || {};
-        const updatedDetails = {
+        const updatedDetails: Record<string, MonthPaymentStatus> = {
           ...existingDetails,
           [monthId]: {
             ...currentMonthDetail,
             status,
             paidAmount: newPaidAmt,
-            applyLateFee: status === 'Paid' ? false : (currentMonthDetail.applyLateFee ?? item.applyGlobalLateFee ?? false),
+            applyLateFee:
+              status === 'Paid'
+                ? false
+                : status === 'Partial'
+                ? Boolean(currentMonthDetail.applyLateFee ?? false)
+                : Boolean(currentMonthDetail.applyLateFee ?? item.applyGlobalLateFee ?? false),
           },
         };
 
@@ -291,11 +348,14 @@ export const NewUnitPage: React.FC = () => {
 
         pastMonths.forEach((m) => {
           const detail = updatedDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
-          const pAmt = detail.status === 'Paid'
-            ? rentVal
-            : (detail.status === 'Partial' ? Math.min(rentVal, Number(detail.paidAmount || 0)) : 0);
+          const pAmt =
+            detail.status === 'Paid'
+              ? rentVal
+              : detail.status === 'Partial'
+              ? Math.min(rentVal, Number(detail.paidAmount || 0))
+              : 0;
 
-          const monthLateFee = (item.applyGlobalLateFee || detail.applyLateFee) && detail.status === 'Unpaid' ? lateFeeVal : 0;
+          const monthLateFee = doesMonthHaveLateFee(detail, item.applyGlobalLateFee) ? lateFeeVal : 0;
           const due = Math.max(0, rentVal + monthLateFee - pAmt);
           if (due > 0 || detail.status !== 'Paid') {
             unpaidMonthsList.push(m.id);
@@ -509,6 +569,21 @@ export const NewUnitPage: React.FC = () => {
           if (pastMonths.length > 0 && api.invoices?.create) {
             const unpaidSet = new Set(item.unpaidMonths || []);
             const monthDetails = item.monthPaymentDetails || {};
+            const effectiveLateFee = getEffectiveUnitLateFee(
+              item.rentAmount,
+              item.isLateFeeEnabled,
+              item.lateFeeType,
+              item.lateFeeAmount
+            );
+
+            const invoicesToEnforce: Array<{
+              id: string;
+              status: string;
+              paidAmount: number;
+              balance: number;
+              amount: number;
+              lineItems: any[];
+            }> = [];
 
             for (const monthItem of pastMonths) {
               const detail = monthDetails[monthItem.id] || {
@@ -518,17 +593,23 @@ export const NewUnitPage: React.FC = () => {
 
               const rentAmt = Number(item.rentAmount || 0);
               const isPaid = detail.status === 'Paid';
-              const hasLateFee = !isPaid && detail.status === 'Unpaid' && (item.applyGlobalLateFee || detail.applyLateFee);
-              const lateFeeAmt = hasLateFee ? Number(item.lateFeeAmount || 50) : 0;
-              const totalInvAmt = isPaid ? rentAmt : (rentAmt + lateFeeAmt);
+              const hasLateFee = doesMonthHaveLateFee(detail, item.applyGlobalLateFee);
+              const lateFeeAmt = hasLateFee ? effectiveLateFee : 0;
+              const totalInvAmt = isPaid ? rentAmt : rentAmt + lateFeeAmt;
 
-              const paidAmt = detail.status === 'Paid'
-                ? rentAmt
-                : (detail.status === 'Partial' ? Math.min(rentAmt, Number(detail.paidAmount || 0)) : 0);
+              const paidAmt =
+                detail.status === 'Paid'
+                  ? rentAmt
+                  : detail.status === 'Partial'
+                  ? Math.min(rentAmt, Number(detail.paidAmount || 0))
+                  : 0;
               const remainingBal = Math.max(0, totalInvAmt - paidAmt);
-              const invStatus = detail.status === 'Paid'
-                ? 'Paid'
-                : (detail.status === 'Partial' ? 'Partially Paid' : 'Overdue');
+              const invStatus =
+                detail.status === 'Paid'
+                  ? 'Paid'
+                  : detail.status === 'Partial'
+                  ? 'Partially Paid'
+                  : 'Overdue';
 
               const lineItems: any[] = [
                 {
@@ -539,7 +620,7 @@ export const NewUnitPage: React.FC = () => {
 
               if (lateFeeAmt > 0 && !isPaid) {
                 lineItems.push({
-                  description: `Overdue Late Fee Charge (10-Day Policy)`,
+                  description: `Overdue Late Fee Charge (${item.lateFeeGraceDays ?? 5}-Day Policy) - ${monthItem.label}`,
                   amount: lateFeeAmt,
                 });
               }
@@ -559,6 +640,17 @@ export const NewUnitPage: React.FC = () => {
                   status: invStatus,
                   lineItems,
                 });
+
+                if (createdInv?.id) {
+                  invoicesToEnforce.push({
+                    id: createdInv.id,
+                    status: invStatus,
+                    paidAmount: paidAmt,
+                    balance: remainingBal,
+                    amount: totalInvAmt,
+                    lineItems,
+                  });
+                }
 
                 if (paidAmt > 0 && api.payments?.create) {
                   try {
@@ -586,6 +678,23 @@ export const NewUnitPage: React.FC = () => {
               } catch (invErr) {
                 console.warn('Historical invoice creation handled:', invErr);
               }
+            }
+
+            // Re-enforce exact invoice status, paidAmount, and balance so backend FIFO payment side-effects never overwrite Partially Paid months
+            if (invoicesToEnforce.length > 0 && api.invoices?.update) {
+              await Promise.all(
+                invoicesToEnforce.map((inv) =>
+                  api.invoices
+                    .update(inv.id, {
+                      status: inv.status,
+                      paidAmount: inv.paidAmount,
+                      balance: inv.balance,
+                      amount: inv.amount,
+                      lineItems: inv.lineItems,
+                    })
+                    .catch(() => {})
+                )
+              );
             }
           }
         }
@@ -1329,6 +1438,12 @@ export const NewUnitPage: React.FC = () => {
                                 if (pastMonths.length === 0) return null;
 
                                 const rentVal = Number(item.rentAmount || 0);
+                                const effectiveLateFee = getEffectiveUnitLateFee(
+                                  item.rentAmount,
+                                  item.isLateFeeEnabled,
+                                  item.lateFeeType,
+                                  item.lateFeeAmount
+                                );
                                 const details = item.monthPaymentDetails || {};
 
                                 let paidCount = 0;
@@ -1340,7 +1455,7 @@ export const NewUnitPage: React.FC = () => {
 
                                 pastMonths.forEach((m) => {
                                   const d = details[m.id] || { status: 'Unpaid', paidAmount: 0 };
-                                  const monthLateFee = (item.applyGlobalLateFee || d.applyLateFee) && d.status !== 'Paid' ? Number(item.lateFeeAmount || 50) : 0;
+                                  const monthLateFee = doesMonthHaveLateFee(d, item.applyGlobalLateFee) ? effectiveLateFee : 0;
 
                                   if (d.status === 'Paid') {
                                     paidCount++;
@@ -1376,7 +1491,7 @@ export const NewUnitPage: React.FC = () => {
                                             onChange={(e) => handleToggleGlobalLateFee(item.id, e.target.checked)}
                                             className="rounded border-amber-500 text-amber-600 focus:ring-amber-500 w-3 h-3 cursor-pointer"
                                           />
-                                          <span>Include $50 Late Fee for Unpaid Months</span>
+                                          <span>Include ${effectiveLateFee} Late Fee for Unpaid Months</span>
                                         </label>
 
                                         <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 rounded-md border border-emerald-500/20">
@@ -1398,8 +1513,8 @@ export const NewUnitPage: React.FC = () => {
                                       {pastMonths.map((m) => {
                                         const d = details[m.id] || { status: 'Unpaid', paidAmount: 0 };
                                         const isPopoverOpen = activePopover?.unitId === item.id && activePopover?.monthId === m.id;
-                                        const monthHasLateFee = (item.applyGlobalLateFee || d.applyLateFee) && d.status !== 'Paid';
-                                        const monthDue = Math.max(0, rentVal + (monthHasLateFee ? 50 : 0) - d.paidAmount);
+                                        const monthHasLateFee = doesMonthHaveLateFee(d, item.applyGlobalLateFee);
+                                        const monthDue = Math.max(0, rentVal + (monthHasLateFee ? effectiveLateFee : 0) - d.paidAmount);
 
                                         return (
                                           <div key={m.id} className="relative inline-block">
@@ -1498,7 +1613,7 @@ export const NewUnitPage: React.FC = () => {
                                                     <label className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 cursor-pointer select-none">
                                                       <input
                                                         type="checkbox"
-                                                        checked={Boolean(d.applyLateFee ?? item.applyGlobalLateFee)}
+                                                        checked={doesMonthHaveLateFee(d, item.applyGlobalLateFee)}
                                                         onChange={(e) => {
                                                           const isChecked = e.target.checked;
                                                           setUnitItems((prev) =>
@@ -1514,7 +1629,7 @@ export const NewUnitPage: React.FC = () => {
                                                               pastMonths.forEach((pM) => {
                                                                 const pDetail = newDetails[pM.id] || { status: 'Unpaid', paidAmount: 0 };
                                                                 const pAmt = pDetail.status === 'Paid' ? rentVal : (pDetail.status === 'Partial' ? Math.min(rentVal, Number(pDetail.paidAmount || 0)) : 0);
-                                                                const lateFee = (u.applyGlobalLateFee || pDetail.applyLateFee) && pDetail.status !== 'Paid' ? Number(u.lateFeeAmount || 50) : 0;
+                                                                const lateFee = doesMonthHaveLateFee(pDetail, u.applyGlobalLateFee) ? effectiveLateFee : 0;
                                                                 const due = Math.max(0, rentVal + lateFee - pAmt);
                                                                 if (due > 0 || pDetail.status !== 'Paid') unpaidList.push(pM.id);
                                                                 totalUnpaidBalance += due;
@@ -1525,7 +1640,7 @@ export const NewUnitPage: React.FC = () => {
                                                         }}
                                                         className="rounded border-amber-500 text-amber-600 focus:ring-amber-500 w-3 h-3 cursor-pointer"
                                                       />
-                                                      <span>Include $50 Late Fee for {m.label}</span>
+                                                      <span>Include ${effectiveLateFee} Late Fee for {m.label}</span>
                                                     </label>
                                                   </div>
                                                 )}

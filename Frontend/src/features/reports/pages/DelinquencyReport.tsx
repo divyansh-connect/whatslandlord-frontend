@@ -26,27 +26,28 @@ export const DelinquencyReport: React.FC = () => {
   const filteredReportItems = useReportDataFilter(reportItems, filters);
 
   const summary = useMemo(() => {
-    const beSummary = (data as any)?.summary;
-    const hasClientFilter = Boolean(filters.propertyId || filters.unitId || filters.tenantId || filters.status || filters.startDate || filters.endDate || filters.search);
-
-    if (beSummary && !hasClientFilter) {
-      return {
-        totalDelinquentBalance: beSummary.totalDelinquentBalance ?? 0,
-        totalOriginalAmount: beSummary.totalOriginalAmount ?? 0,
-        totalDelinquentTenants: beSummary.totalDelinquentTenants ?? 0,
-        totalDelinquentInvoices: beSummary.totalDelinquentInvoices ?? 0,
-        averageDaysLate: beSummary.averageDaysLate ?? 0,
-      };
-    }
-
     return {
-      totalDelinquentBalance: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.outstandingBalance || 0), 0),
-      totalOriginalAmount: filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.rentAmount || 0), 0),
-      totalDelinquentTenants: new Set(filteredReportItems.map((i: any) => i.tenantName)).size,
+      totalDelinquentBalance: filteredReportItems.reduce(
+        (acc: number, curr: any) => acc + Number(curr.outstandingBalance || 0),
+        0
+      ),
+      totalOriginalAmount: filteredReportItems.reduce(
+        (acc: number, curr: any) => acc + Number(curr.rentAmount || 0),
+        0
+      ),
+      totalDelinquentTenants: new Set(
+        filteredReportItems.map((i: any) => i.tenantId || i.tenantName).filter(Boolean)
+      ).size,
       totalDelinquentInvoices: filteredReportItems.length,
-      averageDaysLate: filteredReportItems.length > 0 ? Math.round(filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.daysLate || 0), 0) / filteredReportItems.length) : 0,
+      averageDaysLate:
+        filteredReportItems.length > 0
+          ? Math.round(
+              filteredReportItems.reduce((acc: number, curr: any) => acc + Number(curr.daysLate || 0), 0) /
+                filteredReportItems.length
+            )
+          : 0,
     };
-  }, [data, filteredReportItems, filters]);
+  }, [filteredReportItems]);
 
   const columns = [
     { key: 'tenantName', header: 'Tenant Name' },
@@ -55,12 +56,27 @@ export const DelinquencyReport: React.FC = () => {
     {
       key: 'dueDate',
       header: 'Due Date',
-      render: (row: any) => (row.dueDate && row.dueDate !== 'N/A' ? new Date(row.dueDate).toLocaleDateString() : 'N/A'),
+      render: (row: any) => (row.dueDate && row.dueDate !== 'N/A' ? new Date(`${String(row.dueDate).split('T')[0]}T00:00:00`).toLocaleDateString() : 'N/A'),
     },
     {
       key: 'rentAmount',
       header: 'Amount Due',
-      render: (row: any) => `$${Number(row.rentAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+      render: (row: any) => {
+        const totalDue = Number(row.rentAmount || 0);
+        const lateFee = Number(row.lateFeeAmount || 0);
+        return (
+          <div className="flex flex-col items-start gap-0.5">
+            <span className="font-semibold">
+              ${totalDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </span>
+            {lateFee > 0 && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">
+                +${lateFee.toLocaleString()} Late Fee
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'paidAmount',
@@ -80,17 +96,30 @@ export const DelinquencyReport: React.FC = () => {
       key: 'daysLate',
       header: 'Days Late',
       render: (row: any) => (
-        <span className="font-extrabold text-amber-600 dark:text-amber-400">{row.daysLate} Days</span>
+        <span className="font-extrabold text-amber-600 dark:text-amber-400">{Number(row.daysLate || 0)} Days</span>
       ),
     },
     {
       key: 'paymentStatus',
       header: 'Status',
-      render: (row: any) => (
-        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300">
-          {row.paymentStatus}
-        </span>
-      ),
+      render: (row: any) => {
+        const st = String(row.paymentStatus || 'Overdue');
+        const isPartial = st.toLowerCase().includes('partial');
+        const isUnpaid = st.toLowerCase() === 'unpaid';
+        return (
+          <span
+            className={`inline-flex items-center whitespace-nowrap px-2.5 py-0.5 rounded-full text-xs font-bold ${
+              isPartial
+                ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
+                : isUnpaid
+                ? 'bg-orange-100 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300'
+                : 'bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
+            }`}
+          >
+            {st}
+          </span>
+        );
+      },
     },
     {
       key: 'actions',
@@ -188,7 +217,12 @@ export const DelinquencyReport: React.FC = () => {
         columns={columns}
         data={filteredReportItems}
         isLoading={isLoading}
-        pagination={data?.pagination}
+        pagination={{
+          page: 1,
+          limit: filteredReportItems.length || 50,
+          totalRecords: filteredReportItems.length,
+          totalPages: filteredReportItems.length > 0 ? 1 : 0,
+        }}
         onPageChange={(page) => setFilterVal('page', page)}
         onSort={(key) => {
           const order = filters.sortBy === key && filters.sortOrder === 'asc' ? 'desc' : 'asc';

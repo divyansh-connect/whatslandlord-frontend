@@ -154,6 +154,7 @@ export const ProfitLossReport: React.FC = () => {
         filters={filters}
         onChange={setFilterVal}
         onReset={resetFilters}
+        showDateFilters={false}
         showStatusFilter={true}
         statusOptions={['Income', 'Expense']}
       />

@@ -29,7 +29,13 @@ import {
   X,
 } from 'lucide-react';
 import { mapBackendErrors } from '../../utils/errorMapping';
-import { generateMonthListFromMoveIn, MonthPaymentStatus } from './NewUnitPage';
+import { apiClient } from '../../api/client';
+import {
+  generateMonthListFromMoveIn,
+  MonthPaymentStatus,
+  getEffectiveUnitLateFee,
+  doesMonthHaveLateFee,
+} from './NewUnitPage';
 
 const unitFormSchema = zod.object({
   propertyId: zod.string().min(1, 'Property is required'),
@@ -145,6 +151,29 @@ export const EditUnitPage: React.FC = () => {
       // 2. If Occupied and Tenant info is provided
       if (values.status === 'Occupied' && values.tenantFirstName && values.tenantLastName) {
         const existingTenantId = unit?.tenant?.id || (unit?.tenants && unit.tenants[0]?.id);
+        const pastMonths = generateMonthListFromMoveIn(values.tenantInvoiceStartDate || values.tenantMoveInDate || '');
+        const rentVal = Number(values.rentAmount || 0);
+        const effectiveLateFee = getEffectiveUnitLateFee(
+          rentVal,
+          values.isLateFeeEnabled,
+          values.lateFeeType,
+          values.lateFeeAmount
+        );
+
+        let computedPreviousBalance = Number(values.tenantPreviousBalance || 0);
+        if (pastMonths.length > 0) {
+          computedPreviousBalance = 0;
+          pastMonths.forEach((m) => {
+            const d = editMonthDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
+            const pAmt = d.status === 'Paid'
+              ? rentVal
+              : (d.status === 'Partial' ? Math.min(rentVal, Number(d.paidAmount || 0)) : 0);
+            const hasLateFee = doesMonthHaveLateFee(d, applyGlobalLateFee);
+            const due = Math.max(0, rentVal + (hasLateFee ? effectiveLateFee : 0) - pAmt);
+            computedPreviousBalance += due;
+          });
+        }
+
         const tenantData = {
           firstName: values.tenantFirstName,
           lastName: values.tenantLastName,
@@ -162,8 +191,8 @@ export const EditUnitPage: React.FC = () => {
           unitNumber: values.unitNumber,
           moveInDate: values.tenantMoveInDate,
           invoiceStartDate: values.tenantInvoiceStartDate || values.tenantMoveInDate,
-          previousBalance: Number(values.tenantPreviousBalance || 0),
-          openingBalance: Number(values.tenantPreviousBalance || 0),
+          previousBalance: computedPreviousBalance,
+          openingBalance: computedPreviousBalance,
           ssn: values.tenantSsn || undefined,
           idType: values.tenantIdType || 'Driver License',
           idNumber: values.tenantIdNumber || undefined,
@@ -212,45 +241,125 @@ export const EditUnitPage: React.FC = () => {
           }
         }
 
-        // Auto-Generate Monthly Invoices for Past Move-In
-        const pastMonths = generateMonthListFromMoveIn(values.tenantInvoiceStartDate || values.tenantMoveInDate || '');
-        if (!existingTenantId && pastMonths.length > 0 && api.invoices?.create && activeTenantId) {
+        // Sync Monthly Invoices & Payments for Past Move-In (both new & existing occupied tenants)
+        if (pastMonths.length > 0 && activeTenantId) {
+          let existingInvoices: any[] = Array.isArray(unit?.tenant?.invoices) ? [...unit.tenant.invoices] : [];
+          let existingPayments: any[] = Array.isArray(unit?.tenant?.payments) ? [...unit.tenant.payments] : [];
+
+          try {
+            const [allInvs, allPays] = await Promise.all([
+              api.invoices?.getAll ? api.invoices.getAll() : Promise.resolve([]),
+              api.payments?.getAll ? api.payments.getAll() : Promise.resolve([]),
+            ]);
+            if (Array.isArray(allInvs) && allInvs.length > 0) {
+              existingInvoices = allInvs.filter((inv: any) => inv.tenantId === activeTenantId);
+            }
+            if (Array.isArray(allPays) && allPays.length > 0) {
+              existingPayments = allPays.filter((pay: any) => pay.tenantId === activeTenantId);
+            }
+          } catch (fetchErr) {
+            console.warn('Could not fetch fresh invoices/payments before sync:', fetchErr);
+          }
+
+          // Pass 1: Ensure an invoice exists for each month & sync payments first
+          const monthSyncPlan: Array<{
+            monthItem: { id: string; label: string; dueDate: string };
+            existingInv: any | null;
+            duplicateInvs: any[];
+            totalInvoiceAmt: number;
+            pAmt: number;
+            expectedBalance: number;
+            invStatus: 'Paid' | 'Partially Paid' | 'Overdue';
+            lineItems: Array<{ description: string; amount: number }>;
+          }> = [];
+
           for (const monthItem of pastMonths) {
             const detail = editMonthDetails[monthItem.id] || { status: 'Unpaid', paidAmount: 0 };
-            const pAmt = detail.status === 'Paid' ? Number(values.rentAmount || 0) : (detail.status === 'Partial' ? Math.min(Number(values.rentAmount || 0), Number(detail.paidAmount || 0)) : 0);
+            const pAmt = detail.status === 'Paid'
+              ? rentVal
+              : (detail.status === 'Partial' ? Math.min(rentVal, Number(detail.paidAmount || 0)) : 0);
             const isPaid = detail.status === 'Paid';
-            const hasLateFee = !isPaid && detail.status === 'Unpaid' && (applyGlobalLateFee || detail.applyLateFee);
-            const totalInvoiceAmt = isPaid ? Number(values.rentAmount || 0) : (Number(values.rentAmount || 0) + (hasLateFee ? 50 : 0));
-            const invStatus = detail.status === 'Paid' ? 'Paid' : (detail.status === 'Partial' ? 'Partially Paid' : 'Overdue');
+            const hasLateFee = doesMonthHaveLateFee(detail, applyGlobalLateFee);
+            const totalInvoiceAmt = isPaid ? rentVal : (rentVal + (hasLateFee ? effectiveLateFee : 0));
+            const expectedBalance = Math.max(0, totalInvoiceAmt - pAmt);
+            const invStatus: 'Paid' | 'Partially Paid' | 'Overdue' = detail.status === 'Paid'
+              ? 'Paid'
+              : (detail.status === 'Partial' ? 'Partially Paid' : 'Overdue');
 
-            try {
-              const createdInv = await api.invoices.create({
-                tenantId: activeTenantId,
-                tenantName: `${values.tenantFirstName} ${values.tenantLastName}`,
-                propertyId: values.propertyId,
-                propertyName: propObj?.name || 'Property',
-                unitId: id,
-                unitNumber: values.unitNumber,
-                amount: totalInvoiceAmt,
-                dueDate: monthItem.dueDate,
-                status: invStatus,
-                lineItems: [
-                  {
-                    description: `Monthly Rent Charge - ${monthItem.label}`,
-                    amount: Number(values.rentAmount || 0),
-                  },
-                  ...(hasLateFee ? [
-                    {
-                      description: `Overdue Late Fee Charge (10-Day Policy) - ${monthItem.label}`,
-                      amount: 50,
-                    }
-                  ] : []),
-                ],
-              });
+            const lineItems = [
+              {
+                description: `Monthly Rent Charge - ${monthItem.label}`,
+                amount: rentVal,
+              },
+              ...(hasLateFee && effectiveLateFee > 0 ? [
+                {
+                  description: `Overdue Late Fee Charge - ${monthItem.label}`,
+                  amount: effectiveLateFee,
+                }
+              ] : []),
+            ];
 
-              if (pAmt > 0 && api.payments?.create) {
+            const matchingInvs = existingInvoices.filter(
+              (inv: any) => String(inv.dueDate || '').slice(0, 7) === monthItem.id
+            );
+            let primaryInv = matchingInvs[0] || null;
+            const duplicateInvs = matchingInvs.slice(1);
+
+            if (!primaryInv && api.invoices?.create) {
+              try {
+                primaryInv = await api.invoices.create({
+                  tenantId: activeTenantId,
+                  tenantName: `${values.tenantFirstName} ${values.tenantLastName}`,
+                  propertyId: values.propertyId,
+                  propertyName: propObj?.name || 'Property',
+                  unitId: id,
+                  unitNumber: values.unitNumber,
+                  amount: totalInvoiceAmt,
+                  paidAmount: pAmt,
+                  balance: expectedBalance,
+                  dueDate: monthItem.dueDate,
+                  status: invStatus,
+                  lineItems,
+                });
+              } catch (createInvErr) {
+                console.warn('Invoice creation warning:', createInvErr);
+              }
+            }
+
+            // Sync payment(s) for this month
+            const matchingPays = existingPayments.filter((pay: any) => {
+              const payMonth = String(pay.dueDate || pay.paidDate || pay.date || '').slice(0, 7);
+              return payMonth === monthItem.id || (primaryInv?.id && pay.invoiceId === primaryInv.id);
+            });
+
+            if (pAmt > 0) {
+              const isPartial = detail.status === 'Partial';
+              const desiredPayStatus = isPartial ? 'PartiallyPaid' : 'Paid';
+              const desiredPayMethod = isPartial ? 'Offline_Partial' : 'Offline';
+
+              if (matchingPays.length > 0) {
+                const primaryPay = matchingPays[0];
+                const extraPays = matchingPays.slice(1);
                 try {
-                  const isPartial = detail.status === 'Partial';
+                  await api.payments.update(primaryPay.id, {
+                    amount: pAmt,
+                    status: desiredPayStatus,
+                    paymentMethod: desiredPayMethod,
+                    dueDate: monthItem.dueDate,
+                    paidDate: monthItem.dueDate,
+                  });
+                } catch (updPayErr) {
+                  console.warn('Payment update warning:', updPayErr);
+                }
+                for (const extraPay of extraPays) {
+                  try {
+                    await apiClient.delete(`/payments/${extraPay.id}`);
+                  } catch (delExtraErr) {
+                    console.warn('Extra payment delete warning:', delExtraErr);
+                  }
+                }
+              } else if (api.payments?.create) {
+                try {
                   await api.payments.create({
                     tenantId: activeTenantId,
                     tenantName: `${values.tenantFirstName} ${values.tenantLastName}`,
@@ -258,21 +367,96 @@ export const EditUnitPage: React.FC = () => {
                     propertyName: propObj?.name || 'Property',
                     unitId: id,
                     unitNumber: values.unitNumber,
-                    invoiceId: createdInv?.id,
+                    invoiceId: primaryInv?.id,
                     amount: pAmt,
                     dueDate: monthItem.dueDate,
                     paidDate: monthItem.dueDate,
-                    status: isPartial ? 'PartiallyPaid' : 'Paid',
-                    paymentMethod: isPartial ? 'Offline_Partial' : 'Offline',
+                    status: desiredPayStatus,
+                    paymentMethod: desiredPayMethod,
                     referenceNumber: `RCP-OCCUPIED-${Math.floor(100000 + Math.random() * 900000)}`,
                     createdBy: 'Manager',
                   });
-                } catch (payErr) {
-                  console.warn('Historical payment creation warning:', payErr);
+                } catch (createPayErr) {
+                  console.warn('Payment creation warning:', createPayErr);
                 }
               }
-            } catch (invErr) {
-              console.warn('Historical invoice creation handled:', invErr);
+            } else {
+              // Month is Unpaid -> remove any payments recorded for this month
+              for (const oldPay of matchingPays) {
+                try {
+                  await apiClient.delete(`/payments/${oldPay.id}`);
+                } catch (delPayErr) {
+                  console.warn('Payment removal warning:', delPayErr);
+                }
+              }
+            }
+
+            monthSyncPlan.push({
+              monthItem,
+              existingInv: primaryInv,
+              duplicateInvs,
+              totalInvoiceAmt,
+              pAmt,
+              expectedBalance,
+              invStatus,
+              lineItems,
+            });
+          }
+
+          // Pass 2: Enforce exact invoice status, amount, paidAmount, balance, and lineItems for every month
+          for (const plan of monthSyncPlan) {
+            for (const dupInv of plan.duplicateInvs) {
+              try {
+                await apiClient.delete(`/invoices/${dupInv.id}`);
+              } catch (dupErr) {
+                console.warn('Duplicate invoice delete warning:', dupErr);
+              }
+            }
+
+            if (plan.existingInv?.id && api.invoices?.update) {
+              try {
+                const prevAmount = Number(plan.existingInv.amount || 0);
+                const updatedInv = await api.invoices.update(plan.existingInv.id, {
+                  status: plan.invStatus,
+                  amount: plan.totalInvoiceAmt,
+                  paidAmount: plan.pAmt,
+                  balance: plan.expectedBalance,
+                  dueDate: plan.monthItem.dueDate,
+                  lineItems: plan.lineItems,
+                });
+
+                // If backend ignored `amount` update (e.g., older deployment on Railway where PUT /invoices/:id only updates status/paidAmount/balance)
+                if (
+                  prevAmount !== plan.totalInvoiceAmt &&
+                  Number(updatedInv?.amount ?? prevAmount) !== plan.totalInvoiceAmt &&
+                  api.invoices?.create
+                ) {
+                  await apiClient.delete(`/invoices/${plan.existingInv.id}`);
+                  const recreated = await api.invoices.create({
+                    tenantId: activeTenantId,
+                    tenantName: `${values.tenantFirstName} ${values.tenantLastName}`,
+                    propertyId: values.propertyId,
+                    propertyName: propObj?.name || 'Property',
+                    unitId: id,
+                    unitNumber: values.unitNumber,
+                    amount: plan.totalInvoiceAmt,
+                    paidAmount: plan.pAmt,
+                    balance: plan.expectedBalance,
+                    dueDate: plan.monthItem.dueDate,
+                    status: plan.invStatus,
+                    lineItems: plan.lineItems,
+                  });
+                  if (recreated?.id && plan.invStatus === 'Partially Paid') {
+                    await api.invoices.update(recreated.id, {
+                      status: 'Partially Paid',
+                      paidAmount: plan.pAmt,
+                      balance: plan.expectedBalance,
+                    });
+                  }
+                }
+              } catch (syncInvErr) {
+                console.warn('Invoice final sync warning:', syncInvErr);
+              }
             }
           }
         }
@@ -301,44 +485,6 @@ export const EditUnitPage: React.FC = () => {
   const [editMonthDetails, setEditMonthDetails] = useState<Record<string, MonthPaymentStatus>>({});
   const [activePopover, setActivePopover] = useState<string | null>(null);
   const [partialInput, setPartialInput] = useState<string>('');
-
-  React.useEffect(() => {
-    if (unit?.tenant) {
-      const invoices = unit.tenant.invoices || [];
-      const payments = unit.tenant.payments || [];
-      const detailsMap: Record<string, MonthPaymentStatus> = {};
-
-      invoices.forEach((inv: any) => {
-        if (!inv.dueDate) return;
-        const monthKey = inv.dueDate.slice(0, 7);
-        const isPaid = inv.status === 'Paid' || (Number(inv.balance || 0) <= 0 && Number(inv.amount || 0) > 0);
-        const isPartial = inv.status === 'Partially Paid' || inv.status === 'PartiallyPaid' || (Number(inv.paidAmount || 0) > 0 && Number(inv.balance || 0) > 0);
-
-        detailsMap[monthKey] = {
-          status: isPaid ? 'Paid' : (isPartial ? 'Partial' : 'Unpaid'),
-          paidAmount: Number(inv.paidAmount || (isPaid ? inv.amount : 0)),
-        };
-      });
-
-      payments.forEach((pay: any) => {
-        const payDate = pay.paidDate || pay.date || pay.dueDate || '';
-        if (!payDate) return;
-        const monthKey = payDate.slice(0, 7);
-        if (!detailsMap[monthKey] || detailsMap[monthKey].status !== 'Paid') {
-          if (pay.status === 'Paid' || !pay.status) {
-            detailsMap[monthKey] = {
-              status: 'Paid',
-              paidAmount: Number(pay.amount || 0),
-            };
-          }
-        }
-      });
-
-      if (Object.keys(detailsMap).length > 0) {
-        setEditMonthDetails(detailsMap);
-      }
-    }
-  }, [unit?.tenant]);
 
   const { watch, register, handleSubmit, setValue, setError, formState: { errors } } = useForm<UnitFormInputs>({
     resolver: zodResolver(unitFormSchema),
@@ -407,6 +553,181 @@ export const EditUnitPage: React.FC = () => {
   const unpaidMonths = watch('unpaidMonths') || [];
   const rentAmount = watch('rentAmount') || 0;
   const showTenantAdditionalDetails = watch('showTenantAdditionalDetails');
+
+  React.useEffect(() => {
+    if (!unit?.tenant) return;
+
+    const baseRent = Number(unit.rentAmount || 0);
+    const effectiveLateFee = getEffectiveUnitLateFee(
+      baseRent,
+      unit.isLateFeeEnabled,
+      unit.lateFeeType,
+      unit.lateFeeAmount
+    );
+
+    const reconcileTenantBilling = (invoices: any[], payments: any[]) => {
+      const detailsMap: Record<string, MonthPaymentStatus> = {};
+      const paymentsByMonth: Record<string, any[]> = {};
+
+      payments.forEach((pay: any) => {
+        const payDate = String(pay.dueDate || pay.paidDate || pay.date || '');
+        if (!payDate || payDate.length < 7) return;
+        const monthKey = payDate.slice(0, 7);
+        if (!paymentsByMonth[monthKey]) paymentsByMonth[monthKey] = [];
+        paymentsByMonth[monthKey].push(pay);
+      });
+
+      const invoicesByMonth: Record<string, any> = {};
+      invoices.forEach((inv: any) => {
+        if (!inv.dueDate) return;
+        const monthKey = String(inv.dueDate).slice(0, 7);
+        invoicesByMonth[monthKey] = inv;
+      });
+
+      const allMonthKeys = Array.from(
+        new Set([...Object.keys(invoicesByMonth), ...Object.keys(paymentsByMonth)])
+      );
+
+      let anyUnpaidHasLateFee = false;
+
+      allMonthKeys.forEach((monthKey) => {
+        const inv = invoicesByMonth[monthKey];
+        const monthPays = paymentsByMonth[monthKey] || [];
+        const invAmount = Number(inv?.amount || baseRent);
+
+        const hasLateFeeOnInvoice = Boolean(
+          inv &&
+          (
+            (Array.isArray(inv.lineItems) &&
+              inv.lineItems.some((li: any) =>
+                String(li?.description || '').toLowerCase().includes('late fee')
+              )) ||
+            (baseRent > 0 && invAmount > baseRent)
+          )
+        );
+
+        if (monthPays.length > 0) {
+          const paidSum = monthPays.reduce((sum: number, p: any) => {
+            const st = String(p.status || '').toLowerCase();
+            if (st === 'paid' || st === 'partiallypaid' || st === 'partial' || st === 'completed' || !st) {
+              return sum + Number(p.amount || 0);
+            }
+            return sum;
+          }, 0);
+
+          const hasPartialFlag = monthPays.some((p: any) => {
+            const st = String(p.status || '').toLowerCase();
+            const method = String(p.paymentMethod || p.method || '').toLowerCase();
+            return st.includes('partial') || method.includes('partial');
+          });
+
+          if (paidSum <= 0) {
+            detailsMap[monthKey] = {
+              status: 'Unpaid',
+              paidAmount: 0,
+              applyLateFee: hasLateFeeOnInvoice,
+            };
+            if (hasLateFeeOnInvoice) anyUnpaidHasLateFee = true;
+          } else if (paidSum < baseRent || (hasPartialFlag && paidSum < invAmount)) {
+            detailsMap[monthKey] = {
+              status: 'Partial',
+              paidAmount: paidSum,
+              applyLateFee: hasLateFeeOnInvoice,
+            };
+            if (hasLateFeeOnInvoice) anyUnpaidHasLateFee = true;
+
+            // Heal corrupted invoice if live backend FIFO marked it Paid
+            if (inv?.id && (inv.status === 'Paid' || Number(inv.balance ?? 0) === 0) && api.invoices?.update) {
+              const healedBalance = Math.max(0, invAmount - paidSum);
+              api.invoices.update(inv.id, {
+                status: 'Partially Paid',
+                paidAmount: paidSum,
+                balance: healedBalance,
+              }).catch(() => {});
+            }
+          } else {
+            detailsMap[monthKey] = {
+              status: 'Paid',
+              paidAmount: baseRent || paidSum,
+              applyLateFee: false,
+            };
+          }
+        } else if (inv) {
+          const isPaid =
+            inv.status === 'Paid' ||
+            (Number(inv.balance ?? 0) <= 0 && Number(inv.amount || 0) > 0 && Number(inv.paidAmount || 0) >= baseRent);
+          const isPartial =
+            !isPaid &&
+            (inv.status === 'Partially Paid' ||
+              inv.status === 'PartiallyPaid' ||
+              (Number(inv.paidAmount || 0) > 0 && Number(inv.balance || 0) > 0));
+
+          const resolvedStatus = isPaid ? 'Paid' : (isPartial ? 'Partial' : 'Unpaid');
+          if (resolvedStatus !== 'Paid' && hasLateFeeOnInvoice) {
+            anyUnpaidHasLateFee = true;
+          }
+
+          detailsMap[monthKey] = {
+            status: resolvedStatus,
+            paidAmount: isPaid ? baseRent : (isPartial ? Number(inv.paidAmount || 0) : 0),
+            applyLateFee: resolvedStatus === 'Paid' ? false : hasLateFeeOnInvoice,
+          };
+        }
+      });
+
+      setApplyGlobalLateFee(anyUnpaidHasLateFee);
+      if (Object.keys(detailsMap).length > 0) {
+        setEditMonthDetails(detailsMap);
+      }
+
+      const startStr =
+        (unit.tenant as any)?.invoiceStartDate
+          ? String((unit.tenant as any).invoiceStartDate).split('T')[0]
+          : unit.tenant?.moveInDate
+            ? String(unit.tenant.moveInDate).split('T')[0]
+            : '';
+      const pastMonths = generateMonthListFromMoveIn(startStr);
+      if (pastMonths.length > 0) {
+        let totalUnpaidBalance = 0;
+        const unpaidMonthsList: string[] = [];
+
+        pastMonths.forEach((m) => {
+          const d = detailsMap[m.id] || { status: 'Unpaid', paidAmount: 0 };
+          const pAmt =
+            d.status === 'Paid'
+              ? baseRent
+              : d.status === 'Partial'
+                ? Math.min(baseRent, Number(d.paidAmount || 0))
+                : 0;
+          const mHasLateFee = doesMonthHaveLateFee(d, anyUnpaidHasLateFee);
+          const due = Math.max(0, baseRent + (mHasLateFee ? effectiveLateFee : 0) - pAmt);
+          if (due > 0 || d.status !== 'Paid') {
+            unpaidMonthsList.push(m.id);
+          }
+          totalUnpaidBalance += due;
+        });
+
+        setValue('unpaidMonths', unpaidMonthsList);
+        setValue('tenantPreviousBalance', totalUnpaidBalance);
+      }
+    };
+
+    reconcileTenantBilling(unit.tenant.invoices || [], unit.tenant.payments || []);
+
+    // Also fetch fresh reconciled invoices & payments for this tenant
+    const tenantId = unit.tenant.id;
+    if (tenantId && api.invoices?.getAll && api.payments?.getAll) {
+      Promise.all([api.invoices.getAll(), api.payments.getAll()])
+        .then(([allInvs, allPays]) => {
+          const tInvs = Array.isArray(allInvs) ? allInvs.filter((i: any) => i.tenantId === tenantId) : [];
+          const tPays = Array.isArray(allPays) ? allPays.filter((p: any) => p.tenantId === tenantId) : [];
+          if (tInvs.length > 0 || tPays.length > 0) {
+            reconcileTenantBilling(tInvs, tPays);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [unit?.tenant, unit?.rentAmount, unit?.isLateFeeEnabled, unit?.lateFeeType, unit?.lateFeeAmount, setValue]);
 
   const onSubmit = (values: UnitFormInputs) => {
     updateMutation.mutate(values);
@@ -959,6 +1280,12 @@ export const EditUnitPage: React.FC = () => {
                     if (pastMonths.length === 0) return null;
 
                     const rentVal = Number(rentAmount || 0);
+                    const effectiveLateFee = getEffectiveUnitLateFee(
+                      rentVal,
+                      isLateFeeEnabled,
+                      lateFeeType,
+                      lateFeeAmount
+                    );
 
                     const handleUpdateEditMonthStatus = (
                       monthId: string,
@@ -982,7 +1309,11 @@ export const EditUnitPage: React.FC = () => {
                           ...existingD,
                           status,
                           paidAmount: newPaidAmt,
-                          applyLateFee: status === 'Paid' ? false : (existingD.applyLateFee ?? applyGlobalLateFee ?? false),
+                          applyLateFee: status === 'Paid'
+                            ? false
+                            : (status === 'Partial'
+                              ? Boolean(existingD.applyLateFee)
+                              : (existingD.applyLateFee ?? applyGlobalLateFee ?? false)),
                         },
                       };
 
@@ -995,8 +1326,8 @@ export const EditUnitPage: React.FC = () => {
                           ? rentVal
                           : (detail.status === 'Partial' ? Math.min(rentVal, Number(detail.paidAmount || 0)) : 0);
 
-                        const monthHasLateFee = (applyGlobalLateFee || detail.applyLateFee) && detail.status === 'Unpaid';
-                        const due = Math.max(0, rentVal + (monthHasLateFee ? 50 : 0) - pAmt);
+                        const monthHasLateFee = doesMonthHaveLateFee(detail, applyGlobalLateFee);
+                        const due = Math.max(0, rentVal + (monthHasLateFee ? effectiveLateFee : 0) - pAmt);
                         if (due > 0 || detail.status !== 'Paid') {
                           unpaidMonthsList.push(m.id);
                         }
@@ -1015,21 +1346,28 @@ export const EditUnitPage: React.FC = () => {
                       setApplyGlobalLateFee(enabled);
                       let totalUnpaidBalance = 0;
                       const unpaidMonthsList: string[] = [];
+                      const updatedDetails = { ...editMonthDetails };
 
                       pastMonths.forEach((m) => {
-                        const detail = editMonthDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
+                        const prevD = updatedDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
+                        const detail: MonthPaymentStatus = prevD.status === 'Unpaid'
+                          ? { ...prevD, applyLateFee: enabled }
+                          : prevD;
+                        updatedDetails[m.id] = detail;
+
                         const pAmt = detail.status === 'Paid'
                           ? rentVal
                           : (detail.status === 'Partial' ? Math.min(rentVal, Number(detail.paidAmount || 0)) : 0);
 
-                        const monthHasLateFee = (enabled || detail.applyLateFee) && detail.status !== 'Paid';
-                        const due = Math.max(0, rentVal + (monthHasLateFee ? 50 : 0) - pAmt);
+                        const monthHasLateFee = doesMonthHaveLateFee(detail, enabled);
+                        const due = Math.max(0, rentVal + (monthHasLateFee ? effectiveLateFee : 0) - pAmt);
                         if (due > 0 || detail.status !== 'Paid') {
                           unpaidMonthsList.push(m.id);
                         }
                         totalUnpaidBalance += due;
                       });
 
+                      setEditMonthDetails(updatedDetails);
                       setValue('unpaidMonths', unpaidMonthsList);
                       setValue('tenantPreviousBalance', totalUnpaidBalance);
                     };
@@ -1042,7 +1380,7 @@ export const EditUnitPage: React.FC = () => {
 
                     pastMonths.forEach((m) => {
                       const d = editMonthDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
-                      const monthLateFee = (applyGlobalLateFee || d.applyLateFee) && d.status !== 'Paid' ? 50 : 0;
+                      const monthLateFee = doesMonthHaveLateFee(d, applyGlobalLateFee) ? effectiveLateFee : 0;
 
                       if (d.status === 'Paid') {
                         paidCount++;
@@ -1078,7 +1416,7 @@ export const EditUnitPage: React.FC = () => {
                                 onChange={(e) => handleToggleGlobalLateFee(e.target.checked)}
                                 className="rounded border-amber-500 text-amber-600 focus:ring-amber-500 w-3 h-3 cursor-pointer"
                               />
-                              <span>Include $50 Late Fee for Unpaid Months</span>
+                              <span>Include ${effectiveLateFee} Late Fee for Unpaid Months</span>
                             </label>
 
                             <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 rounded-md border border-emerald-500/20">
@@ -1100,8 +1438,8 @@ export const EditUnitPage: React.FC = () => {
                           {pastMonths.map((m) => {
                             const d = editMonthDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
                             const isPopoverOpen = activePopover === m.id;
-                            const monthHasLateFee = (applyGlobalLateFee || d.applyLateFee) && d.status !== 'Paid';
-                            const monthDue = Math.max(0, rentVal + (monthHasLateFee ? 50 : 0) - d.paidAmount);
+                            const monthHasLateFee = doesMonthHaveLateFee(d, applyGlobalLateFee);
+                            const monthDue = Math.max(0, rentVal + (monthHasLateFee ? effectiveLateFee : 0) - d.paidAmount);
 
                             return (
                               <div key={m.id} className="relative inline-block">
@@ -1200,7 +1538,7 @@ export const EditUnitPage: React.FC = () => {
                                         <label className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 cursor-pointer select-none">
                                           <input
                                             type="checkbox"
-                                            checked={Boolean(d.applyLateFee ?? applyGlobalLateFee)}
+                                            checked={doesMonthHaveLateFee(d, applyGlobalLateFee)}
                                             onChange={(e) => {
                                               const isChecked = e.target.checked;
                                               const updatedDetails = {
@@ -1217,8 +1555,8 @@ export const EditUnitPage: React.FC = () => {
                                                   ? rentVal
                                                   : (detail.status === 'Partial' ? Math.min(rentVal, Number(detail.paidAmount || 0)) : 0);
 
-                                                const pHasLateFee = (applyGlobalLateFee || detail.applyLateFee) && detail.status !== 'Paid';
-                                                const due = Math.max(0, rentVal + (pHasLateFee ? 50 : 0) - pAmt);
+                                                const pHasLateFee = doesMonthHaveLateFee(detail, applyGlobalLateFee);
+                                                const due = Math.max(0, rentVal + (pHasLateFee ? effectiveLateFee : 0) - pAmt);
                                                 if (due > 0 || detail.status !== 'Paid') {
                                                   unpaidMonthsList.push(pM.id);
                                                 }
@@ -1230,7 +1568,7 @@ export const EditUnitPage: React.FC = () => {
                                             }}
                                             className="rounded border-amber-500 text-amber-600 focus:ring-amber-500 w-3 h-3 cursor-pointer"
                                           />
-                                          <span>Include $50 Late Fee for {m.label}</span>
+                                          <span>Include ${effectiveLateFee} Late Fee for {m.label}</span>
                                         </label>
                                       </div>
                                     )}
@@ -1262,7 +1600,7 @@ export const EditUnitPage: React.FC = () => {
                                         </div>
                                         {Number(partialInput || 0) < rentVal && (
                                           <p className="text-[9px] text-rose-500 font-bold">
-                                            Remaining Due: ${(rentVal - Number(partialInput || 0)).toLocaleString()}
+                                            Remaining Due: ${(rentVal + (doesMonthHaveLateFee(d, applyGlobalLateFee) ? effectiveLateFee : 0) - Number(partialInput || 0)).toLocaleString()}
                                           </p>
                                         )}
                                       </div>

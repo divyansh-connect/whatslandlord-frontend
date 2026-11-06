@@ -794,120 +794,347 @@ export const api = {
     getMetrics: async () => {
       try {
         const [
-          metricsRes,
-          workOrdersRes,
+          propertiesRes,
           unitsRes,
-          leasesRes,
+          tenantsRes,
+          invoicesRes,
           paymentsRes,
           expensesRes,
+          workOrdersRes,
+          serviceRequestsRes,
+          leasesRes,
         ] = await Promise.allSettled([
-          apiClient.get('/dashboard/metrics'),
-          apiClient.get('/work-orders'),
-          apiClient.get('/units'),
-          apiClient.get('/leases'),
-          apiClient.get('/payments'),
-          apiClient.get('/portal/expenses'),
+          api.property.getAll(),
+          api.unit.getAll(),
+          api.tenant.getAll(),
+          api.invoices.getAll(),
+          api.payments.getAll(),
+          api.expenses.getAll(),
+          api.workOrders.getAll(),
+          api.serviceRequests.getAll(),
+          api.leasing.getLeases(),
         ]);
 
-        const base = metricsRes.status === 'fulfilled' ? ((metricsRes.value as any)?.data || {}) : {};
-        const workOrders = workOrdersRes.status === 'fulfilled' ? ((workOrdersRes.value as any)?.data || []) : [];
-        const units = unitsRes.status === 'fulfilled' ? ((unitsRes.value as any)?.data || []) : [];
-        const leases = leasesRes.status === 'fulfilled' ? ((leasesRes.value as any)?.data || []) : [];
-        const payments = paymentsRes.status === 'fulfilled' ? ((paymentsRes.value as any)?.data || []) : [];
-        const expenses = expensesRes.status === 'fulfilled' ? ((expensesRes.value as any)?.data || []) : [];
+        const properties = propertiesRes.status === 'fulfilled' ? (propertiesRes.value || []) : [];
+        const rawUnits = unitsRes.status === 'fulfilled' ? (unitsRes.value || []) : [];
+        const tenants = tenantsRes.status === 'fulfilled' ? (tenantsRes.value || []) : [];
+        const invoices = invoicesRes.status === 'fulfilled' ? (invoicesRes.value || []) : [];
+        const payments = paymentsRes.status === 'fulfilled' ? (paymentsRes.value || []) : [];
+        const expenses = expensesRes.status === 'fulfilled' ? (expensesRes.value || []) : [];
+        const workOrders = workOrdersRes.status === 'fulfilled' ? (workOrdersRes.value || []) : [];
+        const serviceRequests = serviceRequestsRes.status === 'fulfilled' ? (serviceRequestsRes.value || []) : [];
+        const leases = leasesRes.status === 'fulfilled' ? (leasesRes.value || []) : [];
 
-        // 1. Open Maintenance Work Orders + Service Requests
-        const openMaintenanceCount = workOrders.length > 0
-          ? workOrders.filter((w: any) =>
-              ['Open', 'InProgress', 'Pending', 'In Progress', 'New', 'Submitted', 'Assigned'].includes(w.status)
-            ).length
-          : (base.openMaintenance ?? 0);
+        // If user has 0 active properties, all portfolio metrics must be 0
+        if (properties.length === 0) {
+          return {
+            totalProperties: 0,
+            totalUnits: 0,
+            occupiedUnits: 0,
+            vacantUnits: 0,
+            occupancyRate: 0,
+            monthlyRevenue: 0,
+            pendingRent: 0,
+            pendingInvoicesCount: 0,
+            expenses: 0,
+            openMaintenance: 0,
+            leasesExpiringSoon: 0,
+          };
+        }
 
-        // 2. Units breakdown (ensure occupied + vacant aligns with total units)
-        const occupiedUnitsCount = units.length > 0
-          ? units.filter((u: any) => u.status === 'Occupied').length
-          : (base.occupiedUnits ?? 0);
-        const vacantUnitsCount = units.length > 0
-          ? units.filter((u: any) => u.status === 'Vacant').length
-          : (base.vacantUnits ?? 0);
-        const rawTotalUnits = units.length > 0 ? units.length : (base.totalUnits ?? 0);
-        const totalUnitsCount = Math.max(rawTotalUnits, occupiedUnitsCount + vacantUnitsCount);
+        const activePropIds = new Set(properties.map((p: any) => p.id));
+        const activePropNames = new Set(
+          properties.map((p: any) => String(p.name || '').toLowerCase().trim()).filter(Boolean)
+        );
 
+        // Filter units strictly to active properties (matching Rent Roll Report)
+        const units = rawUnits.filter((u: any) => {
+          const pName = String(u.propertyName || u.property?.name || '').toLowerCase().trim();
+          return (u.propertyId && activePropIds.has(u.propertyId)) || (pName && activePropNames.has(pName));
+        });
+
+        const activeUnitIds = new Set(units.map((u: any) => u.id));
+        const activeUnitNumbers = new Set(
+          units.map((u: any) => String(u.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim()).filter(Boolean)
+        );
+
+        // 1. Units & Occupancy (100% synced with Rent Roll Report)
+        const occupiedUnitsList = units.filter((u: any) => String(u.status || '').toLowerCase() === 'occupied');
+        const occupiedUnitsCount = occupiedUnitsList.length;
+        const vacantUnitsCount = units.filter((u: any) => String(u.status || '').toLowerCase() !== 'occupied').length;
+        const totalUnitsCount = units.length;
         const computedOccupancyRate = totalUnitsCount > 0
           ? Math.min(100, Math.round((occupiedUnitsCount / totalUnitsCount) * 100))
           : 0;
 
-        // 3. Leases expiring soon (next 60 days matching UI description)
-        const now = new Date();
-        const sixtyDaysFromNow = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
-        const expiringLeasesCount = leases.length > 0
-          ? leases.filter((l: any) => {
-              if (l.status !== 'Active' || !l.endDate) return false;
-              const end = new Date(l.endDate);
-              return end <= sixtyDaysFromNow;
-            }).length
-          : (base.leasesExpiringSoon ?? 0);
+        // 2. Monthly Revenue (100% synced with Rent Roll Occupied Rent & Monthly Revenue Matrix)
+        const computedRevenue = occupiedUnitsList.reduce(
+          (sum: number, u: any) => sum + (Number(u.rentAmount) || 0),
+          0
+        );
 
-        // 4. Pending Rent
-        const computedPendingRent = payments.length > 0
-          ? payments
-              .filter((p: any) => ['Pending', 'Overdue', 'Late', 'Unpaid'].includes(p.status))
-              .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
-          : (base.pendingRent ?? 0);
+        // 3. Pending Rent (100% synced with Delinquency Report — active property, active unit, active tenant unpaid/partial invoices + late fees)
+        const activeTenantsList = tenants.filter(
+          (t: any) => t?.id && !['Inactive', 'Deleted'].includes(t.status)
+        );
+        const activeTenantByIdMap = new Map<string, any>(activeTenantsList.map((t: any) => [t.id, t]));
+        const unitByIdMap = new Map<string, any>(units.map((u: any) => [u.id, u]));
 
-        // 5. Expenses (Isolated by active company and aligned with /accounting/expenses)
-        const userCompanyId = getActiveCompanyId();
-        const filteredExpenses = expenses.filter((e: any) => {
-          let parsed: any = {};
-          try { parsed = JSON.parse(e.description); } catch { parsed = {}; }
-          if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return false;
-          if (['Sunset Heights', 'Highland Tower', 'Grand View Apartments'].includes(parsed.propertyName) && !parsed.propertyId) return false;
-          return true;
+        let computedPendingRent = 0;
+        let pendingInvoicesCount = 0;
+
+        invoices.forEach((inv: any) => {
+          const st = String(inv.status || '').toLowerCase().trim();
+          if (st === 'paid' || st === 'fully paid' || st === 'fullypaid' || st === 'void' || st === 'cancelled') return;
+
+          const propMatch =
+            (inv.propertyId && activePropIds.has(inv.propertyId)) ||
+            activePropNames.has(String(inv.propertyName || '').toLowerCase().trim());
+          if (!propMatch) return;
+
+          const resolvedTenantId = inv.tenantId && inv.tenantId !== 'default' ? inv.tenantId : '';
+          if (!resolvedTenantId || !activeTenantByIdMap.has(resolvedTenantId)) return;
+
+          const tenantObj = activeTenantByIdMap.get(resolvedTenantId);
+          if (!tenantObj) return;
+
+          const cleanUnitNum = String(inv.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
+          const matchedUnit =
+            (inv.unitId ? unitByIdMap.get(inv.unitId) : null) ||
+            (tenantObj.unitId ? unitByIdMap.get(tenantObj.unitId) : null) ||
+            units.find(
+              (u: any) =>
+                cleanUnitNum &&
+                String(u.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim() === cleanUnitNum &&
+                (!inv.propertyId || u.propertyId === inv.propertyId)
+            );
+
+          if (!matchedUnit || !activeUnitIds.has(matchedUnit.id)) return;
+          if (tenantObj.unitId && tenantObj.unitId !== matchedUnit.id) return;
+
+          const invAmount = Number(inv.amount || 0);
+          const invPaid = Number(inv.paidAmount || 0);
+          const bal =
+            inv.balance !== undefined && inv.balance !== null
+              ? Number(inv.balance)
+              : Math.max(0, invAmount - invPaid);
+
+          if (bal > 0) {
+            computedPendingRent += bal;
+            pendingInvoicesCount += 1;
+          }
         });
 
-        const computedExpenses = expensesRes.status === 'fulfilled'
-          ? filteredExpenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0)
-          : (base.expenses ?? 0);
+        // 4. Expenses (100% synced with Profit & Loss Report — active properties only)
+        const computedExpenses = expenses
+          .filter((e: any) => {
+            const pName = String(e.propertyName || '').toLowerCase().trim();
+            return (e.propertyId && activePropIds.has(e.propertyId)) || (pName && activePropNames.has(pName));
+          })
+          .reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
 
-        // 6. Monthly Revenue (active leases or occupied units)
-        const activeLeases = leases.filter((l: any) => l.status === 'Active' && Number(l.rentAmount) > 0);
-        const leaseRevenue = activeLeases.reduce((sum: number, l: any) => sum + (Number(l.rentAmount) || 0), 0);
-        const unitsRevenue = units
-          .filter((u: any) => u.status === 'Occupied' && Number(u.rentAmount) > 0)
-          .reduce((sum: number, u: any) => sum + (Number(u.rentAmount) || 0), 0);
-        const computedRevenue = leaseRevenue > 0 
-          ? leaseRevenue 
-          : (unitsRevenue > 0 ? unitsRevenue : (base.monthlyRevenue ?? 0));
+        // 5. Open Maintenance (active properties In-Progress work orders only)
+        const inProgressStatuses = ['InProgress', 'In Progress', 'in_progress', 'In-Progress'];
+        const activeOpenWOs = workOrders.filter((w: any) => {
+          if (!inProgressStatuses.includes(w.status)) return false;
+          const pName = String(w.propertyName || '').toLowerCase().trim();
+          return (w.propertyId && activePropIds.has(w.propertyId)) || (pName && activePropNames.has(pName));
+        });
+        const openMaintenanceCount = activeOpenWOs.length;
+
+        // 6. Leases expiring soon (next 60 days for active properties/units)
+        const now = new Date();
+        const sixtyDaysFromNow = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+        const expiringLeasesCount = leases.filter((l: any) => {
+          if (l.status !== 'Active' || !l.endDate) return false;
+          const propOk =
+            (l.propertyId && activePropIds.has(l.propertyId)) ||
+            (l.unitId && activeUnitIds.has(l.unitId)) ||
+            activePropNames.has(String(l.propertyName || l.property?.name || '').toLowerCase().trim());
+          if (!propOk) return false;
+          const end = new Date(l.endDate);
+          return end <= sixtyDaysFromNow;
+        }).length;
 
         return {
-          totalProperties: base.totalProperties ?? 0,
+          totalProperties: properties.length,
           totalUnits: totalUnitsCount,
           occupiedUnits: occupiedUnitsCount,
           vacantUnits: vacantUnitsCount,
           occupancyRate: computedOccupancyRate,
           monthlyRevenue: computedRevenue,
           pendingRent: computedPendingRent,
+          pendingInvoicesCount,
           expenses: computedExpenses,
           openMaintenance: openMaintenanceCount,
           leasesExpiringSoon: expiringLeasesCount,
         };
       } catch (e) {
         console.error('Dashboard metrics calculation error:', e);
-        try {
-          const fallback: any = await apiClient.get('/dashboard/metrics');
-          return fallback.data;
-        } catch {
-          return null;
-        }
+        return {
+          totalProperties: 0,
+          totalUnits: 0,
+          occupiedUnits: 0,
+          vacantUnits: 0,
+          occupancyRate: 0,
+          monthlyRevenue: 0,
+          pendingRent: 0,
+          pendingInvoicesCount: 0,
+          expenses: 0,
+          openMaintenance: 0,
+          leasesExpiringSoon: 0,
+        };
       }
     },
     getChartData: async () => {
       try {
-        const res: any = await apiClient.get('/dashboard/charts');
-        return res.data;
+        const [
+          propertiesRes,
+          unitsRes,
+          tenantsRes,
+          paymentsRes,
+          expensesRes,
+          workOrdersRes,
+          serviceRequestsRes,
+        ] = await Promise.allSettled([
+          api.property.getAll(),
+          api.unit.getAll(),
+          api.tenant.getAll(),
+          api.payments.getAll(),
+          api.expenses.getAll(),
+          api.workOrders.getAll(),
+          api.serviceRequests.getAll(),
+        ]);
+
+        const properties = propertiesRes.status === 'fulfilled' ? (propertiesRes.value || []) : [];
+        const rawUnits = unitsRes.status === 'fulfilled' ? (unitsRes.value || []) : [];
+        const tenants = tenantsRes.status === 'fulfilled' ? (tenantsRes.value || []) : [];
+        const payments = paymentsRes.status === 'fulfilled' ? (paymentsRes.value || []) : [];
+        const expenses = expensesRes.status === 'fulfilled' ? (expensesRes.value || []) : [];
+        const workOrders = workOrdersRes.status === 'fulfilled' ? (workOrdersRes.value || []) : [];
+        const serviceRequests = serviceRequestsRes.status === 'fulfilled' ? (serviceRequestsRes.value || []) : [];
+
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const months: Array<{ month: string; year: number; monthNum: number; key: string }> = [];
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(1);
+          d.setMonth(d.getMonth() - i);
+          const yr = d.getFullYear();
+          const mNum = d.getMonth();
+          months.push({
+            month: monthNames[mNum],
+            year: yr,
+            monthNum: mNum,
+            key: `${yr}-${String(mNum + 1).padStart(2, '0')}`,
+          });
+        }
+
+        // Strict zero-fallback when there are no active properties
+        if (properties.length === 0) {
+          return {
+            revenueGrowth: months.map((m) => ({ month: m.month, revenue: 0 })),
+            incomeVsExpenses: months.map((m) => ({ month: m.month, income: 0, expenses: 0 })),
+            occupancyTrend: months.map((m) => ({ month: m.month, rate: 0 })),
+            maintenanceAnalytics: [],
+          };
+        }
+
+        const activePropIds = new Set(properties.map((p: any) => p.id));
+        const activePropNames = new Set(
+          properties.map((p: any) => String(p.name || '').toLowerCase().trim()).filter(Boolean)
+        );
+        const activeUnits = rawUnits.filter((u: any) => {
+          const pName = String(u.propertyName || u.property?.name || '').toLowerCase().trim();
+          return (u.propertyId && activePropIds.has(u.propertyId)) || (pName && activePropNames.has(pName));
+        });
+        const activeUnitIds = new Set(activeUnits.map((u: any) => u.id));
+        const activeTenantsList = tenants.filter(
+          (t: any) => t?.id && !['Inactive', 'Deleted'].includes(t.status)
+        );
+        const activeTenantByIdMap = new Map<string, any>(activeTenantsList.map((t: any) => [t.id, t]));
+
+        // Filter payments strictly to active properties, active units, and active tenants
+        const validPayments = payments.filter((p: any) => {
+          const st = String(p.status || 'Paid').toLowerCase().trim();
+          if (!['paid', 'partially paid', 'partiallypaid', 'cleared', 'completed'].includes(st)) return false;
+          const propMatch =
+            (p.propertyId && activePropIds.has(p.propertyId)) ||
+            activePropNames.has(String(p.propertyName || '').toLowerCase().trim());
+          if (!propMatch) return false;
+          const tId = p.tenantId && p.tenantId !== 'default' ? p.tenantId : '';
+          if (!tId || !activeTenantByIdMap.has(tId)) return false;
+          const tObj = activeTenantByIdMap.get(tId);
+          if (tObj?.unitId && !activeUnitIds.has(tObj.unitId)) return false;
+          return true;
+        });
+
+        const validExpenses = expenses.filter((e: any) => {
+          const pName = String(e.propertyName || '').toLowerCase().trim();
+          return (e.propertyId && activePropIds.has(e.propertyId)) || (pName && activePropNames.has(pName));
+        });
+
+        const incomeVsExpenses = months.map((m) => {
+          const incomeSum = validPayments
+            .filter((p: any) => String(p.dueDate || p.paidDate || '').slice(0, 7) === m.key)
+            .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+
+          const expenseSum = validExpenses
+            .filter((e: any) => String(e.date || e.createdAt || '').slice(0, 7) === m.key)
+            .reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
+
+          return {
+            month: m.month,
+            income: incomeSum,
+            expenses: expenseSum,
+          };
+        });
+
+        const revenueGrowth = incomeVsExpenses.map((m) => ({
+          month: m.month,
+          revenue: m.income,
+        }));
+
+        const occupiedCount = activeUnits.filter((u: any) => String(u.status || '').toLowerCase() === 'occupied').length;
+        const currentOccupancyRate = activeUnits.length > 0
+          ? Math.min(100, Math.round((occupiedCount / activeUnits.length) * 100))
+          : 0;
+
+        const occupancyTrend = months.map((m) => ({
+          month: m.month,
+          rate: currentOccupancyRate,
+        }));
+
+        const categoryCounts: Record<string, number> = {};
+        [...workOrders, ...serviceRequests].forEach((item: any) => {
+          const pName = String(item.propertyName || '').toLowerCase().trim();
+          const propOk = (item.propertyId && activePropIds.has(item.propertyId)) || (pName && activePropNames.has(pName));
+          if (!propOk) return;
+          const cat = item.category || item.serviceType || 'General';
+          categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+        });
+
+        const maintenanceAnalytics = Object.entries(categoryCounts).map(([category, count]) => ({
+          category,
+          name: category,
+          count,
+          value: count,
+        }));
+
+        return {
+          revenueGrowth,
+          incomeVsExpenses,
+          occupancyTrend,
+          maintenanceAnalytics,
+        };
       } catch (e) {
         console.error('Dashboard charts fetch failed:', e);
-        return null;
+        return {
+          revenueGrowth: [],
+          incomeVsExpenses: [],
+          occupancyTrend: [],
+          maintenanceAnalytics: [],
+        };
       }
     },
   },
@@ -1142,31 +1369,105 @@ export const api = {
   invoices: {
     getAll: async () => {
       try {
-        const res: any = await apiClient.get('/invoices');
+        const [res, payRes]: any[] = await Promise.all([
+          apiClient.get('/invoices'),
+          apiClient.get('/payments').catch(() => ({ data: [] })),
+        ]);
         const softDeletedIds = getSoftDeletedIds('Invoice');
         const softDeletedPropIds = getSoftDeletedIds('Property');
+        const softDeletedPayIds = getSoftDeletedIds('Payment');
+
+        const rawPayments = (Array.isArray(payRes?.data) ? payRes.data : Array.isArray(payRes) ? payRes : []).filter(
+          (p: any) => p && !softDeletedPayIds.includes(p.id)
+        );
+
         return (res.data || [])
           .filter((i: any) => !softDeletedIds.includes(i.id))
           .filter((i: any) => !softDeletedPropIds.includes(i.propertyId))
-          .map((i: any) => ({
-            id: i.id,
-            propertyId: i.propertyId || (i.property ? i.property.id : ''),
-            tenantId: i.tenantId,
-            tenantName: i.tenantName || (i.tenant ? `${i.tenant.firstName} ${i.tenant.lastName}` : 'Resident'),
-            tenantEmail: i.tenantEmail || i.tenant?.email || '',
-            propertyName: i.propertyName || (i.property ? i.property.name : 'Property'),
-            unitNumber: i.unitNumber || (i.unit ? i.unit.unitNumber : '101'),
-            amount: i.amount || 0,
-            paidAmount: i.paidAmount || 0,
-            balance: i.balance !== undefined && i.balance !== null ? i.balance : ((i.amount || 0) - (i.paidAmount || 0)),
-            dueDate: i.dueDate ? i.dueDate.split('T')[0] : 'N/A',
-            status: i.status || 'Sent',
-            lineItems: Array.isArray(i.lineItems)
-              ? i.lineItems
-              : typeof i.lineItems === 'string'
-              ? JSON.parse(i.lineItems)
-              : [{ description: 'Rent Charge', amount: i.amount || 0 }],
-          }));
+          .map((i: any) => {
+            const invAmount = Number(i.amount || 0);
+            let invPaidAmount = Number(i.paidAmount || 0);
+            let invBalance =
+              i.balance !== undefined && i.balance !== null
+                ? Number(i.balance)
+                : Math.max(0, invAmount - invPaidAmount);
+            let invStatus = i.status || 'Sent';
+            const dueDateStr = i.dueDate ? String(i.dueDate).split('T')[0] : 'N/A';
+            const invMonth = dueDateStr !== 'N/A' ? dueDateStr.slice(0, 7) : '';
+
+            // Auto-reconcile invoices that were overwritten as 'Paid' when a Partial payment was recorded
+            if (i.tenantId && invMonth && invAmount > 0) {
+              const monthPayments = rawPayments.filter((p: any) => {
+                const pTenantId = p.tenantId || p.tenant?.id;
+                if (pTenantId !== i.tenantId) return false;
+                const pMonth = String(p.dueDate || p.paidDate || '').slice(0, 7);
+                return pMonth === invMonth;
+              });
+
+              if (monthPayments.length > 0) {
+                const totalMonthPaid = monthPayments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+                const hasPartialPayment = monthPayments.some(
+                  (p: any) =>
+                    p.status === 'PartiallyPaid' ||
+                    p.status === 'Partially Paid' ||
+                    String(p.paymentMethod || '').includes('Partial')
+                );
+
+                if (hasPartialPayment && totalMonthPaid > 0 && totalMonthPaid < invAmount) {
+                  const expectedBal = Math.max(0, invAmount - totalMonthPaid);
+                  if (invStatus === 'Paid' || Math.abs(invPaidAmount - totalMonthPaid) > 0.01 || Math.abs(invBalance - expectedBal) > 0.01) {
+                    invPaidAmount = totalMonthPaid;
+                    invBalance = expectedBal;
+                    invStatus = 'Partially Paid';
+                    apiClient
+                      .put(`/invoices/${i.id}`, {
+                        status: 'Partially Paid',
+                        paidAmount: totalMonthPaid,
+                        balance: expectedBal,
+                      })
+                      .catch(() => {});
+                  }
+                } else if (!hasPartialPayment && totalMonthPaid >= invAmount && invStatus !== 'Paid') {
+                  invPaidAmount = invAmount;
+                  invBalance = 0;
+                  invStatus = 'Paid';
+                  apiClient
+                    .put(`/invoices/${i.id}`, {
+                      status: 'Paid',
+                      paidAmount: invAmount,
+                      balance: 0,
+                    })
+                    .catch(() => {});
+                }
+              }
+            }
+
+            return {
+              id: i.id,
+              propertyId: i.propertyId || (i.property ? i.property.id : ''),
+              tenantId: i.tenantId,
+              tenantName: i.tenantName || (i.tenant ? `${i.tenant.firstName} ${i.tenant.lastName}` : 'Resident'),
+              tenantEmail: i.tenantEmail || i.tenant?.email || '',
+              propertyName: i.propertyName || (i.property ? i.property.name : 'Property'),
+              unitNumber: i.unitNumber || (i.unit ? i.unit.unitNumber : '101'),
+              amount: invAmount,
+              paidAmount: invPaidAmount,
+              balance: invBalance,
+              dueDate: dueDateStr,
+              status: invStatus,
+              lineItems: Array.isArray(i.lineItems)
+                ? i.lineItems
+                : typeof i.lineItems === 'string'
+                ? (() => {
+                    try {
+                      return JSON.parse(i.lineItems);
+                    } catch {
+                      return [{ description: 'Rent Charge', amount: invAmount }];
+                    }
+                  })()
+                : [{ description: 'Rent Charge', amount: invAmount }],
+            };
+          });
       } catch (e) {
         return [];
       }
@@ -1973,13 +2274,38 @@ export const api = {
   rentLedger: {
     getAll: async () => {
       try {
-        const [invoicesRes, paymentsRes] = await Promise.all([
+        const [invoicesRes, paymentsRes, unitsRes] = await Promise.all([
           apiClient.get('/invoices').catch(() => null),
           apiClient.get('/payments').catch(() => null),
+          apiClient.get('/units').catch(() => null),
         ]);
 
-        const invoicesList = Array.isArray(invoicesRes) ? invoicesRes : ((invoicesRes as any)?.data || []);
-        const paymentsList = Array.isArray(paymentsRes) ? paymentsRes : ((paymentsRes as any)?.data || []);
+        const softDeletedInvIds = getSoftDeletedIds('Invoice');
+        const softDeletedPayIds = getSoftDeletedIds('Payment');
+        const softDeletedPropIds = getSoftDeletedIds('Property');
+        const softDeletedUnitIds = getSoftDeletedIds('Unit');
+        const softDeletedTenantIds = getSoftDeletedIds('Tenant');
+
+        const rawInvoices = Array.isArray(invoicesRes) ? invoicesRes : ((invoicesRes as any)?.data || []);
+        const rawPayments = Array.isArray(paymentsRes) ? paymentsRes : ((paymentsRes as any)?.data || []);
+        const rawUnits = Array.isArray(unitsRes) ? unitsRes : ((unitsRes as any)?.data || []);
+
+        const invoicesList = rawInvoices.filter(
+          (inv: any) =>
+            inv &&
+            !softDeletedInvIds.includes(inv.id) &&
+            !softDeletedPropIds.includes(inv.propertyId) &&
+            !softDeletedUnitIds.includes(inv.unitId) &&
+            !softDeletedTenantIds.includes(inv.tenantId)
+        );
+        const paymentsList = rawPayments.filter(
+          (pay: any) =>
+            pay &&
+            !softDeletedPayIds.includes(pay.id) &&
+            !softDeletedPropIds.includes(pay.propertyId) &&
+            !softDeletedUnitIds.includes(pay.unitId) &&
+            !softDeletedTenantIds.includes(pay.tenantId)
+        );
 
         // Per-tenant running balance map (fixes the global $131k+ bug)
         const tenantRunningBalances: Record<string, number> = {};
@@ -1994,35 +2320,152 @@ export const api = {
           const monthName = isValidDate ? invDate.toLocaleString('en-US', { month: 'long' }) : 'Monthly';
           const year = isValidDate ? invDate.getFullYear() : new Date().getFullYear();
 
-          // Detect late fee entries via notes or lineItems content
-          const lineItemsParsed = (() => { try { return JSON.parse(inv.lineItems || '[]'); } catch { return []; } })();
-          const isLateFee =
-            (inv.notes || '').toLowerCase().includes('late fee') ||
-            (inv.type || '').toLowerCase().includes('late') ||
-            lineItemsParsed.some((item: any) => (item.description || '').toLowerCase().includes('late fee'));
+          const totalInvAmount = Number(inv.amount) || 0;
+          const tenantId = inv.tenant?.id || inv.tenantId || '';
+          const tenantName = inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}` : (inv.tenantName || 'Resident');
+          const propertyName = inv.property?.name || inv.propertyName || 'Property';
+          const unitNumber = inv.unit?.unitNumber || inv.unitNumber || 'Unassigned';
+          const dateVal = inv.dueDate || inv.createdAt || '2026-08-01';
 
-          const description = isLateFee
-            ? `Late Fee — ${monthName} ${year}`
-            : `Monthly Rent Invoice — ${monthName} ${year}`;
-          const transactionType = isLateFee ? 'Late Fee' : 'Rent Charge';
+          // Parse lineItems whether stored as an Array or JSON string
+          const lineItemsParsed = Array.isArray(inv.lineItems)
+            ? inv.lineItems
+            : (() => {
+                try {
+                  return JSON.parse(inv.lineItems || '[]');
+                } catch {
+                  return [];
+                }
+              })();
 
-          allTransactions.push({
-            type: 'charge',
-            date: inv.dueDate || inv.createdAt || '2026-08-01',
-            amount: Number(inv.amount) || 0,
-            tenantId: inv.tenant?.id || inv.tenantId || '',
-            tenantName: inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}` : (inv.tenantName || 'Resident'),
-            propertyName: inv.propertyName || 'Property',
-            unitNumber: inv.unitNumber || 'Unassigned',
-            description,
-            transactionType,
-            invoiceId: inv.id,
-            invoiceStatus: inv.status,
-            invoicePaidAmount: Number(inv.paidAmount) || 0,
-            invoiceBalance: Number(inv.balance) || Number(inv.amount) || 0,
-            id: `led-chg-${inv.id}`,
-            rawInvoice: inv,
-          });
+          let lateFeeAmount = 0;
+          let baseRentAmount = 0;
+
+          if (Array.isArray(lineItemsParsed) && lineItemsParsed.length > 0) {
+            lineItemsParsed.forEach((item: any) => {
+              const desc = String(item?.description || '').toLowerCase();
+              const amt = Number(item?.amount) || 0;
+              if (desc.includes('late fee') || desc.includes('penalty')) {
+                lateFeeAmount += amt;
+              } else {
+                baseRentAmount += amt;
+              }
+            });
+          }
+
+          // Fallback: check matched unit's base rent if lineItems didn't split out the late fee
+          if (lateFeeAmount === 0 && totalInvAmount > 0) {
+            const matchedUnit = rawUnits.find(
+              (u: any) =>
+                (inv.unitId && u.id === inv.unitId) ||
+                (String(u.unitNumber || '').toLowerCase() === String(unitNumber || '').toLowerCase() &&
+                  (!inv.propertyId || u.propertyId === inv.propertyId))
+            );
+            const unitBaseRent =
+              Number(matchedUnit?.rentAmount || inv.unit?.rentAmount || inv.tenant?.monthlyRent || 0);
+
+            if (
+              unitBaseRent > 0 &&
+              totalInvAmount > unitBaseRent &&
+              totalInvAmount - unitBaseRent <= unitBaseRent * 0.5
+            ) {
+              baseRentAmount = unitBaseRent;
+              lateFeeAmount = totalInvAmount - unitBaseRent;
+            } else if (
+              (inv.notes || '').toLowerCase().includes('late fee') ||
+              (inv.type || '').toLowerCase().includes('late')
+            ) {
+              if (unitBaseRent > 0 && totalInvAmount > unitBaseRent) {
+                baseRentAmount = unitBaseRent;
+                lateFeeAmount = totalInvAmount - unitBaseRent;
+              } else {
+                lateFeeAmount = totalInvAmount;
+                baseRentAmount = 0;
+              }
+            } else {
+              baseRentAmount = totalInvAmount;
+            }
+          } else if (lateFeeAmount > 0 && baseRentAmount === 0 && totalInvAmount > lateFeeAmount) {
+            baseRentAmount = totalInvAmount - lateFeeAmount;
+          }
+
+          // Push separate Base Rent Charge and Late Fee rows when both exist
+          if (lateFeeAmount > 0 && baseRentAmount > 0) {
+            allTransactions.push({
+              type: 'charge',
+              sortOrder: 1,
+              date: dateVal,
+              amount: baseRentAmount,
+              tenantId,
+              tenantName,
+              propertyName,
+              unitNumber,
+              description: `Monthly Rent Invoice — ${monthName} ${year}`,
+              transactionType: 'Rent Charge',
+              invoiceId: inv.id,
+              invoiceStatus: inv.status,
+              invoicePaidAmount: Number(inv.paidAmount) || 0,
+              invoiceBalance: Number(inv.balance) || totalInvAmount,
+              id: `led-chg-${inv.id}`,
+              rawInvoice: inv,
+            });
+            allTransactions.push({
+              type: 'charge',
+              sortOrder: 2,
+              date: dateVal,
+              amount: lateFeeAmount,
+              tenantId,
+              tenantName,
+              propertyName,
+              unitNumber,
+              description: `Late Fee — ${monthName} ${year}`,
+              transactionType: 'Late Fee',
+              invoiceId: inv.id,
+              invoiceStatus: inv.status,
+              invoicePaidAmount: 0,
+              invoiceBalance: lateFeeAmount,
+              id: `led-late-${inv.id}`,
+              rawInvoice: inv,
+            });
+          } else if (lateFeeAmount > 0 && baseRentAmount === 0) {
+            allTransactions.push({
+              type: 'charge',
+              sortOrder: 2,
+              date: dateVal,
+              amount: lateFeeAmount,
+              tenantId,
+              tenantName,
+              propertyName,
+              unitNumber,
+              description: `Late Fee — ${monthName} ${year}`,
+              transactionType: 'Late Fee',
+              invoiceId: inv.id,
+              invoiceStatus: inv.status,
+              invoicePaidAmount: Number(inv.paidAmount) || 0,
+              invoiceBalance: Number(inv.balance) || lateFeeAmount,
+              id: `led-late-${inv.id}`,
+              rawInvoice: inv,
+            });
+          } else {
+            allTransactions.push({
+              type: 'charge',
+              sortOrder: 1,
+              date: dateVal,
+              amount: totalInvAmount,
+              tenantId,
+              tenantName,
+              propertyName,
+              unitNumber,
+              description: `Monthly Rent Invoice — ${monthName} ${year}`,
+              transactionType: 'Rent Charge',
+              invoiceId: inv.id,
+              invoiceStatus: inv.status,
+              invoicePaidAmount: Number(inv.paidAmount) || 0,
+              invoiceBalance: Number(inv.balance) || totalInvAmount,
+              id: `led-chg-${inv.id}`,
+              rawInvoice: inv,
+            });
+          }
         });
 
         paymentsList.forEach((pay: any) => {
@@ -2032,6 +2475,7 @@ export const api = {
             const ref = pay.referenceNumber ? ` · Ref# ${pay.referenceNumber}` : '';
             allTransactions.push({
               type: 'payment',
+              sortOrder: 3,
               date: pay.paidDate || pay.dueDate || pay.createdAt || '2026-08-01',
               amount: Number(pay.amount) || 0,
               tenantId: pay.tenant?.id || pay.tenantId || '',
@@ -2056,16 +2500,6 @@ export const api = {
           const isFullyPaid = invStatus === 'paid' || invStatus === 'fully paid' || invStatus === 'fullypaid';
           const invPaid = Number(inv.paidAmount) || (isFullyPaid ? Number(inv.amount) || 0 : 0);
           if (invPaid > 0) {
-            const existingPayments = paymentsList.filter((p: any) =>
-              p.invoiceId === inv.id ||
-              (p.tenantId === (inv.tenant?.id || inv.tenantId) && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
-            );
-            const totalAlreadyPaid = existingPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
-            const remainingUnrecordedPaid = Math.max(0, invPaid - totalAlreadyPaid);
-            const hasPayment = existingPayments.length > 0 || remainingUnrecordedPaid <= 0 || paymentsList.some((p: any) =>
-              p.invoiceId === inv.id ||
-              (p.tenantId === (inv.tenant?.id || inv.tenantId) && Math.abs(Number(p.amount) - invPaid) < 0.01 && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
-            );
             const invTenantId = inv.tenant?.id || inv.tenantId || '';
             const invMonth = String(inv.dueDate || inv.createdAt || '').slice(0, 7);
             const invTenantName = String(inv.tenantName || (inv.tenant ? `${inv.tenant.firstName} ${inv.tenant.lastName}` : '')).toLowerCase().trim();
@@ -2082,6 +2516,7 @@ export const api = {
               const method = inv.status === 'Partially Paid' ? ' via Offline (Partial)' : ' via Offline';
               allTransactions.push({
                 type: 'payment',
+                sortOrder: 3,
                 date: inv.dueDate || inv.createdAt || '2026-08-01',
                 amount: invPaid,
                 tenantId: inv.tenant?.id || inv.tenantId || '',
@@ -2099,8 +2534,14 @@ export const api = {
           }
         });
 
-        // Sort all transactions by date ascending
-        allTransactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        // Sort all transactions by date ascending, then by sortOrder (1: Rent Charge, 2: Late Fee, 3: Payment)
+        allTransactions.sort((a, b) => {
+          const dateA = String(a.date || '').split('T')[0];
+          const dateB = String(b.date || '').split('T')[0];
+          const cmp = dateA.localeCompare(dateB);
+          if (cmp !== 0) return cmp;
+          return (a.sortOrder || 1) - (b.sortOrder || 1);
+        });
 
         // Apply PER-TENANT running balance (each tenant's balance is independent)
         allTransactions.forEach((tx) => {
@@ -2111,6 +2552,7 @@ export const api = {
             tenantRunningBalances[tenantKey] += tx.amount;
             ledgerItems.push({
               id: tx.id,
+              sortOrder: tx.sortOrder || 1,
               date: tx.date ? tx.date.split('T')[0] : 'N/A',
               tenantId: tx.tenantId || '',
               tenantName: tx.tenantName,
@@ -2131,6 +2573,7 @@ export const api = {
             tenantRunningBalances[tenantKey] -= tx.amount;
             ledgerItems.push({
               id: tx.id,
+              sortOrder: tx.sortOrder || 3,
               date: tx.date ? tx.date.split('T')[0] : 'N/A',
               tenantId: tx.tenantId || '',
               tenantName: tx.tenantName,

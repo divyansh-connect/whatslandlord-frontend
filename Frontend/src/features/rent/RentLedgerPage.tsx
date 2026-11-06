@@ -94,8 +94,18 @@ export const RentLedgerPage: React.FC = () => {
       return item.tenantName === tenantFullName;
     });
 
-    // Sort items by date ascending
-    const sorted = [...items].sort((a, b) => a.date.localeCompare(b.date));
+    // Sort items by date ascending, then by transaction order (1: Rent Charge, 2: Late Fee, 3: Payment)
+    const getTxOrder = (item: any) => {
+      if (item.sortOrder) return item.sortOrder;
+      if (item.transactionType === 'Rent Charge') return 1;
+      if (item.transactionType === 'Late Fee') return 2;
+      return 3;
+    };
+    const sorted = [...items].sort((a, b) => {
+      const dCmp = a.date.localeCompare(b.date);
+      if (dCmp !== 0) return dCmp;
+      return getTxOrder(a) - getTxOrder(b);
+    });
 
     // Recalculate running balance (includes Late Fee as a debit charge)
     let runningBalance = 0;
@@ -608,12 +618,12 @@ export const RentLedgerPage: React.FC = () => {
               const totalCharged = selectedTenantLedger.reduce((sum, e) => sum + (e.debit || 0), 0);
               const totalPaid = selectedTenantLedger.reduce((sum, e) => sum + (e.credit || 0), 0);
               const outstanding = totalCharged - totalPaid;
+              const hasExplicitLateFeeRows = selectedTenantLedger.some((e: any) => e.transactionType === 'Late Fee');
               const lateFees = selectedTenantLedger.reduce((sum, e: any) => {
                 if (e.transactionType === 'Late Fee') return sum + (e.debit || 0);
-                const rawInv = e.rawInvoice;
-                if (rawInv) {
+                if (!hasExplicitLateFeeRows && e.rawInvoice) {
                   try {
-                    const lineItems = typeof rawInv.lineItems === 'string' ? JSON.parse(rawInv.lineItems) : (rawInv.lineItems || []);
+                    const lineItems = typeof e.rawInvoice.lineItems === 'string' ? JSON.parse(e.rawInvoice.lineItems) : (e.rawInvoice.lineItems || []);
                     const feeItem = Array.isArray(lineItems) && lineItems.find((li: any) => (li.description || '').toLowerCase().includes('late fee'));
                     if (feeItem && Number(feeItem.amount) > 0) return sum + Number(feeItem.amount);
                   } catch { }
@@ -674,7 +684,11 @@ export const RentLedgerPage: React.FC = () => {
                       <td className="py-2.5 text-foreground font-extrabold">
                         <div className="flex flex-wrap items-center gap-2">
                           <span>{entry.description}</span>
-                          {entry.invoiceStatus && (
+                          {entry.transactionType === 'Late Fee' ? (
+                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-600 dark:text-orange-400">
+                              Late Fee
+                            </span>
+                          ) : entry.invoiceStatus ? (
                             <span
                               className={`text-[9px] font-black px-2 py-0.5 rounded-full ${entry.invoiceStatus === 'Paid'
                                 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
@@ -689,7 +703,7 @@ export const RentLedgerPage: React.FC = () => {
                                   ? 'Fully Paid'
                                   : 'Unpaid'}
                             </span>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                       <td className="py-2.5 text-right text-rose-500 font-bold">

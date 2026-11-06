@@ -20,35 +20,14 @@ export const RentRollReport: React.FC = () => {
   const { data, isLoading } = useQuery({
     queryKey: ['report-rent-roll', filters],
     queryFn: () => reportApi.getRentRoll(filters),
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const reportItems = data?.data || [];
   const filteredReportItems = useReportDataFilter(reportItems, filters);
 
   const summary = useMemo(() => {
-    const beSummary = (data as any)?.summary;
-    const hasActiveFilters = Boolean(
-      filters.propertyId ||
-      filters.unitId ||
-      filters.tenantId ||
-      filters.status ||
-      filters.startDate ||
-      filters.endDate ||
-      filters.search
-    );
-
-    if (beSummary && !hasActiveFilters) {
-      const actualRent = beSummary.totalMonthlyRent ?? 0;
-      const vacancyLoss = beSummary.totalVacancyLoss ?? 0;
-      const potentialRent = beSummary.totalPotentialRent ?? (actualRent + vacancyLoss);
-      return {
-        totalMonthlyRent: actualRent,
-        totalPotentialRent: potentialRent,
-        totalVacancyLoss: vacancyLoss,
-        totalSecurityDeposits: beSummary.totalSecurityDeposits ?? 0,
-      };
-    }
-
     let totalActualRent = 0;
     let totalPotentialRent = 0;
     let totalVacancyLoss = 0;
@@ -56,9 +35,10 @@ export const RentRollReport: React.FC = () => {
 
     filteredReportItems.forEach((curr: any) => {
       const isOccupied = curr.unitStatus === 'Occupied' || curr.leaseStatus === 'Active';
-      const actual = isOccupied ? Number(curr.monthlyRent || 0) : 0;
-      const potential = Number(curr.potentialRent ?? (isOccupied ? actual : (curr.vacancyLoss || curr.monthlyRent || 0)));
-      const loss = isOccupied ? 0 : Number(curr.vacancyLoss ?? potential);
+      const marketOrActiveRent = Number(curr.potentialRent ?? curr.monthlyRent ?? 0);
+      const actual = isOccupied ? Number(curr.monthlyRent || marketOrActiveRent || 0) : 0;
+      const loss = isOccupied ? 0 : Number(curr.vacancyLoss || marketOrActiveRent || 0);
+      const potential = isOccupied ? actual : loss;
       const deposit = isOccupied ? Number(curr.securityDeposit || 0) : 0;
 
       totalActualRent += actual;
@@ -73,7 +53,7 @@ export const RentRollReport: React.FC = () => {
       totalVacancyLoss,
       totalSecurityDeposits,
     };
-  }, [data, filteredReportItems, filters]);
+  }, [filteredReportItems]);
 
   const columns = [
     { key: 'propertyName', header: 'Property Name' },
@@ -97,10 +77,24 @@ export const RentRollReport: React.FC = () => {
       key: 'daysToExpiry',
       header: 'Days to Expiry',
       render: (row: any) => {
-        if (!row.daysToExpiry || row.daysToExpiry === 'N/A') {
+        const isOccupied = row.unitStatus === 'Occupied' || row.leaseStatus === 'Active';
+        let label = row.daysToExpiry;
+        let days = row.daysToExpiryNum;
+
+        if ((!label || label === 'N/A') && row.endDate && row.endDate !== 'N/A' && (isOccupied || row.leaseStatus === 'Expired')) {
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          const endD = new Date(row.endDate);
+          if (!isNaN(endD.getTime())) {
+            endD.setHours(0, 0, 0, 0);
+            days = Math.ceil((endD.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
+            label = days < 0 ? `Expired (${Math.abs(days)}d ago)` : days === 0 ? 'Expires Today' : `${days} Days`;
+          }
+        }
+
+        if (!label || label === 'N/A') {
           return <span className="text-xs text-slate-400">N/A</span>;
         }
-        const days = row.daysToExpiryNum;
         let badgeStyle = 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300';
         if (typeof days === 'number') {
           if (days < 0) {
@@ -114,8 +108,8 @@ export const RentRollReport: React.FC = () => {
           }
         }
         return (
-          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${badgeStyle}`}>
-            {row.daysToExpiry}
+          <span className={`inline-flex items-center whitespace-nowrap px-2.5 py-0.5 rounded-full text-xs font-bold ${badgeStyle}`}>
+            {label}
           </span>
         );
       },
@@ -163,7 +157,8 @@ export const RentRollReport: React.FC = () => {
       key: 'vacancyLoss',
       header: 'Vacancy Loss',
       render: (row: any) => {
-        const loss = Number(row.vacancyLoss || 0);
+        const isOccupied = row.unitStatus === 'Occupied' || row.leaseStatus === 'Active';
+        const loss = isOccupied ? 0 : Number(row.vacancyLoss || row.potentialRent || row.monthlyRent || 0);
         return (
           <span className={`font-bold ${loss > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`}>
             {loss > 0 ? `-$${loss.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '$0.00'}

@@ -157,26 +157,9 @@ export const MaintenanceMetricModal: React.FC<MaintenanceMetricModalProps> = ({
             type: 'work_order',
           }));
 
-        const completedReqs = requests
-          .filter((r: any) => ['Completed', 'Resolved'].includes(r.status))
-          .map((r: any, idx: number) => ({
-            id: r.id,
-            referenceNumber: r.requestNumber || `#${idx + 1}`,
-            itemType: 'Service Request',
-            title: r.title || r.issue || 'Service Request',
-            propertyName: r.propertyName || (r.property ? r.property.name : 'Property'),
-            unitNumber: r.unitNumber || (r.unit?.unitNumber ? `Unit ${r.unit.unitNumber}` : 'General'),
-            resolvedBy: r.tenantName || 'Resolved',
-            resolvedDate: r.updatedAt ? r.updatedAt.split('T')[0] : (r.createdAt ? r.createdAt.split('T')[0] : 'Completed'),
-            status: 'Completed',
-            type: 'ticket',
-          }));
-
-        const formattedList = [...completedWos, ...completedReqs];
-
         return {
           title: 'Completed Maintenance',
-          subtitle: `${formattedList.length} Resolved Work Orders & Tickets`,
+          subtitle: `${completedWos.length} Resolved Work Orders`,
           icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" />,
           accentBg: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
           columns: [
@@ -188,7 +171,7 @@ export const MaintenanceMetricModal: React.FC<MaintenanceMetricModalProps> = ({
             { header: 'Status', accessorKey: 'status' },
             { header: 'Action', accessorKey: 'action' },
           ],
-          data: formattedList,
+          data: completedWos,
         };
       }
 

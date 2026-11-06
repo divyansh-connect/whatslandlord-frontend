@@ -183,6 +183,7 @@ export const MaintenanceReport: React.FC = () => {
         filters={filters}
         onChange={setFilterVal}
         onReset={resetFilters}
+        showTenantFilter={false}
         showStatusFilter={true}
         statusOptions={['Open', 'Assigned', 'In Progress', 'Completed', 'Closed']}
         showPriorityFilter={true}

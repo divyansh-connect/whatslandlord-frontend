@@ -130,21 +130,39 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
   const modalConfig = useMemo(() => {
     if (!metricType) return null;
 
+    const activePropIds = new Set(properties.map((p: any) => p.id));
+    const activePropNames = new Set(
+      properties.map((p: any) => String(p.name || '').toLowerCase().trim()).filter(Boolean)
+    );
+    const activeUnits = properties.length === 0
+      ? []
+      : units.filter((u: any) => {
+          const pName = String(u.propertyName || u.property?.name || '').toLowerCase().trim();
+          return (u.propertyId && activePropIds.has(u.propertyId)) || (pName && activePropNames.has(pName));
+        });
+
     switch (metricType) {
       // 1. TOTAL PROPERTIES
       case 'properties': {
-        const list = properties.map((p: any) => ({
-          id: p.id,
-          propertyId: p.id,
-          propertyName: p.name,
-          address: p.address || `${p.city || 'Austin'}, ${p.state || 'TX'}`,
-          type: p.type || 'Residential',
-          totalUnits: p.totalUnits || p.units?.length || 0,
-          occupiedUnits: p.units?.filter((u: any) => u.status === 'Occupied').length || 0,
-          vacantUnits: p.units?.filter((u: any) => u.status === 'Vacant').length || 0,
-          occupancyRate: p.units?.length ? `${Math.round(((p.units.filter((u: any) => u.status === 'Occupied').length) / p.units.length) * 100)}%` : '0%',
-          monthlyRevenue: p.monthlyRevenue ? `$${p.monthlyRevenue.toLocaleString()}` : '$0',
-        }));
+        const list = properties.map((p: any) => {
+          const pUnits = activeUnits.filter((u: any) => u.propertyId === p.id || String(u.propertyName || '').toLowerCase().trim() === String(p.name || '').toLowerCase().trim());
+          const totalU = pUnits.length || p.totalUnits || p.units?.length || 0;
+          const occU = pUnits.filter((u: any) => u.status === 'Occupied').length;
+          const vacU = Math.max(0, totalU - occU);
+          const occRevenue = pUnits.filter((u: any) => u.status === 'Occupied').reduce((s: number, u: any) => s + Number(u.rentAmount || 0), 0);
+          return {
+            id: p.id,
+            propertyId: p.id,
+            propertyName: p.name,
+            address: p.address || `${p.city || 'Austin'}, ${p.state || 'TX'}`,
+            type: p.type || 'Residential',
+            totalUnits: totalU,
+            occupiedUnits: occU,
+            vacantUnits: vacU,
+            occupancyRate: totalU > 0 ? `${Math.round((occU / totalU) * 100)}%` : '0%',
+            monthlyRevenue: `$${occRevenue.toLocaleString()}`,
+          };
+        });
 
         const filtered = list.filter((item: any) =>
           item.propertyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -177,7 +195,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
       // 2. TOTAL UNITS
       case 'totalUnits': {
-        const list = units.map((u: any) => {
+        const list = activeUnits.map((u: any) => {
           const tenant = tenants.find((t: any) => t.unitId === u.id || t.id === u.tenantId);
           const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
           return {
@@ -228,7 +246,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
       // 3. OCCUPIED UNITS
       case 'occupiedUnits': {
-        const occupiedList = units
+        const occupiedList = activeUnits
           .filter((u: any) => u.status === 'Occupied')
           .map((u: any) => {
             const tenant = tenants.find((t: any) => t.unitId === u.id || t.id === u.tenantId);
@@ -280,7 +298,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
       // 4. VACANT UNITS
       case 'vacantUnits': {
-        const vacantList = units
+        const vacantList = activeUnits
           .filter((u: any) => u.status === 'Vacant')
           .map((u: any) => {
             const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
@@ -392,57 +410,33 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
       // 6. MONTHLY REVENUE
       case 'monthlyRevenue': {
-        const activeLeases = leases.filter((l: any) => l.status === 'Active' || (l.rentAmount && l.rentAmount > 0));
-        
-        let revenueList: any[] = [];
-        if (activeLeases.length > 0) {
-          revenueList = activeLeases.map((l: any, idx: number) => {
-            const unitObj = units.find((u: any) => u.id === l.unitId);
-            const tenantObj = tenants.find((t: any) => t.id === l.tenantId);
-            const prop = properties.find((p: any) => p.id === (l.propertyId || unitObj?.propertyId) || p.name === (l.propertyName || l.property?.name));
-            return {
-              id: l.id || `rev-${idx}`,
-              leaseId: l.id,
-              unitId: l.unitId || unitObj?.id,
-              tenantId: l.tenantId || tenantObj?.id,
-              propertyId: l.propertyId || unitObj?.propertyId || prop?.id,
-              unitNumber: l.unitNumber ? (l.unitNumber.startsWith('Unit') ? l.unitNumber : `Unit ${l.unitNumber}`) : (unitObj ? `Unit ${unitObj.unitNumber}` : 'Unit'),
-              propertyName: l.propertyName || l.property?.name || unitObj?.propertyName || prop?.name || 'Property',
-              tenantName: l.tenantName || (tenantObj ? `${tenantObj.firstName} ${tenantObj.lastName}` : (l.tenant ? `${l.tenant.firstName} ${l.tenant.lastName}` : 'Active Resident')),
-              rentAmount: `$${(l.rentAmount || 0).toLocaleString()}`,
-              numericRent: l.rentAmount || 0,
-              securityDeposit: `$${(l.securityDeposit || 0).toLocaleString()}`,
-              startDate: l.startDate ? l.startDate.split('T')[0] : 'N/A',
-              endDate: l.endDate ? l.endDate.split('T')[0] : 'N/A',
-              billingCycle: 'Monthly',
-              status: l.status || 'Active',
-            };
-          });
-        } else {
-          // Fallback to occupied units
-          revenueList = units
-            .filter((u: any) => u.status === 'Occupied' || (u.rentAmount && u.rentAmount > 0))
-            .map((u: any, idx: number) => {
-              const tenant = tenants.find((t: any) => t.unitId === u.id || t.id === u.tenantId);
-              const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
-              return {
-                id: u.id || `rev-${idx}`,
-                unitId: u.id,
-                tenantId: tenant?.id,
-                propertyId: u.propertyId || prop?.id,
-                unitNumber: `Unit ${u.unitNumber}`,
-                propertyName: u.propertyName || prop?.name || 'Property',
-                tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Active Resident',
-                rentAmount: `$${(u.rentAmount || 0).toLocaleString()}`,
-                numericRent: u.rentAmount || 0,
-                securityDeposit: `$${(u.securityDeposit || 0).toLocaleString()}`,
-                startDate: '2026-01-01',
-                endDate: '2027-01-01',
-                billingCycle: 'Monthly',
-                status: 'Active',
-              };
-            });
-        }
+        const occupiedUnitsList = activeUnits.filter((u: any) => String(u.status || '').toLowerCase() === 'occupied');
+        const revenueList = occupiedUnitsList.map((u: any, idx: number) => {
+          const tenant = tenants.find((t: any) => t.unitId === u.id || t.id === u.tenantId);
+          const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
+          const matchedLease = leases.find((l: any) => l.unitId === u.id || (tenant && l.tenantId === tenant.id));
+          return {
+            id: u.id || `rev-${idx}`,
+            leaseId: matchedLease?.id,
+            unitId: u.id,
+            tenantId: tenant?.id,
+            propertyId: u.propertyId || prop?.id,
+            unitNumber: String(u.unitNumber || '').startsWith('Unit') ? u.unitNumber : `Unit ${u.unitNumber}`,
+            propertyName: u.propertyName || prop?.name || 'Property',
+            tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : (u.tenantName || 'Active Resident'),
+            rentAmount: `$${(Number(u.rentAmount) || 0).toLocaleString()}`,
+            numericRent: Number(u.rentAmount) || 0,
+            securityDeposit: `$${(Number(u.securityDeposit) || 0).toLocaleString()}`,
+            startDate: matchedLease?.startDate
+              ? matchedLease.startDate.split('T')[0]
+              : (tenant?.moveInDate ? tenant.moveInDate.split('T')[0] : 'N/A'),
+            endDate: matchedLease?.endDate
+              ? matchedLease.endDate.split('T')[0]
+              : (tenant?.leaseEndDate ? tenant.leaseEndDate.split('T')[0] : 'N/A'),
+            billingCycle: 'Monthly',
+            status: 'Active',
+          };
+        });
 
         const filtered = revenueList.filter((item: any) =>
           item.unitNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -451,9 +445,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           item.rentAmount.toLowerCase().includes(searchTerm.toLowerCase())
         );
 
-        const totalRevenueSum = metricsSummary?.monthlyRevenue !== undefined 
-            ? metricsSummary.monthlyRevenue 
-            : revenueList.reduce((sum: number, item: any) => sum + (item.numericRent || 0), 0);
+        const totalRevenueSum = revenueList.reduce((sum: number, item: any) => sum + (item.numericRent || 0), 0);
 
         return {
           title: 'Monthly Revenue Stream Matrix',
@@ -483,56 +475,80 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       case 'pendingRent': {
         const unpaidInvoices = (invoices as any[])
           .filter((inv: any) => {
-            const st = String(inv.status || '').toLowerCase();
-            const bal = inv.balance !== undefined && inv.balance !== null ? Number(inv.balance) : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
-            return (st === 'overdue' || (st !== 'paid' && st !== 'void' && st !== 'cancelled')) && bal > 0;
+            const st = String(inv.status || '').toLowerCase().trim();
+            if (st === 'paid' || st === 'fully paid' || st === 'fullypaid' || st === 'void' || st === 'cancelled') return false;
+
+            const propMatch =
+              (inv.propertyId && activePropIds.has(inv.propertyId)) ||
+              activePropNames.has(String(inv.propertyName || '').toLowerCase().trim());
+            if (!propMatch) return false;
+
+            const cleanUnitNum = String(inv.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
+            const matchedUnit = activeUnits.find(
+              (u: any) =>
+                (inv.unitId && u.id === inv.unitId) ||
+                (cleanUnitNum &&
+                  String(u.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim() === cleanUnitNum &&
+                  (!inv.propertyId || u.propertyId === inv.propertyId))
+            );
+            if (!matchedUnit) return false;
+
+            const matchedTenant = tenants.find(
+              (t: any) =>
+                (inv.tenantId && t.id === inv.tenantId) ||
+                t.unitId === matchedUnit.id ||
+                t.id === matchedUnit.tenantId ||
+                (inv.tenantName &&
+                  `${t.firstName || ''} ${t.lastName || ''}`.toLowerCase().trim() ===
+                    String(inv.tenantName).toLowerCase().trim())
+            );
+            if (!matchedTenant) return false;
+
+            const bal =
+              inv.balance !== undefined && inv.balance !== null
+                ? Number(inv.balance)
+                : Math.max(0, (Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+            return bal > 0;
           })
           .map((inv: any, idx: number) => {
-            const bal = inv.balance !== undefined && inv.balance !== null ? Number(inv.balance) : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
-            const tenant = tenants.find((t: any) => t.id === inv.tenantId || `${t.firstName} ${t.lastName}` === inv.tenantName);
-            const prop = properties.find((p: any) => p.id === inv.propertyId || p.name === inv.propertyName);
+            const bal =
+              inv.balance !== undefined && inv.balance !== null
+                ? Number(inv.balance)
+                : Math.max(0, (Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+            const cleanUnitNum = String(inv.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
+            const matchedUnit = activeUnits.find(
+              (u: any) =>
+                (inv.unitId && u.id === inv.unitId) ||
+                (cleanUnitNum &&
+                  String(u.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim() === cleanUnitNum)
+            );
+            const tenant = tenants.find(
+              (t: any) =>
+                t.id === inv.tenantId ||
+                (matchedUnit && (t.unitId === matchedUnit.id || t.id === matchedUnit.tenantId)) ||
+                `${t.firstName} ${t.lastName}` === inv.tenantName
+            );
+            const prop = properties.find((p: any) => p.id === (inv.propertyId || matchedUnit?.propertyId) || p.name === inv.propertyName);
+            const unitLabel = matchedUnit?.unitNumber || inv.unitNumber || 'Unassigned';
             return {
               id: inv.id,
               paymentId: inv.id,
               receiptNumber: inv.invoiceNumber || `INV-${String(idx + 1).padStart(4, '0')}`,
-              tenantId: inv.tenantId || tenant?.id,
-              tenantName: inv.tenantName || (tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Resident'),
-              propertyId: inv.propertyId || prop?.id,
-              propertyName: inv.propertyName || prop?.name || 'Property',
-              unitId: inv.unitId,
-              unitNumber: inv.unitNumber ? (String(inv.unitNumber).startsWith('Unit') ? inv.unitNumber : `Unit ${inv.unitNumber}`) : 'Unassigned',
+              tenantId: tenant?.id || inv.tenantId,
+              tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : (inv.tenantName || 'Resident'),
+              propertyId: prop?.id || inv.propertyId,
+              propertyName: prop?.name || inv.propertyName || 'Property',
+              unitId: matchedUnit?.id || inv.unitId,
+              unitNumber: String(unitLabel).startsWith('Unit') ? unitLabel : `Unit ${unitLabel}`,
               amount: `$${bal.toLocaleString()}`,
               numericAmount: bal,
               dueDate: inv.dueDate ? String(inv.dueDate).split('T')[0] : 'Immediate',
               paymentMethod: 'Invoice Statement',
-              status: inv.status || 'Unpaid',
+              status: inv.status === 'Partially Paid' ? 'Partially Paid' : 'Overdue',
             };
           });
 
-        const pendingPayments = payments
-          .filter((p: any) => p.status === 'Pending' || p.status === 'Overdue' || p.status === 'Late' || p.status === 'Unpaid')
-          .map((p: any) => {
-            const tenant = tenants.find((t: any) => t.id === p.tenantId || `${t.firstName} ${t.lastName}` === p.tenantName);
-            const prop = properties.find((propItem: any) => propItem.id === p.propertyId || propItem.name === p.propertyName);
-            return {
-              id: p.id,
-              paymentId: p.id,
-              receiptNumber: p.receiptNumber || `#INV-${p.id.slice(0, 6).toUpperCase()}`,
-              tenantId: p.tenantId || tenant?.id,
-              tenantName: p.tenantName || (tenant ? `${tenant.firstName} ${tenant.lastName}` : 'Resident'),
-              propertyId: p.propertyId || prop?.id,
-              propertyName: p.propertyName || prop?.name || 'Property',
-              unitId: p.unitId,
-              unitNumber: p.unitNumber ? (p.unitNumber.startsWith('Unit') ? p.unitNumber : `Unit ${p.unitNumber}`) : 'Unassigned',
-              amount: `$${(p.amount || 0).toLocaleString()}`,
-              numericAmount: p.amount || 0,
-              dueDate: p.dueDate ? p.dueDate.split('T')[0] : (p.paidDate || 'Immediate'),
-              paymentMethod: p.paymentMethod || 'ACH',
-              status: p.status || 'Pending',
-            };
-          });
-
-        const combinedPending = unpaidInvoices.length > 0 ? unpaidInvoices : pendingPayments;
+        const combinedPending = unpaidInvoices;
 
         const filtered = combinedPending.filter((item: any) =>
           item.receiptNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -542,10 +558,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           item.status.toLowerCase().includes(searchTerm.toLowerCase())
         );
 
-        const calculatedSum = combinedPending.reduce((s: number, p: any) => s + p.numericAmount, 0);
-        const totalPending = (metricsSummary?.pendingRent !== undefined && Number(metricsSummary.pendingRent) > 0)
-          ? metricsSummary.pendingRent 
-          : calculatedSum;
+        const totalPending = combinedPending.reduce((s: number, p: any) => s + p.numericAmount, 0);
 
         return {
           title: 'Pending & Delinquent Rent Matrix',
@@ -555,7 +568,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           count: `$${totalPending.toLocaleString()}`,
           countLabel: 'Pending Rent',
           data: filtered,
-          rawData: pendingPayments,
+          rawData: combinedPending,
           reportTitle: 'PENDING_RENT_REPORT',
           columns: [
             { header: 'Invoice / Ref #', accessorKey: 'receiptNumber' },
@@ -572,22 +585,27 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
       // 8. EXPENSES
       case 'expenses': {
-        const expenseList = expenses.map((e: any, idx: number) => {
-          const prop = properties.find((p: any) => p.id === e.propertyId || p.name === e.propertyName);
-          return {
-            id: e.id || `exp-${idx}`,
-            expenseId: e.id,
-            propertyId: e.propertyId || prop?.id,
-            category: e.category || 'Maintenance & Operations',
-            vendorName: e.vendorName || 'General Contractor',
-            propertyName: e.propertyName || prop?.name || 'Portfolio-wide',
-            amount: `$${(e.amount || 0).toLocaleString()}`,
-            numericAmount: e.amount || 0,
-            date: e.date ? e.date.split('T')[0] : 'N/A',
-            description: typeof e.description === 'string' && !e.description.startsWith('{') ? e.description : (e.category || 'Operating Expense'),
-            status: e.status || 'Cleared',
-          };
-        });
+        const expenseList = expenses
+          .filter((e: any) => {
+            const pName = String(e.propertyName || '').toLowerCase().trim();
+            return (e.propertyId && activePropIds.has(e.propertyId)) || (pName && activePropNames.has(pName));
+          })
+          .map((e: any, idx: number) => {
+            const prop = properties.find((p: any) => p.id === e.propertyId || p.name === e.propertyName);
+            return {
+              id: e.id || `exp-${idx}`,
+              expenseId: e.id,
+              propertyId: e.propertyId || prop?.id,
+              category: e.category || 'Maintenance & Operations',
+              vendorName: e.vendorName || 'General Contractor',
+              propertyName: e.propertyName || prop?.name || 'Portfolio-wide',
+              amount: `$${(e.amount || 0).toLocaleString()}`,
+              numericAmount: e.amount || 0,
+              date: e.date ? e.date.split('T')[0] : 'N/A',
+              description: typeof e.description === 'string' && !e.description.startsWith('{') ? e.description : (e.category || 'Operating Expense'),
+              status: e.status || 'Cleared',
+            };
+          });
 
         const filtered = expenseList.filter((item: any) =>
           item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -623,53 +641,49 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
         };
       }
 
-      // 9. OPEN MAINTENANCE
+      // 9. OPEN MAINTENANCE (In Progress Work Orders strictly for Active Properties)
       case 'openMaintenance': {
+        const inProgressStatuses = ['InProgress', 'In Progress', 'in_progress', 'In-Progress'];
         const openOrders = workOrders
-          .filter((w: any) => ['Open', 'InProgress', 'Pending', 'In Progress', 'New', 'Submitted', 'Assigned'].includes(w.status))
+          .filter((w: any) => {
+            if (!inProgressStatuses.includes(w.status)) return false;
+            const pName = String(w.propertyName || '').toLowerCase().trim();
+            return (w.propertyId && activePropIds.has(w.propertyId)) || (pName && activePropNames.has(pName));
+          })
           .map((w: any, idx: number) => {
             const prop = properties.find((p: any) => p.id === w.propertyId || p.name === w.propertyName);
+            // Match with service request if possible to get service request ID for direct navigation
+            const matchingSr = serviceRequests.find((sr: any) =>
+              (w.serviceRequestId && sr.id === w.serviceRequestId) ||
+              (w.requestId && sr.id === w.requestId) ||
+              sr.id === w.id ||
+              (
+                sr.title && w.title &&
+                String(sr.title).toLowerCase().trim() === String(w.title).toLowerCase().trim() &&
+                (sr.propertyId === w.propertyId || String(sr.propertyName || '').toLowerCase().trim() === String(w.propertyName || '').toLowerCase().trim())
+              )
+            );
+            const targetRequestId = matchingSr?.id || w.serviceRequestId || w.requestId || w.id;
+
             return {
               id: w.id || `wo-${idx}`,
               workOrderId: w.id,
+              serviceRequestId: targetRequestId,
               propertyId: w.propertyId || prop?.id,
               unitId: w.unitId,
               workOrderNumber: w.workOrderNumber || `#WO-${1001 + idx}`,
-              title: w.title || 'General Maintenance Request',
+              title: w.title || w.issue || 'General Maintenance Request',
               propertyName: w.propertyName || prop?.name || 'Property',
               unitNumber: w.unitNumber ? (w.unitNumber.startsWith('Unit') ? w.unitNumber : `Unit ${w.unitNumber}`) : 'Common Area',
               assignedTechnician: w.assignedTechnician || w.vendorName || 'Unassigned',
               priority: w.priority || 'Normal',
               estimatedCost: w.estimatedCost ? `$${Number(w.estimatedCost).toLocaleString()}` : '$0',
               scheduledDate: w.scheduledDate || (w.createdAt ? w.createdAt.split('T')[0] : 'Pending'),
-              status: w.status || 'Open',
+              status: w.status || 'In Progress',
             };
           });
 
-        const openReqs = serviceRequests
-          .filter((r: any) => ['Open', 'InProgress', 'Pending', 'In Progress', 'New', 'Submitted', 'Assigned'].includes(r.status))
-          .map((r: any, idx: number) => {
-            const prop = properties.find((p: any) => p.id === r.propertyId || p.name === r.propertyName);
-            return {
-              id: r.id || `sr-${idx}`,
-              workOrderId: r.id,
-              propertyId: r.propertyId || prop?.id,
-              unitId: r.unitId,
-              workOrderNumber: r.requestNumber || `#REQ-${1001 + idx}`,
-              title: r.title || 'Service Ticket',
-              propertyName: r.propertyName || prop?.name || 'Property',
-              unitNumber: r.unitNumber ? (r.unitNumber.startsWith('Unit') ? r.unitNumber : `Unit ${r.unitNumber}`) : 'Common Area',
-              assignedTechnician: r.assignedTechnician || r.vendorName || 'Unassigned',
-              priority: r.priority || 'Normal',
-              estimatedCost: '$0',
-              scheduledDate: r.createdAt ? r.createdAt.split('T')[0] : 'Pending',
-              status: r.status || 'Open',
-            };
-          });
-
-        const allMaintenance = [...openOrders, ...openReqs];
-
-        const filtered = allMaintenance.filter((item: any) =>
+        const filtered = openOrders.filter((item: any) =>
           item.workOrderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.propertyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -678,22 +692,20 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           item.status.toLowerCase().includes(searchTerm.toLowerCase())
         );
 
-        const totalOpenMaint = metricsSummary?.openMaintenance !== undefined
-          ? metricsSummary.openMaintenance
-          : allMaintenance.length;
+        const totalOpenMaint = openOrders.length;
 
         return {
-          title: 'Open Maintenance Tasks Matrix',
-          description: 'Active work orders and service requests requiring maintenance resolution',
+          title: 'Active Work Orders Matrix',
+          description: 'In Progress and active work orders requiring maintenance resolution',
           icon: <Wrench className="w-6 h-6 text-amber-500" />,
           badgeBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
           count: totalOpenMaint,
-          countLabel: 'Open Tasks',
+          countLabel: 'Active Work Orders',
           data: filtered,
-          rawData: allMaintenance,
-          reportTitle: 'OPEN_MAINTENANCE_REPORT',
+          rawData: openOrders,
+          reportTitle: 'ACTIVE_WORK_ORDERS_REPORT',
           columns: [
-            { header: 'Order / Ref #', accessorKey: 'workOrderNumber' },
+            { header: 'Work Order #', accessorKey: 'workOrderNumber' },
             { header: 'Title / Issue', accessorKey: 'title' },
             { header: 'Property Name', accessorKey: 'propertyName' },
             { header: 'Unit #', accessorKey: 'unitNumber' },
@@ -701,6 +713,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
             { header: 'Priority', accessorKey: 'priority' },
             { header: 'Est. Cost', accessorKey: 'estimatedCost' },
             { header: 'Status', accessorKey: 'status' },
+            { header: 'Action', accessorKey: 'action' },
           ],
         };
       }
@@ -714,6 +727,11 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           .filter((l: any) => {
             if (l.status !== 'Active') return false;
             if (!l.endDate) return false;
+            const propOk =
+              (l.propertyId && activePropIds.has(l.propertyId)) ||
+              (l.unitId && activeUnits.some((u: any) => u.id === l.unitId)) ||
+              activePropNames.has(String(l.propertyName || l.property?.name || '').toLowerCase().trim());
+            if (!propOk) return false;
             const end = new Date(l.endDate);
             return end <= sixtyDaysFromNow;
           })
@@ -1025,19 +1043,19 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
                         }
 
                         if (col.accessorKey === 'workOrderNumber') {
-                          const woId = row.workOrderId || row.id;
+                          const targetReqId = row.serviceRequestId || row.requestId || row.workOrderId || row.id;
                           return (
                             <td key={col.accessorKey} className="px-4 py-3 font-mono font-bold text-primary">
-                              {woId ? (
+                              {targetReqId ? (
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     onClose();
-                                    navigate({ to: `/maintenance/work-orders/${woId}` });
+                                    navigate({ to: `/maintenance/requests/${targetReqId}` });
                                   }}
                                   className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left font-mono font-bold group"
-                                  title="View Maintenance Work Order"
+                                  title="View Service Request"
                                 >
                                   <span>{val}</span>
                                   <ExternalLink className="w-3 h-3 text-primary opacity-60 group-hover:opacity-100" />
@@ -1045,6 +1063,52 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
                               ) : (
                                 val
                               )}
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'title' && metricType === 'openMaintenance') {
+                          const targetReqId = row.serviceRequestId || row.requestId || row.workOrderId || row.id;
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3 font-medium text-foreground">
+                              {targetReqId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/maintenance/requests/${targetReqId}` });
+                                  }}
+                                  className="text-foreground hover:text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left group font-medium"
+                                  title="View Service Request"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
+                                </button>
+                              ) : (
+                                val
+                              )}
+                            </td>
+                          );
+                        }
+
+                        if (col.accessorKey === 'action' && metricType === 'openMaintenance') {
+                          const targetReqId = row.serviceRequestId || row.requestId || row.workOrderId || row.id;
+                          return (
+                            <td key={col.accessorKey} className="px-4 py-3">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onClose();
+                                  navigate({ to: `/maintenance/requests/${targetReqId}` });
+                                }}
+                                className="h-7 px-2.5 text-xs text-primary hover:bg-primary/10 border-primary/20 flex items-center gap-1 font-semibold"
+                              >
+                                <span>View</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </Button>
                             </td>
                           );
                         }
@@ -1100,6 +1164,26 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
                         }
 
                         if (col.accessorKey === 'propertyName') {
+                          if (metricType === 'openMaintenance') {
+                            const targetReqId = row.serviceRequestId || row.requestId || row.workOrderId || row.id;
+                            return (
+                              <td key={col.accessorKey} className="px-4 py-3 font-bold text-foreground">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onClose();
+                                    navigate({ to: `/maintenance/requests/${targetReqId}` });
+                                  }}
+                                  className="text-foreground hover:text-primary hover:underline cursor-pointer inline-flex items-center gap-1 text-left group font-bold"
+                                  title="View Service Request"
+                                >
+                                  <span>{val}</span>
+                                  <ExternalLink className="w-3 h-3 text-muted-foreground opacity-60 group-hover:opacity-100" />
+                                </button>
+                              </td>
+                            );
+                          }
                           const targetPropId = (metricType === 'properties' || metricType === 'occupancyRate') ? row.id : row.propertyId;
                           return (
                             <td key={col.accessorKey} className="px-4 py-3 font-bold text-foreground">

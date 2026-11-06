@@ -9,7 +9,7 @@ import { ReportDetailsModal } from '../components/ReportDetailsModal';
 import { useReportFilters } from '../hooks/useReportFilters';
 import { useReportExport } from '../hooks/useReportExport';
 import { useReportDataFilter } from '../hooks/useReportDataFilter';
-import { DollarSign, CheckCircle2, TrendingUp, Eye } from 'lucide-react';
+import { DollarSign, CheckCircle2, Clock, TrendingUp, Eye } from 'lucide-react';
 
 export const PaymentHistoryReport: React.FC = () => {
   const { filters, setFilterVal, resetFilters } = useReportFilters('paymentDate');
@@ -26,25 +26,39 @@ export const PaymentHistoryReport: React.FC = () => {
   const filteredReportItems = useReportDataFilter(reportItems, filters);
 
   const summary = useMemo(() => {
-    const beSummary = (data as any)?.summary;
-    const hasClientFilter = Boolean(filters.propertyId || filters.unitId || filters.tenantId || filters.status || filters.startDate || filters.endDate || filters.paymentMethod || filters.search);
+    const fullPaidItems = filteredReportItems.filter((curr: any) => {
+      const st = String(curr.paymentStatus || '').toLowerCase().replace(/[\s_-]/g, '');
+      return st === 'paid' || st === 'cleared' || st === 'completed' || !st;
+    });
 
-    if (beSummary && !hasClientFilter) {
-      return {
-        totalCollectedAmount: beSummary.totalCollectedAmount ?? 0,
-        totalTransactions: beSummary.totalTransactions ?? 0,
-        averageTransaction: beSummary.averageTransaction ?? 0,
-      };
-    }
+    const partialPaidItems = filteredReportItems.filter((curr: any) => {
+      const st = String(curr.paymentStatus || '').toLowerCase().replace(/[\s_-]/g, '');
+      return st === 'partiallypaid' || st === 'partial';
+    });
 
-    const paidItems = filteredReportItems.filter((curr: any) => !curr.paymentStatus || ['Paid', 'Partially Paid', 'PartiallyPaid', 'Cleared'].includes(curr.paymentStatus));
+    const fullPaidAmount = fullPaidItems.reduce(
+      (acc: number, curr: any) => acc + Number(curr.amount || 0),
+      0
+    );
+    const partialPaidAmount = partialPaidItems.reduce(
+      (acc: number, curr: any) => acc + Number(curr.amount || 0),
+      0
+    );
+    const totalCollectedAmount = fullPaidAmount + partialPaidAmount;
 
     return {
-      totalCollectedAmount: paidItems.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0),
+      totalCollectedAmount,
+      fullPaidAmount,
+      fullPaidCount: fullPaidItems.length,
+      partialPaidAmount,
+      partialPaidCount: partialPaidItems.length,
       totalTransactions: filteredReportItems.length,
-      averageTransaction: filteredReportItems.length > 0 ? Math.round(filteredReportItems.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0) / filteredReportItems.length) : 0,
+      averageTransaction:
+        filteredReportItems.length > 0
+          ? Math.round(totalCollectedAmount / filteredReportItems.length)
+          : 0,
     };
-  }, [data, filteredReportItems, filters]);
+  }, [filteredReportItems]);
 
   const columns = [
     { key: 'tenantName', header: 'Tenant Name' },
@@ -53,7 +67,7 @@ export const PaymentHistoryReport: React.FC = () => {
     {
       key: 'paymentDate',
       header: 'Payment Date',
-      render: (row: any) => (row.paymentDate && row.paymentDate !== 'N/A' ? new Date(row.paymentDate).toLocaleDateString() : 'N/A'),
+      render: (row: any) => (row.paymentDate && row.paymentDate !== 'N/A' ? new Date(`${String(row.paymentDate).split('T')[0]}T00:00:00`).toLocaleDateString() : 'N/A'),
     },
     {
       key: 'amount',
@@ -67,7 +81,7 @@ export const PaymentHistoryReport: React.FC = () => {
       header: 'Status',
       render: (row: any) => (
         <span
-          className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+          className={`inline-flex items-center whitespace-nowrap px-2.5 py-0.5 rounded-full text-xs font-bold ${
             row.paymentStatus === 'Paid' || row.paymentStatus === 'Cleared'
               ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
               : 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
@@ -115,16 +129,16 @@ export const PaymentHistoryReport: React.FC = () => {
         onChange={setFilterVal}
         onReset={resetFilters}
         showStatusFilter={true}
-        statusOptions={['Paid', 'Pending', 'Partially Paid', 'Failed', 'Refunded']}
-        showPaymentMethodFilter={true}
-        paymentMethodOptions={['ACH', 'Credit Card', 'Debit Card', 'Bank Transfer', 'Wire Transfer', 'Cash', 'Check', 'Money Order', 'Zelle']}
+        statusOptions={['Paid', 'Partially Paid', 'Pending', 'Failed', 'Refunded']}
       />
 
-      {/* KPI Cards Header */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* KPI Cards Header (4 Cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 bg-teal-50 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900/50 rounded-xl flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-extrabold text-teal-700 dark:text-teal-400 uppercase tracking-wide">Total Collected Revenue</span>
+            <span className="text-[10px] font-extrabold text-teal-700 dark:text-teal-400 uppercase tracking-wide">
+              Total Collected Revenue
+            </span>
             <h3 className="text-2xl font-black text-teal-950 dark:text-teal-200 mt-0.5">
               ${summary.totalCollectedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </h3>
@@ -136,13 +150,43 @@ export const PaymentHistoryReport: React.FC = () => {
 
         <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-xl flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Total Payments Count</span>
-            <h3 className="text-xl font-black text-emerald-950 dark:text-emerald-200 mt-0.5">
-              {summary.totalTransactions} Transactions
+            <span className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">
+              Full Paid Collected ({summary.fullPaidCount})
+            </span>
+            <h3 className="text-2xl font-black text-emerald-950 dark:text-emerald-200 mt-0.5">
+              ${summary.fullPaidAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </h3>
           </div>
           <div className="p-2.5 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-700 dark:text-emerald-300">
             <CheckCircle2 className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-extrabold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
+              Partial Payments Collected ({summary.partialPaidCount})
+            </span>
+            <h3 className="text-2xl font-black text-amber-950 dark:text-amber-200 mt-0.5">
+              ${summary.partialPaidAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </h3>
+          </div>
+          <div className="p-2.5 bg-amber-100 dark:bg-amber-900/40 rounded-lg text-amber-700 dark:text-amber-300">
+            <Clock className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="p-4 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/50 rounded-xl flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-400 uppercase tracking-wide">
+              Total Transactions
+            </span>
+            <h3 className="text-xl font-black text-indigo-950 dark:text-indigo-200 mt-0.5">
+              {summary.totalTransactions} Transactions
+            </h3>
+          </div>
+          <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg text-indigo-700 dark:text-indigo-300">
+            <TrendingUp className="w-5 h-5" />
           </div>
         </div>
       </div>
@@ -151,7 +195,12 @@ export const PaymentHistoryReport: React.FC = () => {
         columns={columns}
         data={filteredReportItems}
         isLoading={isLoading}
-        pagination={data?.pagination}
+        pagination={{
+          page: 1,
+          limit: filteredReportItems.length || 50,
+          totalRecords: filteredReportItems.length,
+          totalPages: filteredReportItems.length > 0 ? 1 : 0,
+        }}
         onPageChange={(page) => setFilterVal('page', page)}
         onSort={(key) => {
           const order = filters.sortBy === key && filters.sortOrder === 'asc' ? 'desc' : 'asc';

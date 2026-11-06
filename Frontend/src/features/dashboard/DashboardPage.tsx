@@ -75,8 +75,8 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.monthlyRevenue')}
             value={`$${(metrics?.monthlyRevenue ?? 0).toLocaleString()}`}
             icon={<DollarSign className="w-5 h-5" />}
-            trend="up"
-            trendLabel="+12.4%"
+            trend={(metrics?.monthlyRevenue ?? 0) > 0 ? "up" : "neutral"}
+            trendLabel={(metrics?.monthlyRevenue ?? 0) > 0 ? `${metrics?.occupiedUnits ?? 0} Active` : "0%"}
             description={t('dashboard.rentCollectionRate')}
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('monthlyRevenue')}
@@ -85,8 +85,8 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.pendingRent')}
             value={`$${(metrics?.pendingRent ?? 0).toLocaleString()}`}
             icon={<DollarSign className="w-5 h-5" />}
-            trend="down"
-            trendLabel="-8.5%"
+            trend={(metrics?.pendingRent ?? 0) > 0 ? "down" : "neutral"}
+            trendLabel={(metrics?.pendingRent ?? 0) > 0 ? `${(metrics as any)?.pendingInvoicesCount || 1} Overdue` : "0%"}
             description={t('dashboard.outstandingBalances')}
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('pendingRent')}
@@ -111,14 +111,14 @@ export const DashboardPage: React.FC = () => {
           />
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5 sm:gap-4">
           <StatsCard
             title={t('dashboard.totalProperties')}
             value={metrics?.totalProperties ?? 0}
             icon={<Building2 className="w-5 h-5" />}
-            trend="up"
-            trendLabel={`+1 ${t('dashboard.thisQuarter').split(' ')[0]}`}
-            description={t('dashboard.thisQuarter')}
+            trend={(metrics?.totalProperties ?? 0) > 0 ? "up" : "neutral"}
+            trendLabel={(metrics?.totalProperties ?? 0) > 0 ? `+${metrics?.totalProperties}` : "0"}
+            description="Portfolio Assets"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('properties')}
           />
@@ -126,7 +126,7 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.totalUnits')}
             value={metrics?.totalUnits ?? 0}
             icon={<Home className="w-5 h-5" />}
-            description={t('dashboard.acrossAllAssets')}
+            description="Across all assets"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('totalUnits')}
           />
@@ -134,9 +134,9 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.occupiedUnits')}
             value={metrics?.occupiedUnits ?? 0}
             icon={<UserCheck className="w-5 h-5" />}
-            trend="neutral"
-            trendLabel="Stable"
-            description={t('dashboard.activeLeases')}
+            trend={(metrics?.occupiedUnits ?? 0) > 0 ? "up" : "neutral"}
+            trendLabel={(metrics?.occupiedUnits ?? 0) > 0 ? "Occupied" : "0"}
+            description="Active leases"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('occupiedUnits')}
           />
@@ -144,9 +144,9 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.vacantUnits')}
             value={metrics?.vacantUnits ?? 0}
             icon={<AlertCircle className="w-5 h-5" />}
-            trend="down"
-            trendLabel="-2"
-            description={t('dashboard.readyForListings')}
+            trend={(metrics?.vacantUnits ?? 0) > 0 ? "down" : "neutral"}
+            trendLabel={(metrics?.vacantUnits ?? 0) > 0 ? `${metrics?.vacantUnits} Units` : "0"}
+            description="Ready for listings"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('vacantUnits')}
           />
@@ -154,9 +154,9 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.occupancyRate')}
             value={`${metrics?.occupancyRate ?? 0}%`}
             icon={<TrendingUp className="w-5 h-5" />}
-            trend="up"
-            trendLabel="+4.2%"
-            description={t('dashboard.comparedToLastMonth')}
+            trend={(metrics?.occupancyRate ?? 0) > 0 ? "up" : "neutral"}
+            trendLabel={`${metrics?.occupancyRate ?? 0}%`}
+            description="Portfolio rate"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('occupancyRate')}
           />
@@ -164,9 +164,9 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.monthlyRevenue')}
             value={`$${(metrics?.monthlyRevenue ?? 0).toLocaleString()}`}
             icon={<DollarSign className="w-5 h-5" />}
-            trend="up"
-            trendLabel="+12.4%"
-            description={t('dashboard.rentCollectionRate')}
+            trend={(metrics?.monthlyRevenue ?? 0) > 0 ? "up" : "neutral"}
+            trendLabel={(metrics?.monthlyRevenue ?? 0) > 0 ? `${metrics?.occupiedUnits ?? 0} Leased` : "0%"}
+            description="Gross rent roll"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('monthlyRevenue')}
           />
@@ -174,9 +174,9 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.pendingRent')}
             value={`$${(metrics?.pendingRent ?? 0).toLocaleString()}`}
             icon={<DollarSign className="w-5 h-5" />}
-            trend="down"
-            trendLabel="-8.5%"
-            description={t('dashboard.outstandingBalances')}
+            trend={(metrics?.pendingRent ?? 0) > 0 ? "down" : "neutral"}
+            trendLabel={(metrics?.pendingRent ?? 0) > 0 ? `${(metrics as any)?.pendingInvoicesCount || 1} Overdue` : "0%"}
+            description="Outstanding balance"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('pendingRent')}
           />
@@ -184,7 +184,7 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.expenses')}
             value={`$${(metrics?.expenses ?? 0).toLocaleString()}`}
             icon={<DollarSign className="w-5 h-5" />}
-            description={t('dashboard.invoicesPaid')}
+            description="Paid this month"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('expenses')}
           />
@@ -194,7 +194,7 @@ export const DashboardPage: React.FC = () => {
             icon={<Wrench className="w-5 h-5" />}
             trend={metrics?.openMaintenance ? "up" : "neutral"}
             trendLabel={metrics?.openMaintenance ? `+${metrics.openMaintenance}` : "0"}
-            description={t('dashboard.activeWorkOrders')}
+            description="In progress orders"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('openMaintenance')}
           />
@@ -202,7 +202,7 @@ export const DashboardPage: React.FC = () => {
             title={t('dashboard.leasesExpiringSoon')}
             value={metrics?.leasesExpiringSoon ?? 0}
             icon={<Calendar className="w-5 h-5" />}
-            description={t('dashboard.expiringIn60Days')}
+            description="Expiring in 60 days"
             loading={loadingMetrics}
             onClick={() => setSelectedMetric('leasesExpiringSoon')}
           />

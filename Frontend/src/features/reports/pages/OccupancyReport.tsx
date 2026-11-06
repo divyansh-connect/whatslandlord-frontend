@@ -124,7 +124,14 @@ export const OccupancyReport: React.FC = () => {
         isExporting={isExporting}
       />
 
-      <ReportFilters filters={filters} onChange={setFilterVal} onReset={resetFilters} />
+      <ReportFilters
+        filters={filters}
+        onChange={setFilterVal}
+        onReset={resetFilters}
+        showUnitFilter={false}
+        showTenantFilter={false}
+        showDateFilters={false}
+      />
 
       {/* KPI Cards Header */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
