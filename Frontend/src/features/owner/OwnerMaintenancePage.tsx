@@ -62,13 +62,13 @@ export const OwnerMaintenancePage: React.FC = () => {
         const est = Number(row.original.estimatedCost || 0);
         const act = Number(row.original.actualCost || row.original.cost || 0);
         const extra = Number(row.original.extraExpenses || row.original.extraCost || 0);
-        const displayActual = act + extra;
+        const displayActual = act > 0 ? act : (row.original.status === 'Completed' ? est : (est > 0 ? est : 0));
         return (
           <div>
             <span className="font-extrabold text-foreground">${displayActual.toLocaleString()}</span>
             {extra > 0 && (
-              <span className="ml-1.5 text-[10px] font-black uppercase text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded">
-                +${extra.toLocaleString()} Extra
+              <span className="ml-1.5 text-[10px] font-black uppercase text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                +${extra.toLocaleString()} Materials
               </span>
             )}
           </div>

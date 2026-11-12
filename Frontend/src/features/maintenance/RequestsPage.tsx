@@ -121,7 +121,15 @@ export const RequestsPage: React.FC = () => {
       accessorKey: 'status',
       header: t('maintenanceRequests.status'),
       id: 'status',
-      cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      cell: ({ row }) => {
+        const hasStaff = Boolean(
+          row.original.assignedVendorName &&
+          row.original.assignedVendorName !== 'Not Assigned Yet' &&
+          !row.original.assignedVendorName.toLowerCase().includes('apex pro')
+        );
+        const displaySt = (!hasStaff && (row.original.status === 'Assigned' || !row.original.status)) ? 'Open' : (row.original.status || 'Open');
+        return <StatusBadge status={displaySt} />;
+      },
     },
     {
       accessorKey: 'createdAt',

@@ -123,7 +123,7 @@ export const PropertiesPage: React.FC = () => {
         'Status': p.status || 'Active',
         'Owner Name': ownerName,
         'Ownership Percentage (%)': p.ownershipPercentage ?? 100,
-        'Management Company': p.managementCompany || 'Apex Property Management',
+        'Management Company': p.managementCompany || 'Not Specified',
         'Street Address': p.streetAddress || p.address || '',
         'City': p.city || '',
         'State': p.state || '',

@@ -86,7 +86,16 @@ export const apiClient = {
         headers: apiClient.getHeaders(),
       });
     } catch (e) {
-      response = null;
+      // Retry once on transient SSL/network glitch
+      try {
+        await new Promise((r) => setTimeout(r, 200));
+        response = await fetch(`${BASE_URL}${url}`, {
+          method: 'GET',
+          headers: apiClient.getHeaders(),
+        });
+      } catch {
+        response = null;
+      }
     }
 
     // Try fallback to local backend if remote API returns 404 or connection fails
@@ -133,7 +142,16 @@ export const apiClient = {
         body: isFormData ? data : JSON.stringify(data),
       });
     } catch (e) {
-      response = null;
+      try {
+        await new Promise((r) => setTimeout(r, 200));
+        response = await fetch(`${BASE_URL}${url}`, {
+          method: 'POST',
+          headers,
+          body: isFormData ? data : JSON.stringify(data),
+        });
+      } catch {
+        response = null;
+      }
     }
 
     // Try fallback to local backend if remote API returns 404 or connection fails
@@ -174,13 +192,27 @@ export const apiClient = {
     const isFormData = data instanceof FormData;
     const headers: any = isFormData ? apiClient.getAuthHeaders() : apiClient.getHeaders();
 
-    let response = await fetch(`${BASE_URL}${url}`, {
-      method: 'PUT',
-      headers,
-      body: isFormData ? data : data ? JSON.stringify(data) : undefined,
-    });
+    let response: Response | null = null;
+    try {
+      response = await fetch(`${BASE_URL}${url}`, {
+        method: 'PUT',
+        headers,
+        body: isFormData ? data : data ? JSON.stringify(data) : undefined,
+      });
+    } catch (e) {
+      try {
+        await new Promise((r) => setTimeout(r, 200));
+        response = await fetch(`${BASE_URL}${url}`, {
+          method: 'PUT',
+          headers,
+          body: isFormData ? data : data ? JSON.stringify(data) : undefined,
+        });
+      } catch {
+        response = null;
+      }
+    }
 
-    if (response.status === 401) {
+    if (response && response.status === 401) {
       const refreshed = await handleUnauthorized();
       if (refreshed) {
         response = await fetch(`${BASE_URL}${url}`, {
@@ -191,8 +223,9 @@ export const apiClient = {
       }
     }
 
-    if (!response.ok) {
-      await apiClient.handleResponseError(response);
+    if (!response || !response.ok) {
+      if (response) await apiClient.handleResponseError(response);
+      throw new Error(`API request failed for ${url}`);
     }
     return response.json();
   },

@@ -36,6 +36,36 @@ export const TenantsPage: React.FC<{ filterStatus?: string }> = ({ filterStatus 
     queryFn: () => api.property.getAll(),
   });
 
+  const { data: allLedger = [] } = useQuery({
+    queryKey: ['rent-ledger-list'],
+    queryFn: () => api.rentLedger.getAll(),
+  });
+
+  const tenantBalanceMap = React.useMemo(() => {
+    const map = new Map<string, number>();
+    allLedger.forEach((item: any) => {
+      const tId = item.tenantId;
+      if (tId) {
+        const current = map.get(tId) || 0;
+        const debit = Number(item.debit) || 0;
+        const credit = Number(item.credit) || 0;
+        map.set(tId, current + debit - credit);
+      }
+    });
+    return map;
+  }, [allLedger]);
+
+  const getTenantBalance = (t: any) => {
+    if (t?.id && tenantBalanceMap.has(t.id)) {
+      return Math.max(0, tenantBalanceMap.get(t.id)!);
+    }
+    return (t?.invoices || []).reduce((sum: number, inv: any) => {
+      const isPaid = String(inv?.status || '').toLowerCase() === 'paid';
+      const invBal = isPaid ? 0 : (inv.balance !== undefined ? Number(inv.balance) : Number(inv.amount || 0));
+      return sum + Number(invBal || 0);
+    }, 0) + Number(t?.previousBalance || t?.openingBalance || 0);
+  };
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.tenant.delete(id, tenants.find((t) => t.id === id)),
     onSuccess: () => {
@@ -69,11 +99,7 @@ export const TenantsPage: React.FC<{ filterStatus?: string }> = ({ filterStatus 
     const matchesStatus = !statusFilter ||
       String(t.status || 'Active').toLowerCase() === statusFilter.toLowerCase();
     
-    const balanceSum = (t.invoices || []).reduce((sum: number, inv: any) => {
-      const isPaid = String(inv?.status || '').toLowerCase() === 'paid';
-      const invBal = isPaid ? 0 : (inv.balance !== undefined ? inv.balance : inv.amount);
-      return sum + Number(invBal || 0);
-    }, 0) + Number(t.previousBalance || t.openingBalance || 0);
+    const balanceSum = getTenantBalance(t);
     const hasBalance = balanceSum > 0;
     const matchesBalance = balanceFilter === '' || 
       (balanceFilter === 'has-balance' && hasBalance) ||
@@ -104,7 +130,7 @@ export const TenantsPage: React.FC<{ filterStatus?: string }> = ({ filterStatus 
       id: 'avatar',
       header: t('tenants.columns.avatar'),
       cell: ({ row }) => (
-        <TenantAvatar name={`${row.original.firstName} ${row.original.lastName}`} size="sm" />
+        <TenantAvatar name={`${row.original.firstName} ${row.original.lastName}`} imageUrl={row.original.imageUrl} size="sm" />
       ),
     },
     {
@@ -138,11 +164,7 @@ export const TenantsPage: React.FC<{ filterStatus?: string }> = ({ filterStatus 
       id: 'balance',
       header: t('tenants.columns.balance'),
       cell: ({ row }) => {
-        const balanceSum = (row.original.invoices || []).reduce((sum, inv) => {
-          const isPaid = (inv as any).status === 'Paid' || (inv as any).status === 'PAID';
-          const invBal = isPaid ? 0 : (inv.balance !== undefined ? inv.balance : inv.amount);
-          return sum + Number(invBal || 0);
-        }, 0) + Number(row.original.previousBalance || row.original.openingBalance || 0);
+        const balanceSum = getTenantBalance(row.original);
         return (
           <span className={balanceSum > 0 ? 'text-rose-500 font-bold' : 'text-emerald-500 font-bold'}>
             ${balanceSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

@@ -181,7 +181,7 @@ export const DocumentSigningViewerModal: React.FC<DocumentSigningViewerModalProp
               </div>
               <div>
                 <h2 className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-slate-100">RESIDENTIAL LEASE AGREEMENT</h2>
-                <p className="text-[10px] text-slate-500 font-medium">Ref ID: {requestItem.id || 'DOC-2026-88'} • Apex Property Management</p>
+                <p className="text-[10px] text-slate-500 font-medium">Ref ID: {requestItem.id || 'DOC-LEGAL'} • {requestItem.companyName || 'Property Management'}</p>
               </div>
             </div>
           </div>
@@ -189,12 +189,12 @@ export const DocumentSigningViewerModal: React.FC<DocumentSigningViewerModalProp
           {/* Document Content */}
           <div className="space-y-3 text-xs leading-relaxed font-sans text-slate-700 dark:text-slate-300">
             <p>
-              This Agreement is made on <strong>July 20, 2026</strong> by and between <strong>Apex Property Management</strong> (Landlord) and <strong>{Array.isArray(requestItem.signers) ? requestItem.signers.join(', ') : (requestItem.signers || 'Tenant')}</strong>.
+              This Agreement is made on <strong>{requestItem.date || new Date().toLocaleDateString()}</strong> by and between <strong>{requestItem.companyName || 'Management Office'}</strong> (Landlord) and <strong>{Array.isArray(requestItem.signers) ? requestItem.signers.join(', ') : (requestItem.signers || 'Tenant')}</strong>.
             </p>
 
             <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border text-[11px] font-sans">
-              <div><span className="text-[9px] uppercase font-bold text-slate-400 block">Property</span><strong className="text-slate-900 dark:text-slate-100">104 Main St, Unit 304, Austin, TX</strong></div>
-              <div><span className="text-[9px] uppercase font-bold text-slate-400 block">Monthly Rent</span><strong className="text-slate-900 dark:text-slate-100">$2,450.00 / month</strong></div>
+              <div><span className="text-[9px] uppercase font-bold text-slate-400 block">Property</span><strong className="text-slate-900 dark:text-slate-100">{requestItem.property || requestItem.propertyName || 'Designated Premises'}</strong></div>
+              <div><span className="text-[9px] uppercase font-bold text-slate-400 block">Status</span><strong className="text-slate-900 dark:text-slate-100">{requestItem.status || 'Active'}</strong></div>
             </div>
           </div>
 

@@ -31,13 +31,31 @@ export const OwnerFinancialsPage: React.FC = () => {
       accessorKey: 'category',
       header: t('owner.financials.category'),
       id: 'category',
-      cell: ({ row }) => <span className="font-bold text-[10px] bg-secondary px-2 py-0.5 rounded border uppercase">{row.original.category}</span>,
+      cell: ({ row }) => {
+        const cat = row.original.category || 'Rental Income';
+        const type = row.original.type;
+        const colorCls = type === 'Expense' 
+          ? 'bg-rose-500/10 text-rose-600 border-rose-200' 
+          : type === 'Distribution' 
+            ? 'bg-blue-500/10 text-blue-600 border-blue-200' 
+            : 'bg-emerald-500/10 text-emerald-600 border-emerald-200';
+        return <span className={`font-bold text-[10px] px-2 py-0.5 rounded border uppercase ${colorCls}`}>{cat}</span>;
+      },
     },
     {
       accessorKey: 'amount',
-      header: t('owner.financials.grossRevenue'),
+      header: 'Cash Flow / Amount',
       id: 'amount',
-      cell: ({ row }) => <span className="font-extrabold text-emerald-500">${(Number(row.original.amount) || 0).toLocaleString()}</span>,
+      cell: ({ row }) => {
+        const isExpense = row.original.type === 'Expense';
+        const isDist = row.original.type === 'Distribution';
+        const amt = Number(row.original.amount) || 0;
+        return (
+          <span className={`font-extrabold ${isExpense ? 'text-rose-500' : isDist ? 'text-blue-500' : 'text-emerald-500'}`}>
+            {isExpense || isDist ? '-' : '+'}${amt.toLocaleString()}
+          </span>
+        );
+      },
     },
   ];
 
@@ -52,14 +70,17 @@ export const OwnerFinancialsPage: React.FC = () => {
       doc.setTextColor(100, 116, 139);
       doc.text(`Generated on: ${new Date().toLocaleString()} | Total Records: ${filteredIncome.length}`, 14, 25);
 
-      const headers = ['Clearing Date', 'Property', 'Tenant Source', 'Category', 'Gross Revenue'];
-      const tableRows = filteredIncome.map((item: any) => [
-        String(item.date || 'N/A'),
-        String(item.propertyName || 'N/A'),
-        String(item.tenantName || 'N/A'),
-        String(item.category || 'Rent'),
-        `$${(Number(item.amount) || 0).toLocaleString()}`,
-      ]);
+      const headers = ['Clearing Date', 'Property', 'Tenant / Vendor Source', 'Category', 'Flow / Amount'];
+      const tableRows = filteredIncome.map((item: any) => {
+        const isExp = item.type === 'Expense' || item.type === 'Distribution';
+        return [
+          String(item.date || 'N/A'),
+          String(item.propertyName || 'N/A'),
+          String(item.tenantName || 'N/A'),
+          String(item.category || 'Rent'),
+          `${isExp ? '-' : '+'}$${(Number(item.amount) || 0).toLocaleString()}`,
+        ];
+      });
 
       autoTable(doc, {
         startY: 32,

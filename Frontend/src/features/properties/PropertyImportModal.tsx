@@ -442,7 +442,7 @@ export const PropertyImportModal: React.FC<PropertyImportModalProps> = ({
           const ownerName = matchedOwner || rawOwner;
 
           const ownershipPercentage = parseFloat(normRow['ownershippercentage'] || normRow['ownership'] || '100') || 100;
-          const managementCompany = String(normRow['managementcompany'] || normRow['management'] || 'Apex Property Management').trim();
+          const managementCompany = String(normRow['managementcompany'] || normRow['management'] || '').trim();
 
           const streetAddress = String(
             normRow['streetaddress'] ||

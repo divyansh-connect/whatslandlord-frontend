@@ -51,7 +51,7 @@ export const TenantInsurancePage: React.FC = () => {
 
           <div className="flex items-center space-x-2 text-xs text-emerald-500 bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 font-bold">
             <FileCheck className="w-4.5 h-4.5 shrink-0" />
-            <span>Active & Approved by Skyline Lofts management office</span>
+            <span>Active & Verified by property management office</span>
           </div>
         </Card>
 

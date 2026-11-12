@@ -96,9 +96,9 @@ export const PaymentDetailsPage: React.FC = () => {
             method={payment.paymentMethod}
             refNumber={payment.referenceNumber}
             createdBy={payment.createdBy}
-            companyName={profile?.company || (payment as any).company?.name || 'Apex Property Management'}
-            companyPhone={profile?.phone || (payment as any).company?.phone || '+1 (555) 234-5678'}
-            companyEmail={profile?.email || (payment as any).company?.email || 'support@whatslandlord.com'}
+            companyName={profile?.company || (payment as any).company?.name || 'Management Co.'}
+            companyPhone={profile?.phone || (payment as any).company?.phone || ''}
+            companyEmail={profile?.email || (payment as any).company?.email || ''}
           />
         </TabsContent>
 

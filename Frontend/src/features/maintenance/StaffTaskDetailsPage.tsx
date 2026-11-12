@@ -11,7 +11,7 @@ import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { 
   ArrowLeft, CheckCircle2, Play, AlertCircle, XCircle, Clock, 
   MapPin, User, Tag, Calendar, DollarSign, Image as ImageIcon,
-  Wrench, Check, AlertTriangle, X, Coins, Sparkles
+  Wrench, Check, AlertTriangle, X, Coins, Sparkles, Phone, Mail, ShieldCheck
 } from 'lucide-react';
 import { extractPreferredVisit, cleanDescription } from '../../utils/maintenanceHelpers';
 
@@ -274,6 +274,56 @@ export const StaffTaskDetailsPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* RESIDENT / TENANT CONTACT CARD */}
+            <div className="p-4 bg-secondary/15 rounded-2xl border border-border/50 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/30 pb-2.5">
+                <div className="flex items-center space-x-2">
+                  <User className="w-4 h-4 text-primary shrink-0" />
+                  <span className="text-xs font-black uppercase tracking-wider text-foreground">Resident Contact Details</span>
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 shadow-xs">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Permission to Enter: Granted
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1 text-xs font-semibold">
+                <div className="p-3 bg-card rounded-xl border border-border/40 shadow-xs">
+                  <p className="text-[10px] uppercase font-black text-muted-foreground/70">Resident Name</p>
+                  <p className="font-extrabold text-foreground mt-1 text-sm">{task.tenantName || 'Current Resident'}</p>
+                </div>
+
+                <div className="p-3 bg-card rounded-xl border border-border/40 shadow-xs">
+                  <p className="text-[10px] uppercase font-black text-muted-foreground/70">Mobile Phone</p>
+                  {task.tenantPhone ? (
+                    <a
+                      href={`tel:${task.tenantPhone}`}
+                      className="font-extrabold text-primary hover:underline mt-1 inline-flex items-center gap-1.5 text-sm"
+                      title="Click to call resident"
+                    >
+                      <Phone className="w-3.5 h-3.5 text-primary" /> {task.tenantPhone}
+                    </a>
+                  ) : (
+                    <p className="text-muted-foreground mt-1 text-sm font-medium">Not Specified</p>
+                  )}
+                </div>
+
+                <div className="p-3 bg-card rounded-xl border border-border/40 shadow-xs">
+                  <p className="text-[10px] uppercase font-black text-muted-foreground/70">Email Address</p>
+                  {task.tenantEmail ? (
+                    <a
+                      href={`mailto:${task.tenantEmail}`}
+                      className="font-bold text-foreground hover:text-primary hover:underline mt-1 inline-flex items-center gap-1.5 text-xs truncate max-w-full"
+                      title="Send email to resident"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> <span className="truncate">{task.tenantEmail}</span>
+                    </a>
+                  ) : (
+                    <p className="text-muted-foreground mt-1 text-sm font-medium">Not Specified</p>
+                  )}
+                </div>
               </div>
             </div>
             

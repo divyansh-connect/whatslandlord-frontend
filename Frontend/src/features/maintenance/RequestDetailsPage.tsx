@@ -175,6 +175,13 @@ export const RequestDetailsPage: React.FC = () => {
   const recommendedVendor = aiRecommendation?.recommendedVendor || null;
   const preferredVisitDay = extractPreferredVisit(request);
 
+  const hasAssignedStaff = Boolean(
+    request?.assignedVendorName &&
+    request?.assignedVendorName !== 'Not Assigned Yet' &&
+    !request?.assignedVendorName.toLowerCase().includes('apex pro')
+  );
+  const displayStatus = (!hasAssignedStaff && (request?.status === 'Assigned' || !request?.status)) ? 'Open' : (request?.status || 'Open');
+
   if (isLoading || !request) {
     return <LoadingSkeleton type="details" />;
   }
@@ -215,7 +222,7 @@ export const RequestDetailsPage: React.FC = () => {
       {/* STATUS OVERVIEW & COST MANAGEMENT */}
       <div className="flex flex-wrap items-center justify-between p-4 bg-card border rounded-2xl gap-3">
         <div className="flex items-center space-x-3.5">
-          <StatusBadge status={request.status} />
+          <StatusBadge status={displayStatus} />
           <RequestPriorityBadge priority={request.priority as any} />
         </div>
 
@@ -316,7 +323,7 @@ export const RequestDetailsPage: React.FC = () => {
             </p>
           </div>
 
-          {!request.assignedVendorName && (
+          {!hasAssignedStaff && (
             <Button
               size="sm"
               onClick={() => {
@@ -383,7 +390,9 @@ export const RequestDetailsPage: React.FC = () => {
                       <span className="font-black uppercase text-[10px] text-primary">{m.senderName}</span>
                       <span className="text-[9px] text-muted-foreground font-mono">{m.timestamp}</span>
                     </div>
-                    <p className="text-foreground leading-relaxed font-semibold">{m.text}</p>
+                    <p className="text-foreground leading-relaxed font-semibold">
+                      {m.text.replace(/ and assigned to Apex Pro Maintenance Co\. \(Lead Technician\)\. Contractor notified\./g, '. Awaiting staff assignment by property manager.')}
+                    </p>
                   </div>
                 ))
               ) : (
@@ -441,7 +450,7 @@ export const RequestDetailsPage: React.FC = () => {
             <div className="border-t pt-3.5 mt-2">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] text-muted-foreground uppercase font-black tracking-wider">Assigned Maintenance Staff</p>
-                {request.assignedVendorName && (
+                {hasAssignedStaff && (
                   ((request.status || '').toLowerCase().includes('accept') || (request.status || '').toLowerCase().includes('progress') || (request.status || '').toLowerCase().includes('complete') || (request.status || '').toLowerCase().includes('close')) ? (
                     <button
                       type="button"
@@ -479,13 +488,13 @@ export const RequestDetailsPage: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <User className="w-4 h-4 text-primary shrink-0" />
                     <div>
-                      <p className="font-extrabold text-sm text-foreground">{request.assignedVendorName || 'Not Assigned Yet'}</p>
-                      {request.assignedTechnician && request.assignedTechnician !== request.assignedVendorName && (
+                      <p className="font-extrabold text-sm text-foreground">{hasAssignedStaff ? request.assignedVendorName : 'Not Assigned Yet'}</p>
+                      {hasAssignedStaff && request.assignedTechnician && request.assignedTechnician !== request.assignedVendorName && (
                         <p className="text-[11px] text-muted-foreground font-semibold">Tech: {request.assignedTechnician}</p>
                       )}
                     </div>
                   </div>
-                  {request.assignedVendorName ? (
+                  {hasAssignedStaff ? (
                     <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                       ✓ Assigned
                     </span>

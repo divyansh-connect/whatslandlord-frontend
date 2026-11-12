@@ -317,8 +317,8 @@ export const TenantLayout: React.FC<TenantLayoutProps> = ({
               {showProfileMenu && (
                 <div className="absolute right-0 mt-2 w-48 bg-card border rounded-xl shadow-xl py-2 z-50 text-xs font-semibold">
                   <div className="px-4 py-2 border-b">
-                    <p className="font-extrabold truncate">{user?.name || 'Sarah Connor'}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">{user?.email || 'sarah.c@skyline.com'}</p>
+                    <p className="font-extrabold truncate">{user?.name || 'Resident'}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{user?.email || 'resident@portal.com'}</p>
                   </div>
                   <button onClick={() => { logout(); navigate('/login'); }} className="w-full text-left px-4 py-2 text-rose-500 hover:bg-rose-500/10 flex items-center gap-2">
                     <LogOut className="w-4 h-4" /> {t('tenant.signOut')}

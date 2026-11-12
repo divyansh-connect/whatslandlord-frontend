@@ -56,6 +56,7 @@ export const NewPropertyPage: React.FC = () => {
 
   const [photos, setPhotos] = useState<string[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [docFile, setDocFile] = useState<File | null>(null);
   const [success, setSuccess] = useState(false);
   const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
   const [isAddOwnerModalOpen, setIsAddOwnerModalOpen] = useState(false);
@@ -81,8 +82,24 @@ export const NewPropertyPage: React.FC = () => {
     mutationFn: (values: any) => {
       return api.property.create(values);
     },
-    onSuccess: () => {
+    onSuccess: async (createdProperty: any) => {
+      if (docFile && createdProperty?.id) {
+        try {
+          const formData = new FormData();
+          formData.append('file', docFile);
+          formData.append('name', docFile.name);
+          formData.append('category', 'Property Document');
+          formData.append('propertyId', createdProperty.id);
+          if (createdProperty.ownerId) {
+            formData.append('ownerId', createdProperty.ownerId);
+          }
+          await api.documents.uploadOwnerDoc(formData);
+        } catch (docErr) {
+          console.warn('Property document upload skipped/failed:', docErr);
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ['properties'] });
+      queryClient.invalidateQueries({ queryKey: ['docs-all'] });
       setSuccess(true);
       setTimeout(() => navigate({ to: '/properties' }), 2000);
     },
@@ -183,9 +200,9 @@ export const NewPropertyPage: React.FC = () => {
         country: formValues.country || 'USA',
         zip: formValues.zip || '',
         nycBin: formValues.nycBin,
-        yearBuilt: formValues.yearBuilt || 2020,
+        yearBuilt: formValues.yearBuilt || undefined,
         totalBuildings: formValues.totalBuildings || 1,
-        squareFootage: formValues.squareFootage || 5000,
+        squareFootage: formValues.squareFootage || undefined,
         purchasePrice: formValues.purchasePrice || 0,
         currentValue: formValues.currentValue || 0,
         monthlyExpenses: formValues.monthlyExpenses || 0,
@@ -637,15 +654,17 @@ export const NewPropertyPage: React.FC = () => {
                     onFileSelect={(file) => setImageFile(file)}
                   />
                 </div>
-                <div className="space-y-1.5 opacity-80">
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">Property Documents</label>
-                    <span className="text-[10px] font-bold text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">❌ Not Connected</span>
+                    <label className="text-xs font-extrabold text-muted-foreground uppercase tracking-wide">Property Document <span className="text-muted-foreground font-normal">(Max 10MB)</span></label>
+                    <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Optional</span>
                   </div>
-                  <div className="pointer-events-none opacity-60">
-                    <FileUploader />
-                  </div>
-                  <p className="text-[11px] text-muted-foreground italic">Property document uploading is managed under the Documents section.</p>
+                  <FileUploader
+                    accept=".pdf,.docx,.doc,.png,.jpg,.jpeg"
+                    maxSizeMB={10}
+                    onFileSelect={(file) => setDocFile(file)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">Upload deed, agreement, or floor plan for this property.</p>
                 </div>
               </div>
             </div>

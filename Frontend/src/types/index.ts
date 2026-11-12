@@ -66,6 +66,7 @@ export interface Tenant {
   lastName: string;
   email: string;
   phone: string;
+  imageUrl?: string;
   unitId?: string;
   unitNumber?: string;
   propertyId?: string;
@@ -243,6 +244,13 @@ export interface WorkOrder {
   advancePaymentMethod?: string;
   advancePaymentDate?: string;
   advancePaymentRef?: string;
+  tenantId?: string;
+  tenantName?: string;
+  tenantPhone?: string;
+  tenantEmail?: string;
+  tenantAltPhone?: string;
+  tenantImageUrl?: string;
+  permissionToEnter?: boolean;
 }
 
 export interface PreventiveTask {

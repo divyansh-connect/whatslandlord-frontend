@@ -159,7 +159,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
             totalUnits: totalU,
             occupiedUnits: occU,
             vacantUnits: vacU,
-            occupancyRate: totalU > 0 ? `${Math.round((occU / totalU) * 100)}%` : '0%',
+            occupancyRate: totalU > 0 ? `${((occU / totalU) * 100).toFixed(1)}%` : '0%',
             monthlyRevenue: `$${occRevenue.toLocaleString()}`,
           };
         });
@@ -247,7 +247,11 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       // 3. OCCUPIED UNITS
       case 'occupiedUnits': {
         const occupiedList = activeUnits
-          .filter((u: any) => u.status === 'Occupied')
+          .filter((u: any) => {
+            const uStatus = String(u.status || '').toLowerCase();
+            const hasActiveLease = leases.some((l: any) => (l.unitId === u.id || l.unit?.id === u.id) && (l.status === 'Active' || l.status === 'Pending_Move_In' || l.status === 'Pending'));
+            return uStatus === 'occupied' || hasActiveLease;
+          })
           .map((u: any) => {
             const tenant = tenants.find((t: any) => t.unitId === u.id || t.id === u.tenantId);
             const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
@@ -299,7 +303,11 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
       // 4. VACANT UNITS
       case 'vacantUnits': {
         const vacantList = activeUnits
-          .filter((u: any) => u.status === 'Vacant')
+          .filter((u: any) => {
+            const uStatus = String(u.status || '').toLowerCase();
+            const hasActiveLease = leases.some((l: any) => (l.unitId === u.id || l.unit?.id === u.id) && (l.status === 'Active' || l.status === 'Pending_Move_In' || l.status === 'Pending'));
+            return uStatus !== 'occupied' && !hasActiveLease;
+          })
           .map((u: any) => {
             const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
             return {
@@ -353,7 +361,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
           const totalUnitsCount = pUnits.length || p.totalUnits || 0;
           const occupiedCount = pUnits.filter((u: any) => u.status === 'Occupied').length;
           const vacantCount = pUnits.filter((u: any) => u.status === 'Vacant').length;
-          const rate = totalUnitsCount > 0 ? Math.round((occupiedCount / totalUnitsCount) * 100) : 0;
+          const rate = totalUnitsCount > 0 ? parseFloat(((occupiedCount / totalUnitsCount) * 100).toFixed(1)) : 0;
           const potentialRent = pUnits.reduce((sum: number, u: any) => sum + (u.rentAmount || 0), 0);
           const leasedRent = pUnits
             .filter((u: any) => u.status === 'Occupied')
@@ -382,7 +390,7 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
         const displayedRate = metricsSummary?.occupancyRate !== undefined 
           ? `${metricsSummary.occupancyRate}%` 
-          : `${list.length > 0 ? Math.round((list.reduce((s: number, i: any) => s + i.occupiedUnits, 0) / (list.reduce((s: number, i: any) => s + i.totalUnits, 0) || 1)) * 100) : 0}%`;
+          : `${list.length > 0 ? parseFloat(((list.reduce((s: number, i: any) => s + i.occupiedUnits, 0) / (list.reduce((s: number, i: any) => s + i.totalUnits, 0) || 1)) * 100).toFixed(1)) : 0}%`;
 
         return {
           title: 'Occupancy Rate Analysis Matrix',
@@ -410,11 +418,16 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
 
       // 6. MONTHLY REVENUE
       case 'monthlyRevenue': {
-        const occupiedUnitsList = activeUnits.filter((u: any) => String(u.status || '').toLowerCase() === 'occupied');
+        const occupiedUnitsList = activeUnits.filter((u: any) => {
+          const uStatus = String(u.status || '').toLowerCase();
+          const hasActiveLease = leases.some((l: any) => (l.unitId === u.id || l.unit?.id === u.id) && (l.status === 'Active' || l.status === 'Pending_Move_In' || l.status === 'Pending'));
+          return uStatus === 'occupied' || hasActiveLease;
+        });
         const revenueList = occupiedUnitsList.map((u: any, idx: number) => {
           const tenant = tenants.find((t: any) => t.unitId === u.id || t.id === u.tenantId);
           const prop = properties.find((p: any) => p.id === u.propertyId || p.name === u.propertyName);
           const matchedLease = leases.find((l: any) => l.unitId === u.id || (tenant && l.tenantId === tenant.id));
+          const finalRent = Number(matchedLease?.rentAmount ?? u.rentAmount ?? 0);
           return {
             id: u.id || `rev-${idx}`,
             leaseId: matchedLease?.id,
@@ -424,9 +437,9 @@ export const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({
             unitNumber: String(u.unitNumber || '').startsWith('Unit') ? u.unitNumber : `Unit ${u.unitNumber}`,
             propertyName: u.propertyName || prop?.name || 'Property',
             tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : (u.tenantName || 'Active Resident'),
-            rentAmount: `$${(Number(u.rentAmount) || 0).toLocaleString()}`,
-            numericRent: Number(u.rentAmount) || 0,
-            securityDeposit: `$${(Number(u.securityDeposit) || 0).toLocaleString()}`,
+            rentAmount: `$${finalRent.toLocaleString()}`,
+            numericRent: finalRent,
+            securityDeposit: `$${(Number(matchedLease?.depositAmount ?? u.securityDeposit ?? 0)).toLocaleString()}`,
             startDate: matchedLease?.startDate
               ? matchedLease.startDate.split('T')[0]
               : (tenant?.moveInDate ? tenant.moveInDate.split('T')[0] : 'N/A'),

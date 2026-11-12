@@ -249,9 +249,9 @@ export const DocsSignaturesPage: React.FC = () => {
                     <span className="text-[9px] font-bold text-slate-400">Page 1 of 1</span>
                   </div>
                   <div className="space-y-2 text-[10px] leading-relaxed text-slate-600 dark:text-slate-400">
-                    <p>THIS AGREEMENT made on July 20, 2026 by Apex Property Management (&quot;Landlord&quot;) and Tenant.</p>
-                    <p>1. Tenant agrees to terms, conditions, and monthly rental obligations as specified.</p>
-                    <p>2. Property: 104 Main Street, Unit 304, Austin TX.</p>
+                    <p>THIS AGREEMENT made by and between Management Company (&quot;Landlord&quot;) and Tenant.</p>
+                    <p>1. Tenant agrees to terms, conditions, and monthly rental obligations as specified in the lease ledger.</p>
+                    <p>2. Property: Designated leased property unit as described in contract schedule.</p>
                     <div className="h-16 bg-slate-100 dark:bg-slate-900 rounded-lg border border-dashed" />
                   </div>
                 </div>

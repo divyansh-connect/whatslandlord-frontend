@@ -46,6 +46,22 @@ export const PaymentHistoryReport: React.FC = () => {
     );
     const totalCollectedAmount = fullPaidAmount + partialPaidAmount;
 
+    const hasActiveFilters = Boolean(
+      filters.propertyId || filters.unitId || filters.tenantId || filters.search || filters.status || filters.paymentMethod || filters.startDate || filters.endDate
+    );
+
+    if (!hasActiveFilters && data?.summary?.totalCollectedAmount !== undefined) {
+      return {
+        totalCollectedAmount: Number(data.summary.totalCollectedAmount ?? 0),
+        fullPaidAmount: fullPaidAmount > 0 ? fullPaidAmount : Number(data.summary.totalCollectedAmount ?? 0),
+        fullPaidCount: fullPaidItems.length > 0 ? fullPaidItems.length : Number(data.summary.totalTransactions ?? 0),
+        partialPaidAmount,
+        partialPaidCount: partialPaidItems.length,
+        totalTransactions: Number(data.summary.totalTransactions ?? data.pagination?.totalRecords ?? filteredReportItems.length),
+        averageTransaction: Number(data.summary.averageTransaction ?? 0),
+      };
+    }
+
     return {
       totalCollectedAmount,
       fullPaidAmount,
@@ -58,7 +74,7 @@ export const PaymentHistoryReport: React.FC = () => {
           ? Math.round(totalCollectedAmount / filteredReportItems.length)
           : 0,
     };
-  }, [filteredReportItems]);
+  }, [filteredReportItems, data, filters]);
 
   const columns = [
     { key: 'tenantName', header: 'Tenant Name' },

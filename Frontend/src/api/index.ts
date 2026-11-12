@@ -173,7 +173,7 @@ export const api = {
           type: p.type,
           unitsCount: p.units?.length || 0,
           occupiedUnits: p.units?.filter((u: any) => u.status === 'Occupied').length || 0,
-          occupancyRate: p.units?.length ? Math.round((p.units.filter((u: any) => u.status === 'Occupied').length / p.units.length) * 100) : 0,
+          occupancyRate: p.units?.length ? parseFloat(((p.units.filter((u: any) => u.status === 'Occupied').length / p.units.length) * 100).toFixed(1)) : 0,
           monthlyRevenue: p.units?.reduce((sum: number, u: any) => sum + (u.rentAmount || 0), 0) || 0,
           status: p.status,
           ownerId: p.ownerId,
@@ -476,8 +476,11 @@ export const api = {
     getAll: async () => {
       try {
         const res: any = await apiClient.get('/payments');
-        return (res.data || []).map((p: any) => ({
+        return (res.data || [])
+          .filter((p: any) => !(p.referenceNumber && String(p.referenceNumber).toUpperCase().startsWith('REFUND-')))
+          .map((p: any) => ({
           id: p.id,
+          referenceNumber: p.referenceNumber,
           tenantName: p.tenantName || 'Sarah Connor',
           propertyName: p.propertyName || 'Skyline Luxury Lofts',
           unitNumber: p.unitNumber || '304',
@@ -537,6 +540,7 @@ export const api = {
           lastName: t.lastName,
           email: t.email,
           phone: t.phone,
+          imageUrl: t.imageUrl || '',
           unitId: t.unitId,
           preferredName: t.preferredName || '',
           altPhone: t.altPhone || '',
@@ -572,8 +576,10 @@ export const api = {
           unitId: t.unitId || '',
           unitNumber: t.unit?.unitNumber || 'Unassigned',
           unitName: t.unit?.unitNumber || 'Unassigned',
+          unit: t.unit || null,
           propertyId: t.unit?.propertyId || '',
           propertyName: t.unit?.property?.name || 'Unassigned',
+          property: t.unit?.property || null,
           status: t.status || 'Active',
           createdAt: t.createdAt,
           screeningReports: t.screeningReports || [],
@@ -611,7 +617,11 @@ export const api = {
       const formData = new FormData();
       Object.keys(data).forEach((key) => {
         if (data[key] !== undefined && data[key] !== null) {
-          formData.append(key, data[key]);
+          if (typeof data[key] === 'object' && !(data[key] instanceof File) && !(data[key] instanceof Blob)) {
+            formData.append(key, JSON.stringify(data[key]));
+          } else {
+            formData.append(key, data[key]);
+          }
         }
       });
       const res: any = await apiClient.post('/tenants', formData);
@@ -621,7 +631,11 @@ export const api = {
       const formData = new FormData();
       Object.keys(data).forEach((key) => {
         if (data[key] !== undefined && data[key] !== null) {
-          formData.append(key, data[key]);
+          if (typeof data[key] === 'object' && !(data[key] instanceof File) && !(data[key] instanceof Blob)) {
+            formData.append(key, JSON.stringify(data[key]));
+          } else {
+            formData.append(key, data[key]);
+          }
         }
       });
       const res: any = await apiClient.put(`/tenants/${id}`, formData);
@@ -859,19 +873,26 @@ export const api = {
         );
 
         // 1. Units & Occupancy (100% synced with Rent Roll Report)
-        const occupiedUnitsList = units.filter((u: any) => String(u.status || '').toLowerCase() === 'occupied');
+        const occupiedUnitsList = units.filter((u: any) => {
+          const uStatus = String(u.status || '').toLowerCase();
+          const hasActiveLease = leases.some((l: any) => (l.unitId === u.id || l.unit?.id === u.id) && l.status === 'Active');
+          return uStatus === 'occupied' || hasActiveLease;
+        });
         const occupiedUnitsCount = occupiedUnitsList.length;
-        const vacantUnitsCount = units.filter((u: any) => String(u.status || '').toLowerCase() !== 'occupied').length;
+        const vacantUnitsCount = Math.max(0, units.length - occupiedUnitsCount);
         const totalUnitsCount = units.length;
         const computedOccupancyRate = totalUnitsCount > 0
-          ? Math.min(100, Math.round((occupiedUnitsCount / totalUnitsCount) * 100))
+          ? Math.min(100, parseFloat(((occupiedUnitsCount / totalUnitsCount) * 100).toFixed(1)))
           : 0;
 
-        // 2. Monthly Revenue (100% synced with Rent Roll Occupied Rent & Monthly Revenue Matrix)
-        const computedRevenue = occupiedUnitsList.reduce(
-          (sum: number, u: any) => sum + (Number(u.rentAmount) || 0),
-          0
-        );
+        // 2. Monthly Revenue (100% synced with Rent Roll Report & Active Leases)
+        const computedRevenue = occupiedUnitsList.reduce((sum: number, u: any) => {
+          const activeLease = leases.find(
+            (l: any) => (l.unitId === u.id || l.unit?.id === u.id) && l.status === 'Active'
+          );
+          const activeRent = Number(activeLease ? (activeLease.rentAmount ?? u.rentAmount ?? 0) : (u.rentAmount ?? 0));
+          return sum + activeRent;
+        }, 0);
 
         // 3. Pending Rent (100% synced with Delinquency Report — active property, active unit, active tenant unpaid/partial invoices + late fees)
         const activeTenantsList = tenants.filter(
@@ -1164,47 +1185,8 @@ export const api = {
           return true;
         });
 
-        // Retrieve real recorded expenses and tenant payments for real live balances
-        let realRentIncome = 0;
-        let realExpenses = 0;
-
-        try {
-          const payRes: any = await apiClient.get('/payments');
-          const paidPayments = (payRes.data || []).filter((p: any) => p.status === 'Paid' || !p.status);
-          realRentIncome = paidPayments.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
-        } catch {}
-
-        try {
-          const expRes: any = await apiClient.get('/portal/expenses');
-          const exps = expRes.data || [];
-          realExpenses = exps.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
-        } catch {}
-
-        // Only Income & Expense accounts in Chart of Accounts as requested
-        const STANDARD_COA: Array<{
-          id: string;
-          accountNumber: string;
-          accountName: string;
-          accountType: 'Income' | 'Expenses';
-          balance: number;
-          status: string;
-        }> = [
-          { id: 'coa-std-4010', accountNumber: '4010', accountName: 'Rental Revenue Income', accountType: 'Income', balance: realRentIncome, status: 'Active' },
-          { id: 'coa-std-4020', accountNumber: '4020', accountName: 'Late Fee & Penalty Income', accountType: 'Income', balance: 0, status: 'Active' },
-          { id: 'coa-std-5010', accountNumber: '5010', accountName: 'Maintenance & Repair Expense', accountType: 'Expenses', balance: realExpenses, status: 'Active' },
-          { id: 'coa-std-5020', accountNumber: '5020', accountName: 'Property Insurance Expense', accountType: 'Expenses', balance: 0, status: 'Active' },
-          { id: 'coa-std-5030', accountNumber: '5030', accountName: 'Management & Administrative Fee', accountType: 'Expenses', balance: 0, status: 'Active' },
-        ];
-
-        // Merge DB custom accounts and standard accounts cleanly
+        // Only return real accounts created in database for this manager/company
         const finalAccountsMap = new Map<string, any>();
-
-        // Add standard accounts that aren't deleted
-        STANDARD_COA.forEach((std) => {
-          if (!deletedCoaIds.includes(std.id) && !deletedCoaIds.includes(std.accountNumber)) {
-            finalAccountsMap.set(std.accountNumber, { ...std });
-          }
-        });
 
         // Overlay with database custom accounts (strictly Income & Expenses)
         cleanDbAccounts.forEach((a: any) => {
@@ -1369,13 +1351,23 @@ export const api = {
   invoices: {
     getAll: async () => {
       try {
-        const [res, payRes]: any[] = await Promise.all([
+        const [res, payRes, propsRes, tenantsRes]: any[] = await Promise.all([
           apiClient.get('/invoices'),
           apiClient.get('/payments').catch(() => ({ data: [] })),
+          api.property.getAll().catch(() => []),
+          api.tenant.getAll().catch(() => []),
         ]);
         const softDeletedIds = getSoftDeletedIds('Invoice');
         const softDeletedPropIds = getSoftDeletedIds('Property');
         const softDeletedPayIds = getSoftDeletedIds('Payment');
+
+        const properties = Array.isArray(propsRes) ? propsRes : [];
+        const tenants = Array.isArray(tenantsRes) ? tenantsRes : [];
+
+        if (properties.length === 0) return [];
+
+        const activePropIds = new Set(properties.map((p: any) => p.id));
+        const activeTenantIds = new Set(tenants.map((t: any) => t.id));
 
         const rawPayments = (Array.isArray(payRes?.data) ? payRes.data : Array.isArray(payRes) ? payRes : []).filter(
           (p: any) => p && !softDeletedPayIds.includes(p.id)
@@ -1384,6 +1376,7 @@ export const api = {
         return (res.data || [])
           .filter((i: any) => !softDeletedIds.includes(i.id))
           .filter((i: any) => !softDeletedPropIds.includes(i.propertyId))
+          .filter((i: any) => activePropIds.has(i.propertyId) && (!i.tenantId || activeTenantIds.has(i.tenantId)))
           .map((i: any) => {
             const invAmount = Number(i.amount || 0);
             let invPaidAmount = Number(i.paidAmount || 0);
@@ -1785,16 +1778,7 @@ export const api = {
         return res.data || res;
       } catch (e) {
         return {
-          recommendedVendor: {
-            vendorId: 'v-1',
-            vendorName: 'Apex Pro Plumbing & Maintenance Co.',
-            contactName: 'Robert Vance',
-            phone: '555-0199',
-            rating: 4.9,
-            matchScore: 98,
-            suggestedTechnician: 'Robert Vance (Lead Specialist)',
-            reasoning: 'ProFix Solutions is a top-rated licensed contractor for this issue type.',
-          },
+          recommendedVendor: null,
         };
       }
     },
@@ -2172,19 +2156,31 @@ export const api = {
     ...mockApi.payments,
     getAll: async () => {
       try {
-        const res: any = await apiClient.get('/payments');
-        const isDemo = isDemoManager();
+        const [res, propsRes, tenantsRes]: any[] = await Promise.all([
+          apiClient.get('/payments'),
+          api.property.getAll().catch(() => []),
+          api.tenant.getAll().catch(() => []),
+        ]);
         const userCompanyId = getActiveCompanyId();
         const softDeletedIds = getSoftDeletedIds('Payment');
+
+        const properties = Array.isArray(propsRes) ? propsRes : [];
+        const tenants = Array.isArray(tenantsRes) ? tenantsRes : [];
+
+        if (properties.length === 0) return [];
+
+        const activePropIds = new Set(properties.map((p: any) => p.id));
+        const activeTenantIds = new Set(tenants.map((t: any) => t.id));
 
         const filtered = (res.data || [])
           .filter((p: any) => !softDeletedIds.includes(p.id))
           .filter((p: any) => {
-          if (userCompanyId && p.companyId && p.companyId !== userCompanyId) return false;
-          const pName = p.property?.name || p.propertyName || '';
-          if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(pName) && !p.propertyId) return false;
-          return true;
-        });
+            if (userCompanyId && p.companyId && p.companyId !== userCompanyId) return false;
+            const belongsToProp = (p.propertyId && activePropIds.has(p.propertyId)) || (p.unit && activePropIds.has(p.unit.propertyId));
+            if (!belongsToProp) return false;
+            if (p.tenantId && !activeTenantIds.has(p.tenantId)) return false;
+            return true;
+          });
 
         filtered.sort((a: any, b: any) => {
           const dateA = new Date(a.paidDate || a.createdAt || 0).getTime();
@@ -2274,10 +2270,12 @@ export const api = {
   rentLedger: {
     getAll: async () => {
       try {
-        const [invoicesRes, paymentsRes, unitsRes] = await Promise.all([
+        const [invoicesRes, paymentsRes, unitsRes, propertiesRes, tenantsRes] = await Promise.all([
           apiClient.get('/invoices').catch(() => null),
           apiClient.get('/payments').catch(() => null),
           apiClient.get('/units').catch(() => null),
+          api.property.getAll().catch(() => []),
+          api.tenant.getAll().catch(() => []),
         ]);
 
         const softDeletedInvIds = getSoftDeletedIds('Invoice');
@@ -2285,6 +2283,16 @@ export const api = {
         const softDeletedPropIds = getSoftDeletedIds('Property');
         const softDeletedUnitIds = getSoftDeletedIds('Unit');
         const softDeletedTenantIds = getSoftDeletedIds('Tenant');
+
+        const properties = Array.isArray(propertiesRes) ? propertiesRes : [];
+        const tenants = Array.isArray(tenantsRes) ? tenantsRes : [];
+
+        if (properties.length === 0) {
+          return [];
+        }
+
+        const activePropIds = new Set(properties.map((p: any) => p.id));
+        const activeTenantIds = new Set(tenants.map((t: any) => t.id));
 
         const rawInvoices = Array.isArray(invoicesRes) ? invoicesRes : ((invoicesRes as any)?.data || []);
         const rawPayments = Array.isArray(paymentsRes) ? paymentsRes : ((paymentsRes as any)?.data || []);
@@ -2296,7 +2304,10 @@ export const api = {
             !softDeletedInvIds.includes(inv.id) &&
             !softDeletedPropIds.includes(inv.propertyId) &&
             !softDeletedUnitIds.includes(inv.unitId) &&
-            !softDeletedTenantIds.includes(inv.tenantId)
+            !softDeletedTenantIds.includes(inv.tenantId) &&
+            activePropIds.has(inv.propertyId) &&
+            inv.tenantId &&
+            activeTenantIds.has(inv.tenantId)
         );
         const paymentsList = rawPayments.filter(
           (pay: any) =>
@@ -2304,7 +2315,11 @@ export const api = {
             !softDeletedPayIds.includes(pay.id) &&
             !softDeletedPropIds.includes(pay.propertyId) &&
             !softDeletedUnitIds.includes(pay.unitId) &&
-            !softDeletedTenantIds.includes(pay.tenantId)
+            !softDeletedTenantIds.includes(pay.tenantId) &&
+            (activePropIds.has(pay.propertyId) || (pay.unit && activePropIds.has(pay.unit.propertyId))) &&
+            pay.tenantId &&
+            activeTenantIds.has(pay.tenantId) &&
+            !(pay.referenceNumber && String(pay.referenceNumber).toUpperCase().startsWith('REFUND-'))
         );
 
         // Per-tenant running balance map (fixes the global $131k+ bug)
@@ -3392,55 +3407,84 @@ export const api = {
         return list.map((p: any) => {
           const rawUnits = p.units || [];
           const totalUnitsCount = rawUnits.length > 0 ? rawUnits.length : (p.unitsCount || 0);
-          const occupiedCount = rawUnits.filter((u: any) => 
-            (u.status || '').toLowerCase() === 'occupied'
-          ).length;
-          const vacantCount = Math.max(0, totalUnitsCount - occupiedCount);
-          const computedOccupancyRate = totalUnitsCount > 0 
-            ? Math.round((occupiedCount / totalUnitsCount) * 100) 
-            : (p.occupancyRate || 0);
 
-          const calculatedRent = rawUnits.reduce((sum: number, u: any) => sum + Number(u.rentAmount || 0), 0);
-          const monthlyRent = calculatedRent > 0 
-            ? calculatedRent 
-            : Number(p.monthlyRevenue || 0);
+          const mappedUnits = rawUnits.map((u: any) => {
+            const activeLease = (u.leases || []).find((l: any) => 
+              l.status === 'Active' || l.status === 'Pending_Move_In' || l.status === 'Pending'
+            ) || (u.leases || [])[0];
+            const matchedTenant = (u.tenants || [])[0] || activeLease?.tenant;
+            const rent = Number(activeLease?.rentAmount ?? u.rentAmount ?? 0);
+            const dep = Number(activeLease?.depositAmount ?? activeLease?.deposit ?? activeLease?.securityDeposit ?? u.securityDeposit ?? 0);
+            const residentName = matchedTenant 
+              ? `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim() 
+              : (activeLease?.tenantName || (u.tenants?.length ? `${u.tenants[0].firstName} ${u.tenants[0].lastName}`.trim() : u.tenantName) || '');
+            const isOcc = (u.status || '').toLowerCase() === 'occupied' || !!activeLease || !!matchedTenant;
 
-          return {
-            id: p.id,
-            name: p.name,
-            address: p.address || (p.streetAddress ? `${p.streetAddress}, ${p.city || ''}, ${p.state || ''} ${p.zip || ''}`.trim() : `${p.city || 'Austin'}, ${p.state || 'TX'}`),
-            streetAddress: p.streetAddress || '',
-            city: p.city || '',
-            state: p.state || '',
-            zip: p.zip || '',
-            country: p.country || 'USA',
-            type: p.type || 'Commercial',
-            status: p.status || 'Active',
-            squareFootage: p.squareFootage || 0,
-            yearBuilt: p.yearBuilt || null,
-            purchasePrice: p.purchasePrice || 0,
-            currentValue: p.currentValue || 0,
-            ownershipPercentage: p.ownershipPercentage || 100,
-            managementCompany: p.managementCompany || localStorage.getItem('company_name') || 'Divine Properties',
-            totalBuildings: p.buildings?.length || p.totalBuildings || 1,
-            buildings: p.buildings || [],
-            unitsCount: totalUnitsCount,
-            occupiedUnits: occupiedCount,
-            vacantUnits: vacantCount,
-            occupancyRate: computedOccupancyRate,
-            monthlyRent: monthlyRent,
-            units: rawUnits.map((u: any) => ({
+            return {
               id: u.id,
               unitNumber: u.unitNumber || u.name || `Unit ${u.id?.slice(0, 4)}`,
               floor: u.floor || 1,
               bedrooms: u.bedrooms || 1,
               bathrooms: u.bathrooms || 1,
               squareFootage: u.squareFootage || 0,
-              rentAmount: Number(u.rentAmount || 0),
-              securityDeposit: Number(u.securityDeposit || 0),
-              status: u.status || 'Vacant',
-              tenantName: u.tenants?.length ? `${u.tenants[0].firstName} ${u.tenants[0].lastName}` : (u.tenantName || 'Vacant'),
-            })),
+              rentAmount: rent,
+              securityDeposit: dep,
+              status: isOcc ? 'Occupied' : 'Vacant',
+              tenantName: isOcc ? (residentName || 'Resident') : '',
+              tenants: u.tenants || [],
+              leases: u.leases || [],
+            };
+          });
+
+          const occupiedCount = mappedUnits.filter((u: any) => u.status === 'Occupied').length;
+          const vacantCount = Math.max(0, totalUnitsCount - occupiedCount);
+          const computedOccupancyRate = totalUnitsCount > 0 
+            ? parseFloat(((occupiedCount / totalUnitsCount) * 100).toFixed(1)) 
+            : (p.occupancyRate || 0);
+
+          const calculatedRent = mappedUnits
+            .filter((u: any) => u.status === 'Occupied')
+            .reduce((sum: number, u: any) => sum + Number(u.rentAmount || 0), 0);
+          const monthlyRent = calculatedRent > 0 
+            ? calculatedRent 
+            : Number(p.monthlyRevenue || 0);
+
+          const rawAddress = p.address || '';
+          const cleanAddress = rawAddress && rawAddress !== 'Property Address'
+            ? rawAddress.replace(/\s*,\s*,/g, ', ').replace(/,\s*$/, '').trim()
+            : (p.streetAddress ? [p.streetAddress, p.city, p.state, p.zip].filter(Boolean).join(', ') : 'N/A');
+
+          return {
+            id: p.id,
+            name: p.name,
+            address: cleanAddress || 'N/A',
+            streetAddress: p.streetAddress || '',
+            city: p.city || '',
+            state: p.state || '',
+            zip: p.zip || '',
+            country: p.country || 'USA',
+            type: p.type || 'N/A',
+            status: p.status || 'Active',
+            squareFootage: p.squareFootage || 0,
+            yearBuilt: p.yearBuilt || null,
+            purchasePrice: p.purchasePrice && p.purchasePrice !== 1000000 ? p.purchasePrice : 0,
+            currentValue: p.currentValue && p.currentValue !== 1200000 ? p.currentValue : 0,
+            ownershipPercentage: p.ownershipPercentage || 100,
+            managementCompany: (p.managementCompany && !p.managementCompany.includes('Apex')) ? p.managementCompany : (localStorage.getItem('company_name') || 'N/A'),
+            totalBuildings: p.buildings?.length || p.totalBuildings || 1,
+            totalFloors: p.buildings?.[0]?.floors || p.totalFloors || p.floors || 1,
+            totalUnits: p.buildings?.[0]?.unitsCount || p.totalUnits || p.unitsCount || totalUnitsCount,
+            buildings: p.buildings || [],
+            unitsCount: totalUnitsCount,
+            occupiedUnits: occupiedCount,
+            vacantUnits: vacantCount,
+            occupancyRate: computedOccupancyRate,
+            monthlyRevenue: p.monthlyRevenue || 0,
+            monthlyExpenses: p.monthlyExpenses || 0,
+            monthlyRent: monthlyRent,
+            imageUrl: p.imageUrl || null,
+            nycBin: p.nycBin || p.bin || '',
+            units: mappedUnits,
             owner: p.owner || null,
             createdAt: p.createdAt ? p.createdAt.split('T')[0] : '',
           };
@@ -3650,24 +3694,10 @@ export const api = {
     get: async () => {
       try {
         const res: any = await apiClient.get('/portal/tenant/profile');
-        return res.data || {
-          firstName: 'Alex',
-          lastName: 'Mercer',
-          email: 'alex.m@residence.com',
-          phone: '(555) 234-5678',
-          unitNumber: 'Unit 402',
-          emergencyContact: 'Sarah Mercer (555-987-6543)',
-        };
+        return res.data || null;
       } catch (e) {
         console.error('Tenant profile fetch failed:', e);
-        return {
-          firstName: 'Alex',
-          lastName: 'Mercer',
-          email: 'alex.m@residence.com',
-          phone: '(555) 234-5678',
-          unitNumber: 'Unit 402',
-          emergencyContact: 'Sarah Mercer (555-987-6543)',
-        };
+        return null;
       }
     },
     update: async (data: any) => {
@@ -4268,6 +4298,13 @@ export const api = {
     softDelete: softDeleteToBin,
 
     restore: async (id: string, entityType?: string, entityId?: string) => {
+      // Unmark from soft-deleted filter so it immediately becomes visible
+      if (entityType && entityId) {
+        unmarkSoftDeletedId(entityType, entityId);
+      }
+      if (entityType && id) {
+        unmarkSoftDeletedId(entityType, id);
+      }
       // Direct Database API restore
       try {
         const res: any = await apiClient.post(`/restore-bin/${id}/restore`, {
@@ -4282,6 +4319,12 @@ export const api = {
     },
 
     permanentDelete: async (id: string, entityType?: string, entityId?: string) => {
+      if (entityType && entityId) {
+        unmarkSoftDeletedId(entityType, entityId);
+      }
+      if (entityType && id) {
+        unmarkSoftDeletedId(entityType, id);
+      }
       // Direct Database API permanent delete
       try {
         const res: any = await apiClient.delete(`/restore-bin/${id}`);
@@ -4293,6 +4336,9 @@ export const api = {
     },
 
     emptyBin: async () => {
+      try {
+        localStorage.removeItem(RESTORE_BIN_IDS_KEY);
+      } catch {}
       // Direct Database API empty bin
       try {
         const res: any = await apiClient.delete('/restore-bin/actions/empty');

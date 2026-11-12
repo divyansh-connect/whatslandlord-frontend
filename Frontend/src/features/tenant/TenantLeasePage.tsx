@@ -87,6 +87,25 @@ export const TenantLeasePage: React.FC = () => {
     return d.toISOString().split('T')[0];
   }, [leases, selectedTermMonths]);
 
+  const nextDueDate = React.useMemo(() => {
+    const rawLease = leases && leases.length > 0 ? leases[0] : null;
+    if (rawLease?.status !== 'Active') return 'On Move-In';
+    const now = new Date();
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return nextMonth.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }, [leases]);
+
+  const leaseDurationText = React.useMemo(() => {
+    const rawLease = leases && leases.length > 0 ? leases[0] : null;
+    const startStr = rawLease?.startDate || rawLease?.leaseStart;
+    const endStr = rawLease?.endDate || rawLease?.leaseEnd;
+    if (!startStr || !endStr) return '12 Months';
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    const diffMonths = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.4375));
+    return diffMonths > 0 ? `${diffMonths} Months` : '12 Months';
+  }, [leases]);
+
   if (isLoading) {
     return <LoadingSkeleton type="card" />;
   }
@@ -354,13 +373,11 @@ export const TenantLeasePage: React.FC = () => {
               </div>
               <div className="space-y-1 bg-secondary/20 p-3 rounded-xl border border-border/40">
                 <span className="text-[10px] text-muted-foreground uppercase">Lease Duration</span>
-                <p className="font-extrabold text-sm text-foreground/80 mt-1">12 Months</p>
+                <p className="font-extrabold text-sm text-foreground/80 mt-1">{leaseDurationText}</p>
               </div>
               <div className="space-y-1 bg-secondary/20 p-3 rounded-xl border border-border/40">
                 <span className="text-[10px] text-muted-foreground uppercase">Next Due Date</span>
-                <p className="font-extrabold text-sm text-foreground/80 mt-1">
-                  {lease.status === 'Active' ? 'Aug 1, 2026' : 'On Move-In'}
-                </p>
+                <p className="font-extrabold text-sm text-foreground/80 mt-1">{nextDueDate}</p>
               </div>
             </div>
           </Card>
@@ -407,18 +424,21 @@ export const TenantLeasePage: React.FC = () => {
                 <div className="space-y-2 text-xs">
                   <div className="flex items-start space-x-2">
                     <MapPin className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                    <span className="text-muted-foreground">
+                    <span className="text-muted-foreground font-medium">
                       <strong className="text-foreground">{property.streetAddress || property.address || '—'}</strong>
-                      <br />
-                      {property.city ? `${property.city}, ${property.state || ''} ${property.zip || ''}` : ''}
-                      {property.country ? `, ${property.country}` : ''}
+                      {(property.city || property.state || property.zip) && (
+                        <>
+                          <br />
+                          {[property.city, property.state, property.zip].filter(Boolean).join(', ')}
+                        </>
+                      )}
                     </span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <Info className="w-4 h-4 text-primary shrink-0" />
                     <span className="text-muted-foreground">Type: <strong className="text-foreground">{property.type || '—'}</strong></span>
                   </div>
-                  {property.yearBuilt && (
+                  {property.yearBuilt && property.yearBuilt !== 2020 && (
                     <div className="flex items-center space-x-2">
                       <Info className="w-4 h-4 text-primary shrink-0" />
                       <span className="text-muted-foreground">Year Built: <strong className="text-foreground">{property.yearBuilt}</strong></span>
@@ -560,12 +580,14 @@ export const TenantLeasePage: React.FC = () => {
                 </div>
               )}
 
-              {property.managementCompany && (
-                <div className="space-y-1 pt-2 border-t">
-                  <span className="text-[10px] text-muted-foreground uppercase">Management Company</span>
-                  <p className="font-bold text-foreground text-sm">{property.managementCompany}</p>
-                </div>
-              )}
+              <div className="space-y-1 pt-2 border-t">
+                <span className="text-[10px] text-muted-foreground uppercase">Management Company</span>
+                <p className="font-bold text-foreground text-sm">
+                  {property.managementCompany && !property.managementCompany.includes('Apex')
+                    ? property.managementCompany
+                    : (property.company?.name || 'Divine')}
+                </p>
+              </div>
             </div>
           </Card>
 
@@ -595,7 +617,8 @@ export const TenantLeasePage: React.FC = () => {
             </div>
           </Card>
 
-          {/* Lease Actions & Document downloads */}
+          {/* Lease Actions & Document downloads - Hidden per user request */}
+          {/* 
           <Card className="p-6 border bg-card space-y-4">
             <div className="flex items-center space-x-2 border-b pb-2">
               <Award className="w-4.5 h-4.5 text-primary shrink-0" />
@@ -621,6 +644,7 @@ export const TenantLeasePage: React.FC = () => {
               </Button>
             </div>
           </Card>
+          */}
 
         </div>
 

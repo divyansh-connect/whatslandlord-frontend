@@ -55,6 +55,7 @@ export const EditPropertyPage: React.FC<{ propertyId?: string }> = ({ propertyId
 
   const [photos, setPhotos] = useState<string[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [docFile, setDocFile] = useState<File | null>(null);
   const [success, setSuccess] = useState(false);
   const [loadingProperty, setLoadingProperty] = useState(true);
   const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
@@ -144,8 +145,24 @@ export const EditPropertyPage: React.FC<{ propertyId?: string }> = ({ propertyId
     mutationFn: (values: any) => {
       return api.property.update(propertyId, values);
     },
-    onSuccess: () => {
+    onSuccess: async (updatedProperty: any) => {
+      if (docFile && propertyId) {
+        try {
+          const formData = new FormData();
+          formData.append('file', docFile);
+          formData.append('name', docFile.name);
+          formData.append('category', 'Property Document');
+          formData.append('propertyId', propertyId);
+          if (updatedProperty?.ownerId) {
+            formData.append('ownerId', updatedProperty.ownerId);
+          }
+          await api.documents.uploadOwnerDoc(formData);
+        } catch (docErr) {
+          console.warn('Property document upload skipped/failed:', docErr);
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ['properties'] });
+      queryClient.invalidateQueries({ queryKey: ['docs-all'] });
       setSuccess(true);
       setTimeout(() => navigate({ to: '/properties' }), 2000);
     },
@@ -633,15 +650,17 @@ export const EditPropertyPage: React.FC<{ propertyId?: string }> = ({ propertyId
                     onFileSelect={(file) => setImageFile(file)}
                   />
                 </div>
-                <div className="space-y-1 opacity-80">
+                <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-muted-foreground uppercase">Property Documents</label>
-                    <span className="text-[10px] font-bold text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">❌ Not Connected</span>
+                    <label className="text-xs font-bold text-muted-foreground uppercase">Property Documents <span className="text-muted-foreground font-normal">(Max 10MB)</span></label>
+                    <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Optional</span>
                   </div>
-                  <div className="pointer-events-none opacity-60">
-                    <FileUploader />
-                  </div>
-                  <p className="text-[11px] text-muted-foreground italic">Property document uploading is managed under the Documents section.</p>
+                  <FileUploader
+                    accept=".pdf,.docx,.doc,.png,.jpg,.jpeg"
+                    maxSizeMB={10}
+                    onFileSelect={(file) => setDocFile(file)}
+                  />
+                  <p className="text-[11px] text-muted-foreground italic">Upload deed, agreement, or floor plan for this property.</p>
                 </div>
               </div>
             </div>

@@ -241,15 +241,10 @@ export const RentLedgerPage: React.FC = () => {
               variant="ghost"
               size="icon"
               onClick={() => {
-                if (item.tenantId) {
+                if (item.tenantId && tenants.some((t: any) => t.id === item.tenantId)) {
                   setSelectedTenantId(item.tenantId);
                 } else if (tenantObj) {
                   setSelectedTenantId(tenantObj.id);
-                } else {
-                  const firstTenant = tenants[0];
-                  if (firstTenant) {
-                    setSelectedTenantId(firstTenant.id);
-                  }
                 }
               }}
               className="h-8 w-8 text-muted-foreground hover:text-primary cursor-pointer"

@@ -1243,20 +1243,15 @@ const buildPaymentHistoryFallback = async (params: any = {}): Promise<ReportResp
 
 export const reportApi = {
   getRentRoll: async (params: any): Promise<ReportResponse<RentRollItem>> => {
-    const cleanData = await buildRentRollFallback(params);
-    if (cleanData.data.length > 0 || hasHealedOrphanLeases) {
-      return cleanData;
-    }
     try {
       const res: any = await apiClient.get(`/reports/rent-roll${buildQuery(params)}`);
       if (res && Array.isArray(res.data)) {
         return res;
       }
-      return cleanData;
     } catch (err) {
-      console.warn('Rent roll endpoint failed, using units/tenants fallback:', err);
-      return cleanData;
+      console.warn('Rent roll endpoint failed, trying fallback:', err);
     }
+    return await buildRentRollFallback(params);
   },
 
   getOccupancy: async (params: any): Promise<ReportResponse<OccupancyItem>> => {
@@ -1266,22 +1261,26 @@ export const reportApi = {
 
   getDelinquency: async (params: any): Promise<ReportResponse<DelinquencyItem>> => {
     try {
-      return await buildDelinquencyFallback(params);
-    } catch (err) {
-      console.warn('Delinquency calculation fallback error, trying direct endpoint:', err);
       const res: any = await apiClient.get(`/reports/delinquency${buildQuery(params)}`);
-      return res;
+      if (res && Array.isArray(res.data)) {
+        return res;
+      }
+    } catch (err) {
+      console.warn('Delinquency endpoint failed, trying fallback:', err);
     }
+    return await buildDelinquencyFallback(params);
   },
 
   getProfitLoss: async (params: any): Promise<{ data: ProfitLossData }> => {
     try {
-      return await buildProfitLossFallback(params);
-    } catch (err) {
-      console.warn('Profit & Loss calculation fallback error, trying direct endpoint:', err);
       const res: any = await apiClient.get(`/reports/profit-loss${buildQuery(params)}`);
-      return res;
+      if (res && (res.data || res.summary)) {
+        return res;
+      }
+    } catch (err) {
+      console.warn('Profit & Loss endpoint failed, trying fallback:', err);
     }
+    return await buildProfitLossFallback(params);
   },
 
   getMaintenance: async (params: any): Promise<ReportResponse<MaintenanceItem>> => {
@@ -1291,12 +1290,14 @@ export const reportApi = {
 
   getPaymentHistory: async (params: any): Promise<ReportResponse<PaymentHistoryItem>> => {
     try {
-      return await buildPaymentHistoryFallback(params);
-    } catch (err) {
-      console.warn('Payment History calculation fallback error, trying direct endpoint:', err);
       const res: any = await apiClient.get(`/reports/payment-history${buildQuery(params)}`);
-      return res;
+      if (res && Array.isArray(res.data)) {
+        return res;
+      }
+    } catch (err) {
+      console.warn('Payment History endpoint failed, trying fallback:', err);
     }
+    return await buildPaymentHistoryFallback(params);
   },
 
   getExports: async (params: any): Promise<ReportResponse<ExportHistoryItem>> => {

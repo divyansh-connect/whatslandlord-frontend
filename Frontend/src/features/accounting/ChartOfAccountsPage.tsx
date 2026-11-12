@@ -33,7 +33,82 @@ export const ChartOfAccountsPage: React.FC = () => {
   const [openingBalance, setOpeningBalance] = useState(0);
 
   // Queries
-  const { data: accounts = [], isLoading } = useQuery({ queryKey: ['coa-accounts-list'], queryFn: () => api.accounts.getAll() });
+  const { data: dbAccounts = [], isLoading: isCoaLoading } = useQuery({ queryKey: ['coa-accounts-list'], queryFn: () => api.accounts.getAll() });
+  const { data: expenses = [], isLoading: isExpLoading } = useQuery({ queryKey: ['expenses-list'], queryFn: () => api.expenses.getAll() });
+  const { data: income = [], isLoading: isIncLoading } = useQuery({ queryKey: ['income-list'], queryFn: () => api.income.getAll() });
+  const { data: invoices = [], isLoading: isInvLoading } = useQuery({ queryKey: ['invoices'], queryFn: () => api.invoices.getAll() });
+
+  const isLoading = isCoaLoading || isExpLoading || isIncLoading || isInvLoading;
+
+  // Synthesize Live Chart of Accounts combining DB ledger accounts with real GET income and expense data
+  const accounts: CoAAccount[] = React.useMemo(() => {
+    const list: CoAAccount[] = [...dbAccounts];
+    const existingNumbers = new Set(list.map((a: any) => String(a.accountNumber)));
+
+    // 1. Process Income from api.income.getAll()
+    const incomeByCategory: { [cat: string]: number } = {};
+    (income || []).forEach((inc: any) => {
+      const rawCat = (inc.category || 'Rental Income').trim();
+      const cat = rawCat.charAt(0).toUpperCase() + rawCat.slice(1);
+      const amt = Number(inc.amount) || 0;
+      incomeByCategory[cat] = (incomeByCategory[cat] || 0) + amt;
+    });
+
+    // If no explicit portal income recorded, synthesize from invoices
+    if (Object.keys(incomeByCategory).length === 0 && (invoices || []).length > 0) {
+      const invTotal = (invoices || []).reduce((sum: number, inv: any) => sum + (Number(inv.amount) || 0), 0);
+      if (invTotal > 0) {
+        incomeByCategory['Rental Income'] = invTotal;
+      }
+    }
+
+    let incCodeBase = 4100;
+    Object.entries(incomeByCategory).forEach(([category, balance]) => {
+      const accNum = String(incCodeBase);
+      incCodeBase += 10;
+      if (!existingNumbers.has(accNum)) {
+        list.push({
+          id: `inc-${category}`,
+          accountNumber: accNum,
+          accountName: category.toLowerCase().includes('income') || category.toLowerCase().includes('revenue') ? category : `${category} Income`,
+          accountType: 'Income',
+          balance: balance,
+          currency: 'USD',
+          status: 'Active',
+          description: `Live income tracking for ${category}`,
+        });
+      }
+    });
+
+    // 2. Process Expenses from api.expenses.getAll()
+    const expenseByCategory: { [cat: string]: number } = {};
+    (expenses || []).forEach((exp: any) => {
+      const rawCat = (exp.category || 'Maintenance').trim();
+      const cat = rawCat.charAt(0).toUpperCase() + rawCat.slice(1);
+      const amt = Number(exp.amount) || 0;
+      expenseByCategory[cat] = (expenseByCategory[cat] || 0) + amt;
+    });
+
+    let expCodeBase = 5100;
+    Object.entries(expenseByCategory).forEach(([category, balance]) => {
+      const accNum = String(expCodeBase);
+      expCodeBase += 10;
+      if (!existingNumbers.has(accNum)) {
+        list.push({
+          id: `exp-${category}`,
+          accountNumber: accNum,
+          accountName: category.toLowerCase().includes('expense') ? category : `${category} Expense`,
+          accountType: 'Expenses',
+          balance: balance,
+          currency: 'USD',
+          status: 'Active',
+          description: `Live expense tracking for ${category}`,
+        });
+      }
+    });
+
+    return list;
+  }, [dbAccounts, expenses, income, invoices]);
 
   const createMutation = useMutation({
     mutationFn: () => {
@@ -99,11 +174,17 @@ export const ChartOfAccountsPage: React.FC = () => {
     {
       id: 'actions',
       header: t('pmCoa.actions'),
-      cell: ({ row }) => (
-        <Button variant="ghost" size="icon" onClick={() => setDeleteId(row.original.id)} className="text-muted-foreground hover:text-destructive hover:bg-destructive/10">
-          <Trash2 className="w-4 h-4" />
-        </Button>
-      ),
+      cell: ({ row }) => {
+        const isSystem = String(row.original.id || '').startsWith('inc-') || String(row.original.id || '').startsWith('exp-');
+        if (isSystem) {
+          return <span className="text-[11px] font-semibold text-muted-foreground uppercase px-2 py-0.5 bg-muted/60 rounded">Live Feed</span>;
+        }
+        return (
+          <Button variant="ghost" size="icon" onClick={() => setDeleteId(row.original.id)} className="text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        );
+      },
     },
   ];
 
@@ -117,11 +198,7 @@ export const ChartOfAccountsPage: React.FC = () => {
           { label: t('nav.accounting'), href: '/accounting' },
           { label: t('pmCoa.title') },
         ]}
-        action={{
-          label: t('pmCoa.addAccount', 'Create Ledger Account'),
-          onClick: () => setIsOpen(true),
-          icon: <Plus className="w-4.5 h-4.5" />,
-        }}
+        /* "+ Create Ledger Account" button hidden per user request */
       />
 
       <FilterBar

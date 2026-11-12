@@ -2282,15 +2282,15 @@ const NewCompanyPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className="text-[10px] font-extrabold uppercase text-muted-foreground">{t('newCompanyPage.companyName')}</label>
-            <input name="companyName" required placeholder="Apex Property Management" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary focus:ring-1 focus:ring-primary focus:outline-none" />
+            <input name="companyName" required placeholder="Enter company name" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary focus:ring-1 focus:ring-primary focus:outline-none" />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-extrabold uppercase text-muted-foreground">{t('newCompanyPage.businessName')}</label>
-            <input name="businessName" placeholder="Apex PM LLC" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary focus:ring-1 focus:ring-primary focus:outline-none" />
+            <input name="businessName" placeholder="Enter business name" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary focus:ring-1 focus:ring-primary focus:outline-none" />
           </div>
           <div className="space-y-1">
-            <label className="text-[10px] font-extrabold uppercase text-muted-foreground">{t('newCompanyPage.companyCode')}</label>
-            <input name="companyCode" required maxLength={5} placeholder="APEX" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary uppercase focus:ring-1 focus:ring-primary focus:outline-none" />
+            <label className="text-[10px] font-extrabold uppercase text-muted-foreground">{t('newCompanyCode') || 'Company Code'}</label>
+            <input name="companyCode" required maxLength={5} placeholder="CODE" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary uppercase focus:ring-1 focus:ring-primary focus:outline-none" />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-extrabold uppercase text-muted-foreground">{t('newCompanyPage.contactPerson')}</label>
@@ -2435,11 +2435,11 @@ const EditCompanyPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className="text-[10px] font-extrabold uppercase text-muted-foreground">{t('newCompanyPage.companyName')}</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Apex Property Management" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary focus:ring-1 focus:ring-primary focus:outline-none" />
+            <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Enter company name" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary focus:ring-1 focus:ring-primary focus:outline-none" />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-extrabold uppercase text-muted-foreground">{t('newCompanyPage.businessName')}</label>
-            <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Apex PM LLC" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary focus:ring-1 focus:ring-primary focus:outline-none" />
+            <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Enter business name" className="w-full text-xs font-semibold p-2.5 rounded-lg border bg-secondary focus:ring-1 focus:ring-primary focus:outline-none" />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-extrabold uppercase text-muted-foreground">{t('newCompanyPage.companyCode')}</label>

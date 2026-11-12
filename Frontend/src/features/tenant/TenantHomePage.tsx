@@ -2,8 +2,15 @@ import React from 'react';
 import { PageHeader } from '../../components/PageHeader';
 import { Card } from '../../components/ui/Card';
 import { Home, Compass, Key, ParkingMeter, Clock } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../../api';
 
 export const TenantHomePage: React.FC = () => {
+  const { data: profile } = useQuery({
+    queryKey: ['tenant-profile'],
+    queryFn: () => api.tenantProfile.get(),
+  });
+
   return (
     <div className="space-y-6 text-foreground max-w-4xl">
       <PageHeader
@@ -22,8 +29,10 @@ export const TenantHomePage: React.FC = () => {
           <div className="flex items-center space-x-3 border-b pb-4">
             <Home className="w-7 h-7 text-primary shrink-0" />
             <div>
-              <h3 className="font-extrabold text-sm uppercase">Skyline Luxury Lofts</h3>
-              <p className="text-xs text-muted-foreground mt-0.5 font-bold">Unit 304 • Floor 3</p>
+              <h3 className="font-extrabold text-sm uppercase">{profile?.propertyName || profile?.property || 'Assigned Residence'}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5 font-bold">
+                {profile?.unitNumber ? `Unit ${profile.unitNumber}` : 'Current Lease'} {profile?.floor ? `• Floor ${profile.floor}` : ''}
+              </p>
             </div>
           </div>
 

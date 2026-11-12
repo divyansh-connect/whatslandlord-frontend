@@ -26,6 +26,20 @@ export const DelinquencyReport: React.FC = () => {
   const filteredReportItems = useReportDataFilter(reportItems, filters);
 
   const summary = useMemo(() => {
+    const hasActiveFilters = Boolean(
+      filters.propertyId || filters.unitId || filters.tenantId || filters.search || filters.status || filters.startDate || filters.endDate
+    );
+
+    if (!hasActiveFilters && data?.summary) {
+      return {
+        totalDelinquentBalance: Number(data.summary.totalDelinquentBalance ?? 0),
+        totalOriginalAmount: Number(data.summary.totalOriginalAmount ?? 0),
+        totalDelinquentTenants: Number(data.summary.totalDelinquentTenants ?? 0),
+        totalDelinquentInvoices: Number(data.summary.totalDelinquentInvoices ?? data.pagination?.totalRecords ?? filteredReportItems.length),
+        averageDaysLate: Number(data.summary.averageDaysLate ?? 0),
+      };
+    }
+
     return {
       totalDelinquentBalance: filteredReportItems.reduce(
         (acc: number, curr: any) => acc + Number(curr.outstandingBalance || 0),
@@ -47,7 +61,7 @@ export const DelinquencyReport: React.FC = () => {
             )
           : 0,
     };
-  }, [filteredReportItems]);
+  }, [filteredReportItems, data, filters]);
 
   const columns = [
     { key: 'tenantName', header: 'Tenant Name' },

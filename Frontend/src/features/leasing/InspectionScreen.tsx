@@ -7,7 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { 
   Save, CheckCircle, Image, Trash2, Camera, User, 
   Clock, AlertCircle, FileText, Sparkles, Check, Play, Edit, RotateCcw, ClipboardList,
-  ArrowLeft
+  ArrowLeft, Loader2
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -34,6 +34,7 @@ export const InspectionScreen: React.FC<InspectionScreenProps> = ({ id }) => {
 
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
 
   // Fetch detailed inspection
   const { data: inspection, isLoading, refetch } = useQuery({
@@ -70,6 +71,9 @@ export const InspectionScreen: React.FC<InspectionScreenProps> = ({ id }) => {
       setTimeout(() => setSuccessMsg(null), 3000);
       refetch();
     },
+    onError: (err: any) => {
+      setValidationError(err?.message || 'Failed to save draft progress.');
+    }
   });
 
   const completeMutation = useMutation({
@@ -154,37 +158,76 @@ export const InspectionScreen: React.FC<InspectionScreenProps> = ({ id }) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const base64Photos: any[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const reader = new FileReader();
-      const promise = new Promise((resolve) => {
-        reader.onloadend = () => {
-          resolve({
-            url: reader.result as string,
-            caption: file.name,
-            sortOrder: i,
-          });
-        };
-      });
-      reader.readAsDataURL(file);
-      base64Photos.push(await promise);
-    }
+    setUploadingItemId(itemId);
+    setValidationError(null);
 
-    setRooms(prev => prev.map(r => {
-      if (r.id !== roomId) return r;
-      return {
-        ...r,
-        items: r.items.map((item: any) => {
-          if (item.id !== itemId) return item;
-          const oldPhotos = item.photos || [];
-          return {
-            ...item,
-            photos: [...oldPhotos, ...base64Photos]
+    try {
+      const uploadedPhotos: any[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        // Upload direct to Cloudinary via backend endpoint
+        const res = await api.inspections.uploadPhoto(itemId, file);
+        if (res && res.url) {
+          uploadedPhotos.push({
+            id: res.id,
+            url: res.url,
+            caption: res.caption || file.name,
+            sortOrder: res.sortOrder || i,
+          });
+        }
+      }
+
+      setRooms(prev => prev.map(r => {
+        if (r.id !== roomId) return r;
+        return {
+          ...r,
+          items: r.items.map((item: any) => {
+            if (item.id !== itemId) return item;
+            const oldPhotos = item.photos || [];
+            return {
+              ...item,
+              photos: [...oldPhotos, ...uploadedPhotos]
+            };
+          })
+        };
+      }));
+    } catch (err: any) {
+      console.warn('Direct Cloudinary upload failed, falling back to local preview:', err);
+      // Fallback: If network drops, use base64 so user's photo is still safely previewed
+      const fallbackPhotos: any[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const reader = new FileReader();
+        const promise = new Promise((resolve) => {
+          reader.onloadend = () => {
+            resolve({
+              url: reader.result as string,
+              caption: file.name,
+              sortOrder: i,
+            });
           };
-        })
-      };
-    }));
+        });
+        reader.readAsDataURL(file);
+        fallbackPhotos.push(await promise);
+      }
+
+      setRooms(prev => prev.map(r => {
+        if (r.id !== roomId) return r;
+        return {
+          ...r,
+          items: r.items.map((item: any) => {
+            if (item.id !== itemId) return item;
+            const oldPhotos = item.photos || [];
+            return {
+              ...item,
+              photos: [...oldPhotos, ...fallbackPhotos]
+            };
+          })
+        };
+      }));
+    } finally {
+      setUploadingItemId(null);
+    }
   };
 
   const handleRemovePhoto = (roomId: string, itemId: string, photoIdx: number) => {
@@ -445,13 +488,25 @@ export const InspectionScreen: React.FC<InspectionScreenProps> = ({ id }) => {
                       <span className="text-[10px] font-bold text-muted-foreground uppercase block">Condition Photos</span>
                       
                       {!isCompleted && (
-                        <label className="border border-dashed border-border rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer hover:bg-muted/30 transition text-muted-foreground">
-                          <Camera className="w-5 h-5 mb-1 text-primary" />
-                          <span className="text-[10px] font-bold">Upload Photos</span>
+                        <label className={`border border-dashed border-border rounded-xl p-3 flex flex-col items-center justify-center transition text-muted-foreground ${
+                          uploadingItemId === item.id ? 'opacity-70 cursor-not-allowed bg-muted/40' : 'cursor-pointer hover:bg-muted/30'
+                        }`}>
+                          {uploadingItemId === item.id ? (
+                            <>
+                              <Loader2 className="w-5 h-5 mb-1 text-primary animate-spin" />
+                              <span className="text-[10px] font-bold text-primary">Uploading to Cloudinary...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Camera className="w-5 h-5 mb-1 text-primary" />
+                              <span className="text-[10px] font-bold">Upload Photos</span>
+                            </>
+                          )}
                           <input
                             type="file"
                             multiple
                             accept="image/*"
+                            disabled={uploadingItemId === item.id}
                             className="hidden"
                             onChange={(e) => handlePhotoUpload(room.id, item.id, e)}
                           />

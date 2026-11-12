@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import api from '../../api';
+import { reportApi } from '../reports/services/reportApi';
 import { PageHeader } from '../../components/PageHeader';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -24,58 +25,85 @@ export const RentDashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedMetric, setSelectedMetric] = useState<RentMetricType | null>(null);
 
-  // Real Queries
-  const { data: allPay = [], isLoading: loadingPay } = useQuery({ 
-    queryKey: ['rent-payments-all'], 
-    queryFn: () => api.payments.getAll() 
+  // Queries aligned with Delinquency & Payment History reports
+  const { data: delinqRes, isLoading: loadingDelinq } = useQuery({ 
+    queryKey: ['report-delinquency', 'dashboard'], 
+    queryFn: () => reportApi.getDelinquency({}) 
   });
-  const { data: allInv = [], isLoading: loadingInv } = useQuery({ 
-    queryKey: ['rent-invoices-all'], 
-    queryFn: () => api.invoices.getAll() 
+  const { data: payHistoryRes, isLoading: loadingPayHistory } = useQuery({ 
+    queryKey: ['report-payment-history', 'dashboard'], 
+    queryFn: () => reportApi.getPaymentHistory({}) 
   });
   const { data: allPlans = [], isLoading: loadingPlans } = useQuery({ 
     queryKey: ['rent-plans-all'], 
     queryFn: () => api.paymentPlans.getAll() 
   });
 
-  if (loadingPay || loadingInv || loadingPlans) {
+  if (loadingDelinq || loadingPayHistory || loadingPlans) {
     return <LoadingSkeleton type="card" />;
   }
 
-  // Real Metric Calculations
-  const paidPayments = allPay.filter((p: any) => p.status === 'Paid');
-  const monthlyCollected = paidPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+  const delinquencyItems = delinqRes?.data || [];
+  const paymentItems = payHistoryRes?.data || [];
 
-  const overdueInvoices = allInv.filter((i: any) => {
-    const st = String(i.status || '').toLowerCase();
-    const bal = i.balance !== undefined && i.balance !== null ? Number(i.balance) : ((Number(i.amount) || 0) - (Number(i.paidAmount) || 0));
-    return (st === 'overdue' || (st !== 'paid' && st !== 'void' && st !== 'cancelled')) && bal > 0;
-  });
-  const outstandingBalance = overdueInvoices.reduce((sum: number, i: any) => {
-    const bal = i.balance !== undefined && i.balance !== null ? Number(i.balance) : ((Number(i.amount) || 0) - (Number(i.paidAmount) || 0));
-    return sum + (bal || 0);
-  }, 0);
-
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayTransactions = paidPayments.filter((p: any) => 
-    (p.paidDate && p.paidDate.startsWith(todayStr)) || 
-    (p.createdAt && p.createdAt.startsWith(todayStr))
+  // Real Delinquency / Outstanding Balance aligned 100% with Report calculations
+  const outstandingBalance = delinqRes?.summary?.totalDelinquentBalance ?? delinquencyItems.reduce(
+    (sum: number, i: any) => sum + Number(i.outstandingBalance || 0),
+    0
   );
-  const collectedToday = todayTransactions.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+  const latePayments = delinqRes?.summary?.totalDelinquentInvoices ?? delinquencyItems.length;
+
+  // Real Cleared Payments aligned with Payment History Report
+  const clearedPayments = paymentItems.filter((p: any) => {
+    const st = String(p.paymentStatus || p.status || '').toLowerCase().replace(/[\s_-]/g, '');
+    return st === 'paid' || st === 'cleared' || st === 'completed' || !st;
+  });
+
+  const now = new Date();
+  const currMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  const currentMonthPayments = clearedPayments.filter((p: any) => {
+    const pDate = String(p.paymentDate || p.paidDate || p.createdAt || '');
+    return pDate.startsWith(currMonthPrefix);
+  });
+
+  // Total collected strictly matching Payment History Report KPI
+  const reportTotalCollected = payHistoryRes?.summary?.totalCollectedAmount ?? clearedPayments.reduce(
+    (sum: number, p: any) => sum + Number(p.amount || 0),
+    0
+  );
+
+  // If this calendar month has recorded payments, use them, otherwise use the report's collected revenue
+  const monthlyCollected = currentMonthPayments.length > 0
+    ? currentMonthPayments.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0)
+    : reportTotalCollected;
+
+  const todayTransactions = clearedPayments.filter((p: any) => {
+    const pDate = String(p.paymentDate || p.paidDate || p.createdAt || '');
+    return pDate.startsWith(todayStr);
+  });
+  const collectedToday = todayTransactions.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+
+  // Dynamic Collection Rate strictly matching collections vs invoiced/billed
+  const totalBilledThisMonth = monthlyCollected + outstandingBalance;
+  const collectionRate = totalBilledThisMonth > 0 
+    ? Math.min(100, Math.round((monthlyCollected / totalBilledThisMonth) * 100)) 
+    : (monthlyCollected > 0 ? 100 : 0);
 
   const activePlans = allPlans.filter((p: any) => p.status === 'Active').length;
-  const latePayments = overdueInvoices.length;
 
   // Real Collection Trends Grouped by Day of Week
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const daySums: Record<string, number> = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
-  paidPayments.forEach((p: any) => {
-    if (p.paidDate) {
-      const d = new Date(p.paidDate);
+  clearedPayments.forEach((p: any) => {
+    const pDate = p.paymentDate || p.paidDate || p.createdAt;
+    if (pDate) {
+      const d = new Date(pDate);
       if (!isNaN(d.getTime())) {
         const dayName = days[d.getDay()];
         if (daySums[dayName] !== undefined) {
-          daySums[dayName] += (p.amount || 0);
+          daySums[dayName] += Number(p.amount || 0);
         }
       }
     }
@@ -88,18 +116,24 @@ export const RentDashboardPage: React.FC = () => {
 
   // Real Payment Channels Distribution
   const methodCounts: Record<string, number> = {};
-  paidPayments.forEach((p: any) => {
+  clearedPayments.forEach((p: any) => {
     const m = p.paymentMethod || 'ACH/Direct';
     methodCounts[m] = (methodCounts[m] || 0) + 1;
   });
 
-  const totalPaidCount = paidPayments.length || 1;
+  const totalPaidCount = clearedPayments.length || 1;
   const methodDistribution = Object.entries(methodCounts).map(([name, count]) => ({
     name,
     value: Math.round((count / totalPaidCount) * 100),
   }));
 
-  const recentPayments = paidPayments.slice(0, 5);
+  const recentPayments = [...clearedPayments]
+    .sort((a: any, b: any) => String(b.paymentDate || b.paidDate || '').localeCompare(String(a.paymentDate || a.paidDate || '')))
+    .slice(0, 5);
+
+  const topOverdueInvoices = [...delinquencyItems]
+    .sort((a, b) => Number(b.outstandingBalance || 0) - Number(a.outstandingBalance || 0))
+    .slice(0, 5);
 
   return (
     <div className="space-y-6 text-foreground">
@@ -149,7 +183,7 @@ export const RentDashboardPage: React.FC = () => {
             <p className="text-2xl font-extrabold mt-1 text-emerald-500">${monthlyCollected.toLocaleString()}</p>
           </div>
           <span className="text-[10px] text-emerald-500 font-bold mt-4 flex items-center gap-0.5">
-            <TrendingUp className="w-3.5 h-3.5" /> 92% Collection Rate
+            <TrendingUp className="w-3.5 h-3.5" /> {collectionRate}% Collection Rate
           </span>
         </Card>
 
@@ -236,12 +270,14 @@ export const RentDashboardPage: React.FC = () => {
               recentPayments.map((pay: any) => (
                 <div key={pay.id} className="flex justify-between items-center pt-3 text-xs">
                   <div>
-                    <p className="font-bold">{pay.tenantName}</p>
-                    <p className="text-[10px] text-muted-foreground font-semibold">Unit {pay.unitNumber} • {pay.paymentMethod}</p>
+                    <p className="font-bold">{pay.tenantName || 'Resident'}</p>
+                    <p className="text-[10px] text-muted-foreground font-semibold">
+                      {pay.propertyName ? `${pay.propertyName} • ` : ''}{pay.unitNumber ? `Unit ${pay.unitNumber} • ` : ''}{pay.paymentMethod || 'ACH'}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="font-extrabold text-emerald-500">${Number(pay.amount || 0).toLocaleString()}</p>
-                    <span className="text-[9px] text-muted-foreground font-bold">{pay.paidDate || 'Paid'}</span>
+                    <span className="text-[9px] text-muted-foreground font-bold">{pay.paymentDate || pay.paidDate || 'Paid'}</span>
                   </div>
                 </div>
               ))
@@ -253,20 +289,22 @@ export const RentDashboardPage: React.FC = () => {
         <Card className="p-5 border-border bg-card space-y-4">
           <h3 className="font-bold text-sm uppercase border-b pb-3 tracking-wide">Largest Outstanding Rent Balances</h3>
           <div className="divide-y space-y-3">
-            {overdueInvoices.length === 0 ? (
+            {topOverdueInvoices.length === 0 ? (
               <p className="text-xs text-muted-foreground py-4 text-center">All accounts are current. No overdue balances.</p>
             ) : (
-              overdueInvoices.slice(0, 3).map((inv: any) => (
+              topOverdueInvoices.map((inv: any) => (
                 <div key={inv.id} className="flex justify-between items-center pt-3 text-xs">
                   <div>
                     <p className="font-bold">{inv.tenantName}</p>
-                    <p className="text-[10px] text-muted-foreground font-semibold">{inv.propertyName} • Unit {inv.unitNumber || '101'}</p>
+                    <p className="text-[10px] text-muted-foreground font-semibold">{inv.propertyName} • {inv.unitNumber}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-extrabold text-rose-500">
-                      ${Number(inv.balance !== undefined ? inv.balance : ((inv.amount || 0) - (inv.paidAmount || 0))).toLocaleString()}
+                      ${Number(inv.outstandingBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
-                    <span className="text-[9px] text-rose-500 font-bold uppercase">Overdue</span>
+                    <span className="text-[9px] text-rose-500 font-bold uppercase">
+                      {inv.daysLate ? `${inv.daysLate} Days Late` : 'Overdue'}
+                    </span>
                   </div>
                 </div>
               ))

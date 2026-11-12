@@ -42,7 +42,7 @@ export const TenantPaymentsPage: React.FC = () => {
     queryFn: () => api.invoices.getAll(),
   });
 
-  const tenantName = profile ? `${profile.firstName} ${profile.lastName}` : 'Sarah Connor';
+  const tenantName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.name || 'Resident' : 'Resident';
 
   const tenantInvoices = React.useMemo(() => {
     return allInvoices;
@@ -70,8 +70,10 @@ export const TenantPaymentsPage: React.FC = () => {
       });
     });
 
-    // Map real payments
-    tenantPayments.forEach((pay: any) => {
+    // Map real payments (excluding internal property operating expense refunds)
+    tenantPayments
+      .filter((pay: any) => !(pay.referenceNumber && String(pay.referenceNumber).toUpperCase().startsWith('REFUND-')))
+      .forEach((pay: any) => {
       list.push({
         date: pay.paidDate ? pay.paidDate.split('T')[0] : pay.dueDate ? pay.dueDate.split('T')[0] : '',
         type: 'Payment',
@@ -717,9 +719,13 @@ export const TenantPaymentsPage: React.FC = () => {
               {/* Company Info */}
               <div className="space-y-2">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block">{t('tenantPayments.companyName')}</span>
-                <p className="font-black text-sm text-primary">{profile?.companyName || globalCompanyName || 'Divine Properties'}</p>
+                <p className="font-black text-sm text-primary">{profile?.companyName || (globalCompanyName && !globalCompanyName.includes('Apex') ? globalCompanyName : 'Divine')}</p>
                 <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block mt-4">{t('tenantPayments.companyAddress')}</span>
-                <p className="font-bold text-muted-foreground leading-relaxed whitespace-pre-line">{profile?.companyAddress || globalCompanyAddress || '100 Congress Ave,\nAustin, TX 78701'}</p>
+                <p className="font-bold text-muted-foreground leading-relaxed whitespace-pre-line">
+                  {profile?.companyAddress && profile.companyAddress !== 'N/A' 
+                    ? profile.companyAddress 
+                    : (globalCompanyAddress && !globalCompanyAddress.includes('100 Pine') && !globalCompanyAddress.includes('100 Congress') ? globalCompanyAddress : (profile?.tenantAddress || 'N/A'))}
+                </p>
               </div>
 
               {/* Tenant & Unit Info */}
@@ -728,15 +734,15 @@ export const TenantPaymentsPage: React.FC = () => {
                   <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block">{t('tenantPayments.tenantName')}</span>
                   <p className="font-black text-foreground">{tenantName}</p>
                   <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block mt-4">{t('tenantPayments.emailAddress')}</span>
-                  <p className="font-semibold text-muted-foreground truncate">{profile?.email || 'sarah.c@skyline-rentals.com'}</p>
+                  <p className="font-semibold text-muted-foreground truncate">{profile?.email || 'tenant@residence.com'}</p>
                   <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block mt-4">{t('tenantPayments.phoneNumber')}</span>
-                  <p className="font-semibold text-muted-foreground">{profile?.phone || '(512) 555-0011'}</p>
+                  <p className="font-semibold text-muted-foreground">{profile?.phone || 'Not Specified'}</p>
                 </div>
                 <div className="space-y-2">
                   <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block">{t('tenantPayments.tenantAddress')}</span>
-                  <p className="font-bold text-muted-foreground leading-relaxed whitespace-pre-line">{profile?.tenantAddress || '304 Skyline Luxury Lofts,\nAustin, TX 78702'}</p>
+                  <p className="font-bold text-muted-foreground leading-relaxed whitespace-pre-line">{profile?.tenantAddress || profile?.address || 'N/A'}</p>
                   <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block mt-4">{t('tenantPayments.unitDetails')}</span>
-                  <p className="font-black text-primary uppercase">{profile?.unitDetails || 'Apt 304'}</p>
+                  <p className="font-black text-primary uppercase">{profile?.unitDetails || profile?.unitNumber || 'Assigned Unit'}</p>
                   <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider block mt-4">{t('tenantPayments.statementDate')}</span>
                   <p className="font-semibold text-muted-foreground">{new Date().toLocaleDateString()}</p>
                 </div>

@@ -47,11 +47,11 @@ export const UserProfilePage: React.FC = () => {
     const profile = profileResponse?.data || profileResponse;
     if (profile) {
       setName(profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || user?.name || 'Diya Jain');
-      setEmail(profile.email || user?.email || 'vendor22@gmail.com');
-      setPhone(profile.phone || '(512) 555-0188');
-      setDepartment(profile.department || 'Collections & Revenue');
-      const storedCompany = localStorage.getItem('company_name') || 'Divine Properties';
-      setCompany(profile.company && profile.company !== 'Apex Property Management' ? profile.company : storedCompany);
+      setEmail(profile.email || user?.email || '');
+      setPhone(profile.phone || '');
+      setDepartment(profile.department || 'Property Management');
+      const storedCompany = localStorage.getItem('company_name') || '';
+      setCompany(profile.company && profile.company !== 'Apex Property Management' ? profile.company : (storedCompany || ''));
     }
   }, [profileResponse, user]);
 
@@ -371,7 +371,7 @@ export const UserProfilePage: React.FC = () => {
               <Input
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
-                placeholder="Apex Property Management"
+                placeholder="Enter company name..."
               />
             </div>
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as zod from 'zod';
@@ -74,8 +75,8 @@ export const QuickAddOwnerModal: React.FC<QuickAddOwnerModalProps> = ({
     createMutation.mutate(values);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
       <div className="relative w-full max-w-md bg-card border border-border rounded-2xl p-6 shadow-2xl space-y-4 text-foreground max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b border-border/80 pb-3">
           <h3 className="font-extrabold text-base text-foreground">Add Property Owner</h3>
@@ -144,7 +145,8 @@ export const QuickAddOwnerModal: React.FC<QuickAddOwnerModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

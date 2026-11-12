@@ -7,8 +7,6 @@ import { DataTable } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { TenantAvatar } from '../../components/TenantAvatar';
 import { DocumentUploader } from '../../components/DocumentUploader';
-import { CommunicationPanel } from '../../components/CommunicationPanel';
-import { QuickChatDrawer } from '../../components/chat/QuickChatDrawer';
 import { Timeline, TimelineEvent } from '../../components/Timeline';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -16,14 +14,14 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/Ta
 import { ColumnDef } from '@tanstack/react-table';
 import { 
   User, Building, ShieldCheck, Mail, Phone, Calendar, Landmark,
-  DollarSign, Wrench, CreditCard, Sparkles, FileText, ArrowLeft, Loader2, Check, Printer, MessageSquare 
+  DollarSign, Wrench, CreditCard, Sparkles, FileText, ArrowLeft, Loader2, Check, Printer, MessageSquare,
+  Image as ImageIcon, ExternalLink, Upload
 } from 'lucide-react';
 
 export const TenantDetailsPage: React.FC = () => {
   const { id } = useParams({ from: '/tenants/$id' });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [isChatOpen, setIsChatOpen] = useState(false);
 
   // Queries
   const { data: tenant, isLoading: loadingTenant } = useQuery({
@@ -37,6 +35,7 @@ export const TenantDetailsPage: React.FC = () => {
   const { data: allDocs = [], refetch: refetchDocs } = useQuery({ queryKey: ['documents'], queryFn: () => api.document.getAll() });
   const { data: allProperties = [] } = useQuery({ queryKey: ['properties'], queryFn: () => api.property.getAll() });
   const { data: profile } = useQuery({ queryKey: ['user-profile'], queryFn: () => api.userProfile.get() });
+  const { data: allLedger = [] } = useQuery({ queryKey: ['rent-ledger-list'], queryFn: () => api.rentLedger.getAll() });
 
   // Filtered/Associated items
   const lease = allLeases.find((l) => l.tenantId === id);
@@ -56,58 +55,98 @@ export const TenantDetailsPage: React.FC = () => {
     uploadedBy: 'Manager',
   }));
 
-  const ledgerEntries = React.useMemo(() => {
-    if (!payments || !payments.length) return [];
-    const entries: Array<{
+  // Reconciled Tenant Ledger matching Rent Ledger Statement exactly
+  const tenantLedgerEntries = React.useMemo(() => {
+    if (!tenant) return [];
+    const tenantFullName = `${tenant.firstName} ${tenant.lastName}`.trim().toLowerCase();
+
+    // 1. If global rent ledger matches exist, use them
+    const ledgerMatches = (allLedger || []).filter((item: any) => {
+      if (item.tenantId && item.tenantId === id) return true;
+      const tName = String(item.tenantName || '').trim().toLowerCase();
+      return tName && (tName === tenantFullName || tName.includes(tenant.firstName.toLowerCase()));
+    });
+
+    if (ledgerMatches.length > 0) {
+      const getTxOrder = (item: any) => {
+        if (item.sortOrder) return item.sortOrder;
+        if (item.transactionType === 'Rent Charge') return 1;
+        if (item.transactionType === 'Late Fee') return 2;
+        return 3;
+      };
+      const sorted = [...ledgerMatches].sort((a: any, b: any) => {
+        const dCmp = (a.date || '').localeCompare(b.date || '');
+        if (dCmp !== 0) return dCmp;
+        return getTxOrder(a) - getTxOrder(b);
+      });
+
+      let running = 0;
+      return sorted.map((item: any) => {
+        const debit = Number(item.debit) || 0;
+        const credit = Number(item.credit) || 0;
+        running += debit - credit;
+        return {
+          date: item.date,
+          desc: item.description,
+          ref: item.referenceNumber || (item.id ? String(item.id).substring(0, 16) : 'TXN'),
+          debit,
+          credit,
+          balance: running,
+        };
+      });
+    }
+
+    // 2. Direct dynamic calculation from tenant.invoices + tenant payments
+    const txs: Array<{
       date: string;
       desc: string;
       ref: string;
       debit: number;
       credit: number;
-      balance: number;
+      order: number;
     }> = [];
 
-    // Sort payments by due date ascending
-    const sortedPayments = [...payments].sort((a, b) => {
-      const dateA = a.dueDate || '';
-      const dateB = b.dueDate || '';
-      return dateA.localeCompare(dateB);
-    });
-
-    let runningBalance = 0;
-
-    sortedPayments.forEach((p) => {
-      // 1. Charge Entry
-      runningBalance += p.amount;
-      entries.push({
-        date: p.dueDate || '',
-        desc: 'Rent Charge Assessment',
-        ref: p.id ? p.id.replace('pay-', 'CHG-') : 'CHG-UNK',
-        debit: p.amount,
+    (tenant.invoices || []).forEach((inv: any) => {
+      const d = inv.dueDate ? String(inv.dueDate).split('T')[0] : (inv.createdAt ? String(inv.createdAt).split('T')[0] : '2026-05-01');
+      const invDate = new Date(d);
+      const mName = !isNaN(invDate.getTime()) ? invDate.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : '';
+      txs.push({
+        date: d,
+        desc: inv.description || (mName ? `Monthly Rent Invoice – ${mName}` : 'Monthly Rent Invoice'),
+        ref: inv.id ? inv.id.substring(0, 16) : 'INV',
+        debit: Number(inv.amount) || 0,
         credit: 0,
-        balance: runningBalance
+        order: 1,
       });
-
-      // 2. Payment Entry (if Paid)
-      if (p.status === 'Paid' && p.paidDate) {
-        runningBalance -= p.amount;
-        entries.push({
-          date: p.paidDate || '',
-          desc: `ACH Payment - Received (${p.paymentMethod || 'Bank'})`,
-          ref: p.referenceNumber || (p.id ? p.id.replace('pay-', 'TXN-') : 'TXN-UNK'),
-          debit: 0,
-          credit: p.amount,
-          balance: runningBalance
-        });
-      }
     });
 
-    return entries.sort((a, b) => {
-      const dateA = a.date || '';
-      const dateB = b.date || '';
-      return dateA.localeCompare(dateB);
+    (payments || []).forEach((p: any) => {
+      const d = p.paidDate ? String(p.paidDate).split('T')[0] : (p.dueDate ? String(p.dueDate).split('T')[0] : '2026-05-01');
+      txs.push({
+        date: d,
+        desc: p.description || `Payment Received via ${p.paymentMethod || 'Offline'} Ref# ${p.referenceNumber || (p.id ? String(p.id).substring(0, 8) : 'RCP')}`,
+        ref: p.referenceNumber || (p.id ? p.id.substring(0, 16) : 'TXN'),
+        debit: 0,
+        credit: Number(p.amount) || 0,
+        order: 2,
+      });
     });
-  }, [payments]);
+
+    txs.sort((a, b) => {
+      const dCmp = a.date.localeCompare(b.date);
+      if (dCmp !== 0) return dCmp;
+      return a.order - b.order;
+    });
+
+    let running = 0;
+    return txs.map((tx) => {
+      running += tx.debit - tx.credit;
+      return {
+        ...tx,
+        balance: running,
+      };
+    });
+  }, [allLedger, tenant, id, payments]);
 
   const uploadMutation = useMutation({
     mutationFn: (file: File) =>
@@ -121,6 +160,69 @@ export const TenantDetailsPage: React.FC = () => {
     },
   });
 
+  // Derived Balance / Details strictly matching Rent Ledger and Reports
+  const balanceDue = React.useMemo(() => {
+    if (!tenant) return 0;
+    if (tenantLedgerEntries.length > 0) {
+      const totalCharged = tenantLedgerEntries.reduce((sum, e) => sum + (e.debit || 0), 0);
+      const totalPaid = tenantLedgerEntries.reduce((sum, e) => sum + (e.credit || 0), 0);
+      return Math.max(0, totalCharged - totalPaid);
+    }
+    return (tenant?.invoices || []).reduce((sum: number, inv: any) => {
+      const isPaid = String(inv?.status || '').toLowerCase() === 'paid';
+      const invBal = isPaid ? 0 : (inv.balance !== undefined ? Number(inv.balance) : Number(inv.amount || 0));
+      return sum + Number(invBal || 0);
+    }, 0) + Number(tenant?.previousBalance || tenant?.openingBalance || 0);
+  }, [tenant, tenantLedgerEntries]);
+
+  // Dynamic residency timeline from real tenant milestones
+  const timelineEvents: TimelineEvent[] = React.useMemo(() => {
+    if (!tenant) return [];
+    const events: TimelineEvent[] = [];
+
+    if (tenant.moveInDate || lease?.startDate) {
+      events.push({
+        id: 'movein',
+        title: 'Resident Move-In Completed',
+        description: `Checked keys and assigned to Unit ${tenant.unitNumber || 'Assigned Unit'}.`,
+        time: (tenant.moveInDate || lease?.startDate || '').split('T')[0],
+        by: 'Property Manager',
+        icon: <Check className="w-4 h-4 text-emerald-500" />,
+      });
+    }
+
+    if (lease) {
+      events.push({
+        id: 'lease',
+        title: 'Lease Agreement Active',
+        description: `Lease contract bound to ${tenant.firstName} ${tenant.lastName} (${lease.status || 'Active'}).`,
+        time: (lease.startDate || '').split('T')[0] || (tenant.createdAt || '').split('T')[0],
+        by: 'Leasing Agent',
+        icon: <ShieldCheck className="w-4 h-4 text-primary" />,
+      });
+    }
+
+    if (tenant.screeningReports && tenant.screeningReports.length > 0) {
+      const rep = tenant.screeningReports[0];
+      events.push({
+        id: 'screening',
+        title: 'Background Screening Verified',
+        description: `Credit score: ${rep.creditScore || 'Cleared'}. Screening Status: ${rep.status || 'Approved'}.`,
+        time: (rep.createdAt || tenant.createdAt || '').split('T')[0],
+        by: 'Screening System',
+      });
+    }
+
+    events.push({
+      id: 'registered',
+      title: 'Tenant Profile Registered',
+      description: `Resident account active in property portfolio.`,
+      time: (tenant.createdAt || '').split('T')[0] || 'Active',
+    });
+
+    return events;
+  }, [tenant, lease]);
+
   if (loadingTenant || !tenant) {
     return (
       <div className="flex items-center justify-center h-48">
@@ -129,30 +231,18 @@ export const TenantDetailsPage: React.FC = () => {
     );
   }
 
-  // Derived Balance / Details
-  const balanceDue = (tenant.invoices || []).reduce((sum, inv) => {
-    const invBal = (inv.status === 'Paid' || inv.status === 'PAID') ? 0 : (inv.balance !== undefined ? inv.balance : inv.amount);
-    return sum + Number(invBal || 0);
-  }, 0) + Number(tenant.previousBalance || tenant.openingBalance || 0);
   const hasBalance = balanceDue > 0;
-  const monthlyRent = lease ? lease.rentAmount : 1400;
+  const monthlyRent = lease ? lease.rentAmount : ((tenant as any)?.unit?.rentAmount || (tenant as any)?.rentAmount || 0);
+  const securityDeposit = lease?.depositAmount ?? (lease as any)?.deposit ?? (lease as any)?.securityDeposit ?? (tenant as any)?.unit?.securityDeposit ?? (tenant as any)?.securityDeposit ?? 0;
 
   const property = allProperties.find((p) => p.id === tenant?.propertyId);
-  const propertyAddress = property ? property.address : (tenant?.propertyName ? `${tenant.propertyName}, Austin, TX` : 'N/A');
+  const propertyAddress = property ? property.address : (tenant?.propertyName || 'N/A');
   const managementCompany = 
     (property?.managementCompany && !property.managementCompany.includes('Apex'))
       ? property.managementCompany
       : (profile?.company && !profile.company.includes('Apex'))
         ? profile.company
         : (profile?.company || (tenant as any)?.companyName || property?.managementCompany || 'Property Management');
-
-  // Timeline events mock
-  const timelineEvents: TimelineEvent[] = [
-    { id: '1', title: 'Resident Move-In Completed', description: `Checked keys and signed checklists for unit ${tenant.unitNumber || '201'}`, time: '2026-05-15', by: 'Manager', icon: <Check className="w-4 h-4 text-emerald-500" /> },
-    { id: '2', title: 'Lease Agreement Executed', description: `Lease contract bound to ${tenant.firstName} ${tenant.lastName}`, time: '2026-05-12', by: 'Leasing Agent', icon: <ShieldCheck className="w-4 h-4 text-primary" /> },
-    { id: '3', title: 'Background Screening Approved', description: 'Credit score 740. Criminal and eviction check cleared.', time: '2026-05-10', by: 'Screening Service' },
-    { id: '4', title: 'Application Submitted', description: 'Online registration complete.', time: '2026-05-08' },
-  ];
 
   // Column definitions
   const payColumns: ColumnDef<any>[] = [
@@ -181,7 +271,7 @@ export const TenantDetailsPage: React.FC = () => {
       {/* HEADER BLOCK */}
       <div className="flex flex-col space-y-4 md:flex-row md:items-center md:justify-between md:space-y-0 pb-6 border-b">
         <div className="flex items-center space-x-4">
-          <TenantAvatar name={`${tenant.firstName} ${tenant.lastName}`} size="lg" />
+          <TenantAvatar name={`${tenant.firstName} ${tenant.lastName}`} imageUrl={tenant.imageUrl} size="lg" />
           <div className="space-y-1">
             <div className="flex items-center space-x-3">
               <h1 className="text-3xl font-extrabold tracking-tight">{tenant.firstName} {tenant.lastName}</h1>
@@ -195,14 +285,8 @@ export const TenantDetailsPage: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-2">
-          <Button size="sm" onClick={() => setIsChatOpen(true)} className="flex items-center gap-1.5 font-bold">
-            <MessageSquare className="w-4 h-4" /> Direct Chat
-          </Button>
           <Button variant="outline" size="sm" onClick={() => navigate({ to: `/tenants/${tenant.id}/edit` })}>
             Edit Profile
-          </Button>
-          <Button size="sm" onClick={() => navigate({ to: '/leasing/leases' })} className="flex items-center gap-1">
-            Renew Lease
           </Button>
         </div>
       </div>
@@ -216,7 +300,7 @@ export const TenantDetailsPage: React.FC = () => {
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">Current Balance</p>
             <p className={`text-xl font-extrabold ${balanceDue > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-              ${balanceDue.toLocaleString()}
+              ${balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
         </Card>
@@ -247,7 +331,9 @@ export const TenantDetailsPage: React.FC = () => {
           </div>
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">Security Deposit</p>
-            <p className="text-xl font-extrabold">${(monthlyRent * 1.2).toLocaleString()}</p>
+            <p className="text-xl font-extrabold">
+              ${Number(securityDeposit || 0).toLocaleString()}
+            </p>
           </div>
         </Card>
 
@@ -273,45 +359,196 @@ export const TenantDetailsPage: React.FC = () => {
               <TabsTrigger value="payments">Payments</TabsTrigger>
               <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
               <TabsTrigger value="documents">Documents</TabsTrigger>
-              <TabsTrigger value="communication">CRM Dialog</TabsTrigger>
             </TabsList>
 
             {/* OVERVIEW TAB */}
             <TabsContent value="overview" className="space-y-6">
+              {/* Personal Details & Contact */}
               <Card className="p-5 space-y-4 border-border">
                 <h3 className="font-bold text-base border-b pb-2 uppercase tracking-wide">Personal Coordinates</h3>
-                <div className="grid grid-cols-2 gap-4 text-xs font-semibold">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs font-semibold">
                   <div>
                     <p className="text-muted-foreground">Email Channels</p>
-                    <p className="text-foreground mt-0.5 flex items-center gap-1"><Mail className="w-3.5 h-3.5 text-primary" /> {tenant.email}</p>
+                    <p className="text-foreground mt-0.5 flex items-center gap-1"><Mail className="w-3.5 h-3.5 text-primary" /> {tenant.email || '—'}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Mobile Phone</p>
-                    <p className="text-foreground mt-0.5 flex items-center gap-1"><Phone className="w-3.5 h-3.5 text-primary" /> {tenant.phone}</p>
+                    <p className="text-foreground mt-0.5 flex items-center gap-1"><Phone className="w-3.5 h-3.5 text-primary" /> {tenant.phone || '—'}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Government SSN ID</p>
-                    <p className="text-foreground mt-0.5">***-**-6543</p>
+                    <p className="text-muted-foreground">Alternate Phone</p>
+                    <p className="text-foreground mt-0.5">{tenant.altPhone || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Preferred Name</p>
+                    <p className="text-foreground mt-0.5">{tenant.preferredName || `${tenant.firstName} ${tenant.lastName}`}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Gender</p>
+                    <p className="text-foreground mt-0.5">{tenant.gender || '—'}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Birthdate Coordinates</p>
-                    <p className="text-foreground mt-0.5">Oct 12, 1992</p>
+                    <p className="text-foreground mt-0.5">{tenant.dob ? String(tenant.dob).split('T')[0] : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Nationality</p>
+                    <p className="text-foreground mt-0.5">{tenant.nationality || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Government ID / Document</p>
+                    <p className="text-foreground mt-0.5">{tenant.idType || 'ID'}: {tenant.idNumber || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Current Residential Address</p>
+                    <p className="text-foreground mt-0.5">{tenant.currentAddress || propertyAddress || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Previous Address</p>
+                    <p className="text-foreground mt-0.5">{tenant.previousAddress || '—'}</p>
                   </div>
                 </div>
               </Card>
 
+              {/* Emergency Contact */}
+              <Card className="p-5 space-y-4 border-border">
+                <h3 className="font-bold text-base border-b pb-2 uppercase tracking-wide">Emergency Contact</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-semibold">
+                  <div>
+                    <p className="text-muted-foreground">Contact Name</p>
+                    <p className="text-foreground mt-0.5">{tenant.emergencyName || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Relationship</p>
+                    <p className="text-foreground mt-0.5">{tenant.emergencyRelationship || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Emergency Phone</p>
+                    <p className="text-foreground mt-0.5">{tenant.emergencyPhone || '—'}</p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Employment Status */}
               <Card className="p-5 space-y-4 border-border">
                 <h3 className="font-bold text-base border-b pb-2 uppercase tracking-wide">Employment Status</h3>
-                <div className="grid grid-cols-2 gap-4 text-xs font-semibold">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs font-semibold">
                   <div>
-                    <p className="text-muted-foreground">Employer / Position</p>
-                    <p className="text-foreground mt-0.5">TechCorp Inc. / Senior Developer</p>
+                    <p className="text-muted-foreground">Employer / Organization</p>
+                    <p className="text-foreground mt-0.5">{tenant.employer || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Job Position / Role</p>
+                    <p className="text-foreground mt-0.5">{tenant.position || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Employment Status</p>
+                    <p className="text-foreground mt-0.5">{tenant.employmentStatus || 'Full-Time'}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Stipulated Income</p>
-                    <p className="text-foreground mt-0.5">$6,800 / mo</p>
+                    <p className="text-foreground mt-0.5">{tenant.monthlyIncome ? `$${Number(tenant.monthlyIncome).toLocaleString()} / mo` : '—'}</p>
                   </div>
                 </div>
+              </Card>
+
+              {/* Lease & Move-in Coordinates */}
+              <Card className="p-5 space-y-4 border-border">
+                <h3 className="font-bold text-base border-b pb-2 uppercase tracking-wide">Lease & Move-in Coordinates</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs font-semibold">
+                  <div>
+                    <p className="text-muted-foreground">Move-in Date</p>
+                    <p className="text-foreground mt-0.5">{(tenant.moveInDate || lease?.startDate || '').split('T')[0] || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Invoice Start Date</p>
+                    <p className="text-foreground mt-0.5">{(tenant.invoiceStartDate || '').split('T')[0] || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Assigned Property</p>
+                    <p className="text-foreground mt-0.5">{tenant.propertyName || property?.name || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Assigned Unit</p>
+                    <p className="text-foreground mt-0.5">{tenant.unitNumber ? `Unit ${tenant.unitNumber}` : '—'}</p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Tenant Photo & Media Card */}
+              <Card className="p-5 space-y-4 border-border">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <h3 className="font-bold text-base uppercase tracking-wide flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-primary" />
+                    Tenant Photo & Media
+                  </h3>
+                  {tenant.imageUrl && (
+                    <a
+                      href={tenant.imageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-primary hover:underline font-bold flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      View Original Cloudinary URL
+                    </a>
+                  )}
+                </div>
+
+                {tenant.imageUrl ? (
+                  <div className="flex flex-col sm:flex-row items-center gap-5">
+                    <div className="relative group rounded-2xl overflow-hidden border border-border shadow-sm w-32 h-32 flex-shrink-0">
+                      <img
+                        src={tenant.imageUrl}
+                        alt={`${tenant.firstName} ${tenant.lastName}`}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="space-y-3 flex-1 text-xs">
+                      <div>
+                        <p className="font-bold text-foreground">Cloudinary Image URL:</p>
+                        <a
+                          href={tenant.imageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary hover:underline font-mono break-all block mt-1 bg-secondary/50 p-2.5 rounded-lg border border-border"
+                        >
+                          {tenant.imageUrl}
+                        </a>
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate({ to: `/tenants/${tenant.id}/edit` })}
+                          className="h-8 text-xs font-bold"
+                        >
+                          <Upload className="w-3.5 h-3.5 mr-1" /> Change / Replace Photo
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border border-dashed border-border rounded-xl p-6 text-center bg-secondary/10 flex flex-col items-center justify-center space-y-2">
+                    <div className="p-2.5 bg-secondary rounded-full text-muted-foreground">
+                      <ImageIcon className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-foreground">No tenant photo uploaded</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Tenant photo was not attached during registration. You can upload one via Edit Profile.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate({ to: `/tenants/${tenant.id}/edit` })}
+                      className="text-xs font-bold h-8"
+                    >
+                      <Upload className="w-3.5 h-3.5 mr-1" /> Upload Tenant Photo
+                    </Button>
+                  </div>
+                )}
               </Card>
             </TabsContent>
 
@@ -320,7 +557,7 @@ export const TenantDetailsPage: React.FC = () => {
               {lease ? (
                 <Card className="p-5 space-y-4 border-border">
                   <h3 className="font-bold text-base border-b pb-2 uppercase tracking-wide">Lease Coordinates</h3>
-                  <div className="grid grid-cols-2 gap-4 text-xs font-semibold">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs font-semibold">
                     <div>
                       <p className="text-muted-foreground">Lease Agreement ID</p>
                       <p className="text-foreground mt-0.5">{lease.id}</p>
@@ -332,6 +569,10 @@ export const TenantDetailsPage: React.FC = () => {
                     <div>
                       <p className="text-muted-foreground">Monthly Rent Amount</p>
                       <p className="text-foreground mt-0.5">${lease.rentAmount.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Security Deposit Amount</p>
+                      <p className="text-foreground mt-0.5">${Number(securityDeposit || 0).toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-muted-foreground">Lease Contract Status</p>
@@ -419,37 +660,37 @@ export const TenantDetailsPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Ledger Table */}
-                <div className="overflow-x-auto">
+                {/* Ledger Table with vertical scroll for long transaction history */}
+                <div className="overflow-x-auto max-h-[420px] overflow-y-auto border border-border/60 rounded-xl">
                   <table className="w-full text-left border-collapse text-xs">
-                    <thead>
+                    <thead className="sticky top-0 bg-card z-10 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
                       <tr className="border-b border-border text-muted-foreground uppercase text-[10px] tracking-wider font-bold">
-                        <th className="py-2.5">Date</th>
-                        <th className="py-2.5">Description</th>
-                        <th className="py-2.5">Reference ID</th>
-                        <th className="py-2.5 text-right">Debit (Charges)</th>
-                        <th className="py-2.5 text-right">Credit (Payments)</th>
-                        <th className="py-2.5 text-right">Running Balance</th>
+                        <th className="py-2.5 px-3 bg-card">Date</th>
+                        <th className="py-2.5 px-3 bg-card">Description</th>
+                        <th className="py-2.5 px-3 bg-card">Reference ID</th>
+                        <th className="py-2.5 px-3 text-right bg-card">Debit (Charges)</th>
+                        <th className="py-2.5 px-3 text-right bg-card">Credit (Payments)</th>
+                        <th className="py-2.5 px-3 text-right bg-card">Running Balance</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/40">
-                      {ledgerEntries.map((entry, idx) => (
-                        <tr key={idx} className="hover:bg-secondary/10">
-                          <td className="py-2.5 font-semibold text-muted-foreground">{entry.date}</td>
-                          <td className="py-2.5 text-foreground font-extrabold">{entry.desc}</td>
-                          <td className="py-2.5 font-mono text-[10px] text-muted-foreground">{entry.ref}</td>
-                          <td className="py-2.5 text-right text-rose-500 font-bold">
+                      {tenantLedgerEntries.map((entry, idx) => (
+                        <tr key={idx} className="hover:bg-secondary/10 transition-colors">
+                          <td className="py-2.5 px-3 font-semibold text-muted-foreground whitespace-nowrap">{entry.date}</td>
+                          <td className="py-2.5 px-3 text-foreground font-extrabold">{entry.desc}</td>
+                          <td className="py-2.5 px-3 font-mono text-[10px] text-muted-foreground whitespace-nowrap">{entry.ref}</td>
+                          <td className="py-2.5 px-3 text-right text-rose-500 font-bold whitespace-nowrap">
                             {entry.debit > 0 ? `$${entry.debit.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'}
                           </td>
-                          <td className="py-2.5 text-right text-emerald-500 font-bold">
+                          <td className="py-2.5 px-3 text-right text-emerald-500 font-bold whitespace-nowrap">
                             {entry.credit > 0 ? `$${entry.credit.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'}
                           </td>
-                          <td className={`py-2.5 text-right font-black ${entry.balance > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                          <td className={`py-2.5 px-3 text-right font-black whitespace-nowrap ${entry.balance > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
                             ${entry.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
                         </tr>
                       ))}
-                      {ledgerEntries.length === 0 && (
+                      {tenantLedgerEntries.length === 0 && (
                         <tr>
                           <td colSpan={6} className="py-8 text-center text-muted-foreground italic font-medium">
                             No ledger transactions recorded for this resident.
@@ -493,36 +734,6 @@ export const TenantDetailsPage: React.FC = () => {
                 title="Resident Documents Vault"
               />
             </TabsContent>
-
-            {/* COMMUNICATION TAB */}
-            <TabsContent value="communication">
-              {/* LIVE COMMUNICATION CARD */}
-              <Card className="p-6 border-border bg-card">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b pb-4 mb-4 gap-3">
-                  <div>
-                    <h3 className="font-bold text-base text-foreground">Live Discussion Channel</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">Real-time direct chat with {tenant.firstName} {tenant.lastName}</p>
-                  </div>
-                  <Button onClick={() => setIsChatOpen(true)} className="flex items-center gap-1.5 font-bold text-xs">
-                    <MessageSquare className="w-4 h-4" /> Open Live Chat Drawer
-                  </Button>
-                </div>
-                <div className="p-8 text-center bg-muted/15 border border-dashed rounded-xl flex flex-col items-center justify-center space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-                    <MessageSquare className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm text-foreground">Real-Time Resident Chat</h4>
-                    <p className="text-xs text-muted-foreground mt-0.5 max-w-sm">
-                      Send messages directly to the tenant portal. Real-time delivery and read receipts (✓✓) are tracked automatically.
-                    </p>
-                  </div>
-                  <Button onClick={() => setIsChatOpen(true)} className="font-bold text-xs">
-                    Start Direct Discussion
-                  </Button>
-                </div>
-              </Card>
-              </TabsContent>
           </Tabs>
         </div>
 
@@ -535,16 +746,6 @@ export const TenantDetailsPage: React.FC = () => {
         </div>
 
       </div>
-      {tenant && (
-        <QuickChatDrawer
-          isOpen={isChatOpen}
-          onClose={() => setIsChatOpen(false)}
-          participantType="TENANT"
-          participantId={tenant.id}
-          participantName={`${tenant.firstName} ${tenant.lastName}`}
-          subtitle={tenant.unitNumber ? `Unit ${tenant.unitNumber}` : 'Resident'}
-        />
-      )}
     </div>
   );
 };

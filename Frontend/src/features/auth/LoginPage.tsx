@@ -114,7 +114,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ navigate }) => {
           propertyName: p.name,
           propertyAddress: p.address || 'Address not listed',
           propertyCompanyId: p.companyId,
-          propertyOwner: p.owner?.name || 'Apex Property Manager',
+          propertyOwner: p.owner?.name || 'Property Owner',
           propertyImageUrl: p.imageUrl,
         });
       });

@@ -26,7 +26,7 @@ export const UnifiedChatHub: React.FC = () => {
   const queryClient = useQueryClient();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'ALL' | 'TENANT' | 'OWNER' | 'STAFF'>('ALL');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'TENANT' | 'OWNER'>('ALL');
   const [inputText, setInputText] = useState('');
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -45,8 +45,10 @@ export const UnifiedChatHub: React.FC = () => {
     enabled: isNewChatModalOpen,
   });
 
-  // Filter conversations
+  // Filter conversations (Staff hidden from UI per user request)
   const filteredConversations = conversations.filter((c: any) => {
+    if (c.participantType === 'STAFF') return false;
+
     const matchesSearch =
       (c.participantName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.subtitle || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -218,7 +220,7 @@ export const UnifiedChatHub: React.FC = () => {
     <div className="space-y-4 text-foreground flex flex-col h-[calc(100vh-120px)]">
       <PageHeader
         title="Communication Hub"
-        description="Unified real-time in-app messaging with your tenants, owners, and maintenance staff."
+        description="Unified real-time in-app messaging with your tenants and property owners."
         breadcrumbs={[
           { label: 'Home', href: '/' },
           { label: 'Communication' },
@@ -249,7 +251,7 @@ export const UnifiedChatHub: React.FC = () => {
             </div>
 
             <div className="flex gap-1.5 overflow-x-auto text-[11px] font-bold">
-              {(['ALL', 'TENANT', 'OWNER', 'STAFF'] as const).map((filter) => (
+              {(['ALL', 'TENANT', 'OWNER'] as const).map((filter) => (
                 <button
                   key={filter}
                   onClick={() => setRoleFilter(filter)}
@@ -446,10 +448,12 @@ export const UnifiedChatHub: React.FC = () => {
       >
         <div className="space-y-3 pt-1">
           <p className="text-xs text-muted-foreground font-medium">
-            Select a verified tenant, owner, or staff member from your portfolio directory:
+            Select a verified tenant or property owner from your portfolio directory:
           </p>
           <div className="max-h-72 overflow-y-auto space-y-2 divide-y divide-border/40 pr-1">
-            {contacts.map((contact: any) => (
+            {contacts
+              .filter((c: any) => c.participantType !== 'STAFF')
+              .map((contact: any) => (
               <div key={contact.id} className="pt-2 flex items-center justify-between">
                 <div>
                   <h4 className="font-bold text-xs text-foreground">{contact.name}</h4>
