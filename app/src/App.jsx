@@ -117,6 +117,13 @@ export default function App() {
     return () => subscription?.remove();
   }, []);
 
+  // Sync fresh permissions for Co-Managers
+  useEffect(() => {
+    if (user?.role === 'Co-Manager' || user?.isPrimary === false) {
+      useAuthStore.getState().fetchPermissions?.();
+    }
+  }, [user?.role, user?.email]);
+
   // System Edge Swipe & Hardware Back Button Handler: Prevents unexpected app exit
   const handleGoBack = () => {
     // 1. If navigation drawer is open, close it first
@@ -228,14 +235,32 @@ export default function App() {
       case 'invoices':
       case 'rent-ledger':
       case 'ledger':
-        setActiveTab('rent');
-        setActiveSubTab(tabId === 'rent-ledger' ? 'ledger' : tabId);
+        if (role === 'Collection Manager') {
+          if (tabId === 'invoices') {
+            setActiveTab('invoices');
+            setActiveSubTab('invoices');
+          } else if (tabId === 'rent-ledger' || tabId === 'ledger') {
+            setActiveTab('rent-ledger');
+            setActiveSubTab('ledger');
+          } else {
+            setActiveTab('rent');
+            setActiveSubTab('payments');
+          }
+        } else {
+          setActiveTab('rent');
+          setActiveSubTab(tabId === 'rent-ledger' ? 'ledger' : tabId);
+        }
         break;
 
       case 'rent':
       case 'rent-dashboard':
-        setActiveTab('rent');
-        setActiveSubTab(subTab || 'dashboard');
+        if (role === 'Collection Manager') {
+          setActiveTab('rent');
+          setActiveSubTab('payments');
+        } else {
+          setActiveTab('rent');
+          setActiveSubTab(subTab || 'dashboard');
+        }
         break;
 
       case 'chart-of-accounts':
@@ -335,6 +360,7 @@ export default function App() {
     if (lower.includes('owner')) return 'Owner';
     if (lower.includes('staff') || lower.includes('vendor')) return 'Maintenance Staff';
     if (lower.includes('tenant') || lower.includes('resident')) return 'Tenant';
+    if (lower.includes('co manager') || lower.includes('sub manager') || (r === 'Property Manager' && user?.isPrimary === false)) return 'Co-Manager';
     return 'Property Manager';
   };
 
@@ -358,8 +384,9 @@ export default function App() {
     case 'Collection Manager':
       moduleTabs = [
         { id: 'dashboard', label: language === 'es' ? 'Tablero' : 'Dashboard', icon: 'grid-outline', activeIcon: 'grid' },
+        { id: 'invoices', label: language === 'es' ? 'Facturas' : 'Invoices', icon: 'document-text-outline', activeIcon: 'document-text' },
         { id: 'rent', label: language === 'es' ? 'Pagos' : 'Payments', icon: 'card-outline', activeIcon: 'card' },
-        { id: 'messages', label: language === 'es' ? 'Mensajes' : 'Messages', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles' },
+        { id: 'rent-ledger', label: language === 'es' ? 'Libro' : 'Ledger', icon: 'book-outline', activeIcon: 'book' },
         { id: 'profile', label: language === 'es' ? 'Perfil' : 'Profile', icon: 'person-outline', activeIcon: 'person' },
       ];
       break;
@@ -391,6 +418,34 @@ export default function App() {
       ];
       break;
 
+    case 'Co-Manager': {
+      const coPerms = user?.permissions;
+      const canView = (mod) => {
+        if (Array.isArray(coPerms) && coPerms.length > 0) {
+          const p = coPerms.find((x) => x.module?.toLowerCase() === mod.toLowerCase());
+          if (p) return Boolean(p.canView ?? p.view);
+        }
+        if (mod === 'Accounting' || mod === 'Reports') return false;
+        return true;
+      };
+      moduleTabs = [
+        { id: 'dashboard', label: language === 'es' ? 'Tablero' : language === 'hi' ? 'डैशबोर्ड' : 'Dashboard', icon: 'grid-outline', activeIcon: 'grid' },
+      ];
+      if (canView('Properties')) {
+        moduleTabs.push({ id: 'properties', label: language === 'es' ? 'Propiedades' : language === 'hi' ? 'संपत्तियां' : 'Properties', icon: 'business-outline', activeIcon: 'business' });
+      }
+      if (canView('Tenants')) {
+        moduleTabs.push({ id: 'tenants', label: language === 'es' ? 'Inquilinos' : language === 'hi' ? 'किरायेदार' : 'Tenants', icon: 'people-outline', activeIcon: 'people' });
+      }
+      if (canView('Owners')) {
+        moduleTabs.push({ id: 'owners', label: language === 'es' ? 'Propietarios' : language === 'hi' ? 'मालिक' : 'Owners', icon: 'person-add-outline', activeIcon: 'person-add' });
+      }
+      if (canView('Rent & Payments') && moduleTabs.length < 5) {
+        moduleTabs.push({ id: 'rent', label: language === 'es' ? 'Pagos' : language === 'hi' ? 'किराया' : 'Payments', icon: 'card-outline', activeIcon: 'card' });
+      }
+      break;
+    }
+
     case 'Property Manager':
     default:
       moduleTabs = [
@@ -407,6 +462,7 @@ export default function App() {
     switch (role) {
       case 'Super Admin':
         return <AdminDashboard onNavigate={(screenId) => handleNavigate(screenId)} onOpenMenu={() => setDrawerVisible(true)} />;
+      case 'Co-Manager':
       case 'Property Manager':
         return <ManagerDashboard onNavigate={handleNavigate} onOpenMenu={() => setDrawerVisible(true)} />;
       case 'Collection Manager':
@@ -511,7 +567,7 @@ export default function App() {
       case 'restore-bin':
         return <RestoreBinScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'invoices':
-        if (role === 'Property Manager' || role === 'Collection Manager') {
+        if (role === 'Property Manager' || role === 'Co-Manager' || role === 'Collection Manager') {
           return (
             <ManagerRentPaymentsScreen
               initialTab="invoices"
@@ -526,21 +582,21 @@ export default function App() {
         return <InvoicesScreen />;
       case 'communication':
       case 'messages':
-        return role === 'Property Manager' ? <ManagerCommunicationScreen onNavigate={handleNavigate} onBack={handleGoBack} /> : <TenantMessagesScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
+        return (role === 'Property Manager' || role === 'Co-Manager') ? <ManagerCommunicationScreen onNavigate={handleNavigate} onBack={handleGoBack} /> : <TenantMessagesScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'notifications':
         return role === 'Tenant' ? <TenantNotificationsScreen onNavigate={handleNavigate} onBack={handleGoBack} /> : <NotificationsScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'statements':
-        return <StatementsScreen />;
+        return <StatementsScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'reports':
         return role === 'Owner' ? <OwnerReportsScreen onNavigate={handleNavigate} onBack={handleGoBack} /> : <ReportsScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
       case 'rent':
       case 'payments':
       case 'rent-dashboard':
-        if (role === 'Owner') return <OwnerFinancialsScreen />;
-        if (role === 'Property Manager' || role === 'Collection Manager') {
+        if (role === 'Owner') return <OwnerFinancialsScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
+        if (role === 'Property Manager' || role === 'Co-Manager' || role === 'Collection Manager') {
           return (
             <ManagerRentPaymentsScreen
-              initialTab={activeSubTab || (activeTab === 'payments' ? 'payments' : 'dashboard')}
+              initialTab={activeSubTab || (activeTab === 'payments' || role === 'Collection Manager' ? 'payments' : 'dashboard')}
               initialStatusFilter={navParams.statusFilter || navParams.filter || ''}
               targetPaymentId={navParams.paymentId || navParams.id}
               targetInvoiceId={navParams.invoiceId || navParams.id}
@@ -553,8 +609,8 @@ export default function App() {
       case 'financials':
       case 'ledger':
       case 'rent-ledger':
-        if (role === 'Owner') return <OwnerFinancialsScreen />;
-        if (role === 'Property Manager' || role === 'Collection Manager') {
+        if (role === 'Owner') return <OwnerFinancialsScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
+        if (role === 'Property Manager' || role === 'Co-Manager' || role === 'Collection Manager') {
           return (
             <ManagerRentPaymentsScreen
               initialTab="ledger"
@@ -571,8 +627,8 @@ export default function App() {
       case 'chart-of-accounts':
       case 'income':
       case 'expenses':
-        if (role === 'Owner') return <OwnerFinancialsScreen />;
-        if (role === 'Property Manager' || role === 'Collection Manager') {
+        if (role === 'Owner') return <OwnerFinancialsScreen onNavigate={handleNavigate} onBack={handleGoBack} />;
+        if (role === 'Property Manager' || role === 'Co-Manager' || role === 'Collection Manager') {
           return <ManagerAccountingScreen initialTab={activeSubTab || 'dashboard'} onNavigate={handleNavigate} onBack={handleGoBack} />;
         }
         return <TenantLedgerScreen />;
@@ -644,7 +700,7 @@ export default function App() {
             />
           );
         }
-        if (role === 'Property Manager') {
+        if (role === 'Property Manager' || role === 'Co-Manager') {
           return (
             <ManagerServicesScreen
               onNavigate={(screenId) => {

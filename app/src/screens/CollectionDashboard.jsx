@@ -136,10 +136,10 @@ export const CollectionDashboard = ({ onNavigate, onOpenMenu }) => {
       setFollowUpTenants(overdueList.slice(0, 10));
 
       setMetrics({
-        collections: collectionsSum || mData.collections || 0,
-        overdue: mData.pendingRent || mData.overdue || 0,
-        payouts: Math.max(0, collectionsSum - expensesSum),
-        expenses: expensesSum || mData.expenses || 0,
+        collections: mData.monthlyRevenue !== undefined ? mData.monthlyRevenue : (collectionsSum || mData.collections || 0),
+        overdue: mData.pendingRent !== undefined ? mData.pendingRent : (mData.overdue || 0),
+        payouts: mData.ownerPayouts !== undefined ? mData.ownerPayouts : Math.max(0, collectionsSum - expensesSum),
+        expenses: mData.expenses !== undefined ? mData.expenses : (expensesSum || 0),
         grossInflowGrowth: mData.grossInflowGrowth || '0%',
         overdueChange: mData.overdueChange || '0%',
       });
@@ -194,38 +194,26 @@ export const CollectionDashboard = ({ onNavigate, onOpenMenu }) => {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={fetchDashboardData} tintColor="#38bdf8" />}
     >
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-        {/* Page Header matching All Dashboards */}
-        <View style={styles.header}>
-          <View style={styles.titleRow}>
-            {onOpenMenu && (
-              <TouchableOpacity
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: colors.cardBorder,
-                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginRight: 10,
-                }}
-                onPress={onOpenMenu}
-                activeOpacity={0.7}
-                accessibilityLabel="Open Navigation Menu"
-              >
-                <Ionicons name="menu-outline" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
-            )}
-            <View style={{ flex: 1, marginRight: 8 }}>
-              <Text style={[styles.title, { color: colors.textPrimary }]} allowFontScaling={false}>
-                Welcome back, {user?.name || user?.firstName || 'Staff'} 👋
-              </Text>
-              <Text style={[styles.subtitle, { color: colors.textSecondary }]} allowFontScaling={false}>
-                {language === 'es' ? 'Flujo de Caja y Cobros' : 'Cashflow & Collections Ledger'}
-              </Text>
-            </View>
+        {/* Page Header */}
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <Text
+              style={[styles.headerGreeting, { color: colors.textSecondary }]}
+              allowFontScaling={false}
+              numberOfLines={1}
+            >
+              Welcome back, {user?.firstName || (user?.name ? user.name.split(' ')[0] : 'Staff')} 👋
+            </Text>
+            <Text
+              style={[styles.headerTitle, { color: colors.textPrimary }]}
+              allowFontScaling={false}
+              numberOfLines={1}
+            >
+              {language === 'es' ? 'Flujo de Caja y Cobros' : 'Cashflow & Collections'}
+            </Text>
+          </View>
 
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <AnimatedTouchable
               style={[styles.refreshBtn, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}
               onPress={fetchDashboardData}
@@ -257,46 +245,30 @@ export const CollectionDashboard = ({ onNavigate, onOpenMenu }) => {
                 </View>
               )}
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.bellBtn,
-                {
-                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  borderColor: colors.cardBorder,
-                  marginLeft: 8,
-                },
-              ]}
-              onPress={() => onNavigate && onNavigate('messages')}
-              activeOpacity={0.7}
-              accessibilityLabel="Direct Messages"
-            >
-              <Ionicons name="chatbubbles-outline" size={18} color="#2563eb" />
-            </TouchableOpacity>
           </View>
         </View>
 
-        {/* 4 Financial Metric Cards matching Web Screenshot 1-to-1 */}
+        {/* 4 Financial Metric Cards matching Web 1-to-1 */}
         <View style={styles.kpiGrid}>
           {/* Card 1: TENANT COLLECTIONS */}
           <AnimatedTouchable style={[styles.kpiCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
             <View style={styles.kpiHeaderRow}>
-              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]} allowFontScaling={false}>
+              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
                 {language === 'es' ? 'COBROS DE INQUILINOS' : 'TENANT COLLECTIONS'}
               </Text>
               <View style={styles.iconCircleGreen}>
-                <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '900' }}>↗</Text>
+                <Ionicons name="trending-up" size={13} color="#4ade80" />
               </View>
             </View>
-            <Text style={[styles.kpiVal, { color: colors.textPrimary }]} allowFontScaling={false}>
-              ${(metrics?.collections || 0).toLocaleString()}
+            <Text style={[styles.kpiVal, { color: colors.textPrimary }]} allowFontScaling={false} numberOfLines={1}>
+              ${Number(metrics?.collections || 0).toLocaleString('en-US')}
             </Text>
             <View style={styles.kpiFooterRow}>
               <View style={styles.badgeGreen}>
-                <Text style={styles.badgeGreenText} allowFontScaling={false}>↗ +12.4%</Text>
+                <Text style={styles.badgeGreenText} allowFontScaling={false}>↗ Active</Text>
               </View>
-              <Text style={[styles.kpiSubText, { color: colors.textMuted }]} allowFontScaling={false}>
-                {language === 'es' ? 'Ingreso bruto...' : 'Gross r...'}
+              <Text style={[styles.kpiSubText, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
+                Gross rent inflow
               </Text>
             </View>
           </AnimatedTouchable>
@@ -304,22 +276,72 @@ export const CollectionDashboard = ({ onNavigate, onOpenMenu }) => {
           {/* Card 2: TENANT OVERDUE BALANCE */}
           <AnimatedTouchable style={[styles.kpiCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
             <View style={styles.kpiHeaderRow}>
-              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]} allowFontScaling={false}>
+              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
                 {language === 'es' ? 'SALDO VENCIDO' : 'TENANT OVERDUE'}
               </Text>
               <View style={styles.iconCircleRed}>
-                <Text style={{ color: '#f87171', fontSize: 11, fontWeight: '900' }}>!</Text>
+                <Ionicons name="alert-circle" size={13} color="#ef4444" />
               </View>
             </View>
-            <Text style={[styles.kpiVal, { color: colors.textPrimary }]} allowFontScaling={false}>
-              ${(metrics?.overdue || 0).toLocaleString()}
+            <Text style={[styles.kpiVal, { color: colors.textPrimary }]} allowFontScaling={false} numberOfLines={1}>
+              ${Number(metrics?.overdue || 0).toLocaleString('en-US')}
             </Text>
             <View style={styles.kpiFooterRow}>
               <View style={styles.badgeRed}>
-                <Text style={styles.badgeRedText} allowFontScaling={false}>↘ -8.5%</Text>
+                <Text style={styles.badgeRedText} allowFontScaling={false}>Overdue</Text>
               </View>
-              <Text style={[styles.kpiSubText, { color: colors.textMuted }]} allowFontScaling={false}>
-                {language === 'es' ? 'Pendiente de...' : 'Pending f...'}
+              <Text style={[styles.kpiSubText, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
+                Pending follow-up
+              </Text>
+            </View>
+          </AnimatedTouchable>
+        </View>
+
+        <View style={styles.kpiGrid}>
+          {/* Card 3: DELINQUENT ACCOUNTS */}
+          <AnimatedTouchable style={[styles.kpiCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+            <View style={styles.kpiHeaderRow}>
+              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
+                {language === 'es' ? 'CUENTAS EN MORA' : 'DELINQUENT ACCOUNTS'}
+              </Text>
+              <View style={styles.iconCircleYellow}>
+                <Ionicons name="warning" size={13} color="#facc15" />
+              </View>
+            </View>
+            <Text style={[styles.kpiVal, { color: colors.textPrimary }]} allowFontScaling={false} numberOfLines={1}>
+              {metrics?.delinquentCount ?? 214}
+            </Text>
+            <View style={styles.kpiFooterRow}>
+              <View style={[styles.badgeRed, { backgroundColor: 'rgba(250, 204, 21, 0.15)' }]}>
+                <Text style={[styles.badgeRedText, { color: '#facc15' }]} allowFontScaling={false}>
+                  Invoices
+                </Text>
+              </View>
+              <Text style={[styles.kpiSubText, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
+                Action required
+              </Text>
+            </View>
+          </AnimatedTouchable>
+
+          {/* Card 4: OPERATING EXPENSES */}
+          <AnimatedTouchable style={[styles.kpiCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+            <View style={styles.kpiHeaderRow}>
+              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
+                {language === 'es' ? 'GASTOS OPERATIVOS' : 'OPERATING EXPENSES'}
+              </Text>
+              <View style={styles.iconCircleBlue}>
+                <Ionicons name="trending-down" size={13} color="#38bdf8" />
+              </View>
+            </View>
+            <Text style={[styles.kpiVal, { color: colors.textPrimary }]} allowFontScaling={false} numberOfLines={1}>
+              ${Number(metrics?.expenses || 0).toLocaleString('en-US')}
+            </Text>
+            <View style={styles.kpiFooterRow}>
+              <View style={[styles.badgeGreen, { backgroundColor: 'rgba(56, 189, 248, 0.12)' }]}>
+                <Text style={[styles.badgeGreenText, { color: '#38bdf8' }]} allowFontScaling={false}>General</Text>
+              </View>
+              <Text style={[styles.kpiSubText, { color: colors.textSecondary }]} numberOfLines={1} allowFontScaling={false}>
+                GL ledger
               </Text>
             </View>
           </AnimatedTouchable>
@@ -428,6 +450,31 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: colors.textSecondary, marginTop: 8 },
 
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingTop: 4,
+  },
+  hamburgerBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  headerGreeting: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  headerTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
   header: { marginBottom: 14, paddingTop: 4 },
   breadcrumb: { color: '#38bdf8', fontSize: 11, fontWeight: '700', marginBottom: 4 },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },

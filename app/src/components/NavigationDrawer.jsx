@@ -37,6 +37,7 @@ export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, on
   const isOwner = roleLower.includes('owner');
   const isTenant = roleLower.includes('tenant') || roleLower.includes('resident');
   const isStaff = roleLower.includes('staff') || roleLower.includes('vendor');
+  const isCoManager = roleLower.includes('co manager') || roleLower.includes('co-manager') || roleLower.includes('sub manager') || (user?.role === 'Property Manager' && user?.isPrimary === false);
 
   // DOORLOOP-STYLE SPECIFICATION (Exact Photo 3 Structure)
   const managerMenus = [
@@ -154,8 +155,43 @@ export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, on
     },
   ];
 
+  // Auto-refresh Co-Manager permissions on drawer open
+  React.useEffect(() => {
+    if (visible && isCoManager) {
+      useAuthStore.getState().fetchPermissions?.();
+    }
+  }, [visible, isCoManager]);
+
+  // Co-Manager filtered menus
+  const filteredCoManagerMenus = managerMenus.filter((m) => {
+    let moduleName = '';
+    if (m.id === 'properties') moduleName = 'Properties';
+    else if (m.id === 'tenants') moduleName = 'Tenants';
+    else if (m.id === 'owners') moduleName = 'Owners';
+    else if (m.id === 'leasing') moduleName = 'Leasing';
+    else if (m.id === 'maintenance') moduleName = 'Maintenance';
+    else if (m.id === 'accounting') moduleName = 'Accounting';
+    else if (m.id === 'rent' || m.id === 'rent-payments') moduleName = 'Rent & Payments';
+    else if (m.id === 'documents') moduleName = 'Documents';
+    else if (m.id === 'reports') moduleName = 'Reports';
+    else if (m.id === 'communication') moduleName = 'Communication';
+    else if (m.id === 'ai') moduleName = 'AI Assistant';
+
+    if (!moduleName) return true;
+    const userPerms = user?.permissions;
+    if (Array.isArray(userPerms) && userPerms.length > 0) {
+      const p = userPerms.find((x) => x.module?.toLowerCase() === moduleName.toLowerCase());
+      if (p) return Boolean(p.canView ?? p.view);
+    }
+    // Block sensitive owner modules by default for Co-Managers
+    if (moduleName === 'Accounting' || moduleName === 'Reports' || moduleName === 'Company Settings') {
+      return false;
+    }
+    return true;
+  });
+
   // Specific roles fallback
-  let currentRoleMenus = managerMenus;
+  let currentRoleMenus = isCoManager ? filteredCoManagerMenus : managerMenus;
   if (isSuperAdmin) {
     currentRoleMenus = [
       { id: 'dashboard', title: 'Overview', icon: 'home-outline', screen: 'dashboard' },
@@ -188,6 +224,14 @@ export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, on
       { id: 'documents', title: 'Documents', icon: 'folder-outline', screen: 'documents' },
       { id: 'communication', title: 'Messages', icon: 'chatbubble-ellipses-outline', screen: 'communication' },
       { id: 'ai', title: 'AI Assistant', icon: 'sparkles-outline', screen: 'ai', badge: 'AI' },
+    ];
+  } else if (isCollectionManager) {
+    currentRoleMenus = [
+      { id: 'dashboard', title: language === 'es' ? 'Resumen' : 'Overview', icon: 'home-outline', screen: 'dashboard' },
+      { id: 'invoices', title: language === 'es' ? 'Facturas' : 'Tenant Invoices', icon: 'document-text-outline', screen: 'invoices' },
+      { id: 'payments', title: language === 'es' ? 'Historial de Pagos' : 'Payment History', icon: 'card-outline', screen: 'payments' },
+      { id: 'rent-ledger', title: language === 'es' ? 'Libro Mayor' : 'Tenant Ledger', icon: 'book-outline', screen: 'rent-ledger' },
+      { id: 'profile', title: language === 'es' ? 'Perfil' : 'Profile', icon: 'person-outline', screen: 'profile' },
     ];
   } else if (isStaff) {
     currentRoleMenus = [
@@ -345,18 +389,20 @@ export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, on
               <View style={[styles.divider, { marginVertical: 10 }]} />
 
               {/* Bottom Standard Menu Links */}
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => handleSelect('profile')}
-                activeOpacity={0.7}
-              >
-                <View style={styles.menuItemLeft}>
-                  <Ionicons name="person-outline" size={19} color={colors.textPrimary} style={{ marginRight: 12 }} />
-                  <Text style={styles.menuItemText} allowFontScaling={false}>Profile</Text>
-                </View>
-              </TouchableOpacity>
+              {!isCollectionManager && !isStaff && (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => handleSelect('profile')}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.menuItemLeft}>
+                    <Ionicons name="person-outline" size={19} color={colors.textPrimary} style={{ marginRight: 12 }} />
+                    <Text style={styles.menuItemText} allowFontScaling={false}>Profile</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
 
-              {!isTenant && !isOwner && !isStaff && (
+              {!isTenant && !isOwner && !isStaff && !isCollectionManager && !isCoManager && (
                 <TouchableOpacity
                   style={styles.menuItem}
                   onPress={() => handleSelect('company-settings')}

@@ -6,16 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Modal,
-  Alert,
   ActivityIndicator,
-  RefreshControl,
   Animated,
   Easing,
   Platform,
   KeyboardAvoidingView,
   Keyboard,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import apiClient from '../api/client';
 import { useAuthStore, useThemeStore } from '../store/useStore';
@@ -28,255 +24,175 @@ export const TenantMessagesScreen = ({ onNavigate, onBack }) => {
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
 
-  // All roles except Property Manager communicate directly with Property Manager
-  const defaultManagerContact = 'Property Manager Office';
-
-  const [activeContactName, setActiveContactName] = useState(null); // null means show conversation list
-  const [activeView, setActiveView] = useState('inbox'); // 'inbox' | 'announcements'
-  const [inputText, setInputText] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // Active view: 'chat' (Direct 1-to-1 Live Chat) | 'notices' (Announcements)
+  const [activeView, setActiveView] = useState('chat');
+  const [conversationId, setConversationId] = useState(null);
+  const [conversationData, setConversationData] = useState(null);
   const [messages, setMessages] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
 
-  // New Chat Modal state
-  const [newChatModalOpen, setNewChatModalOpen] = useState(false);
-  const [newChatBody, setNewChatBody] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  // Animations
+  // Animations & refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
   const chatScrollRef = useRef(null);
+  const pollTimerRef = useRef(null);
 
   const runEntryAnimation = () => {
     fadeAnim.setValue(0);
-    slideAnim.setValue(30);
+    slideAnim.setValue(20);
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 350,
+        duration: 300,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 350,
+        duration: 300,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
     ]).start();
   };
 
-  // Fetch Announcements
-  const fetchAnnouncements = async (showLoading = true) => {
+  // 1. Initialize & Fetch Conversation
+  const initChat = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await apiClient.get('/announcements', logout, refreshAccessToken);
-      const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-      setAnnouncements(list);
+      const res = await apiClient.get('/chat/conversations', logout, refreshAccessToken);
+      const convList = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+      
+      if (convList.length > 0) {
+        const conv = convList[0];
+        setConversationData(conv);
+        setConversationId(conv.id);
+        await fetchMessages(conv.id, false);
+      }
     } catch (e) {
-      console.log('Failed fetching tenant announcements:', e.message);
-      setAnnouncements([]);
+      console.log('Error initializing chat conversation:', e?.message || e);
     } finally {
       if (showLoading) setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  // Fetch Messages for current user
-  const fetchData = async (showLoading = true) => {
-    try {
-      if (showLoading) setLoading(true);
-      const isTenant = user?.role === 'Tenant';
-      const isOwner = user?.role === 'Owner';
-      const endpoint = isTenant ? '/portal/tenant/messages' : (isOwner ? '/portal/owner/messages' : '/messages');
-
-      const [res, annRes] = await Promise.all([
-        apiClient.get(endpoint, logout, refreshAccessToken).catch(() => null),
-        apiClient.get('/announcements', logout, refreshAccessToken).catch(() => null),
-      ]);
-
-      const rawMsgs = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-      const rawAnns = Array.isArray(annRes?.data) ? annRes.data : (Array.isArray(annRes) ? annRes : []);
-
-      setMessages(rawMsgs);
-      setAnnouncements(rawAnns);
-    } catch (e) {
-      console.log('Error fetching messages:', e.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
       runEntryAnimation();
     }
   };
 
+  // 2. Fetch Messages for Conversation
+  const fetchMessages = async (convId, showLoading = false) => {
+    if (!convId) return;
+    try {
+      if (showLoading) setLoading(true);
+      const res = await apiClient.get(`/chat/conversations/${convId}/messages`, logout, refreshAccessToken);
+      const msgList = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+      
+      setMessages((prev) => {
+        // Keep optimistic pending messages if not yet in backend
+        const pending = prev.filter((m) => m.id && String(m.id).startsWith('temp-'));
+        const backendIds = new Set(msgList.map((m) => String(m.id)));
+        const stillPending = pending.filter((m) => !backendIds.has(String(m.id)));
+        return [...msgList, ...stillPending];
+      });
+
+      // Mark as read in background
+      apiClient.post(`/chat/conversations/${convId}/read`, {}, logout, refreshAccessToken).catch(() => {});
+    } catch (e) {
+      console.log('Error fetching chat messages:', e?.message || e);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
+
+  // 3. Fetch Notices / Bulletins
+  const fetchAnnouncements = async () => {
+    try {
+      const res = await apiClient.get('/announcements', logout, refreshAccessToken);
+      const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+      setAnnouncements(list);
+    } catch (e) {
+      console.log('Error fetching announcements:', e?.message || e);
+      setAnnouncements([]);
+    }
+  };
+
+  // Initial load
   useEffect(() => {
-    fetchData();
+    initChat(true);
+    fetchAnnouncements();
   }, [user?.role]);
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    if (activeView === 'announcements') {
-      fetchAnnouncements(false);
-    } else {
-      fetchData(false);
+  // Real-time 3s auto-polling
+  useEffect(() => {
+    if (activeView === 'chat' && conversationId) {
+      pollTimerRef.current = setInterval(() => {
+        fetchMessages(conversationId, false);
+      }, 3000);
     }
-  };
 
-  // Group messages - Non-managers always talk to Property Manager Office
-  const threadMap = {};
-  messages.forEach((m) => {
-    const contact = defaultManagerContact;
-    if (!threadMap[contact]) {
-      threadMap[contact] = [];
-    }
-    threadMap[contact].push(m);
-  });
-
-  // Ensure default thread exists for tenant/owner/staff to talk to Manager
-  if (!threadMap[defaultManagerContact]) {
-    threadMap[defaultManagerContact] = [];
-  }
-
-  const conversationThreads = Object.keys(threadMap).map((contactName) => {
-    const threadMsgs = threadMap[contactName].sort(
-      (a, b) => new Date(a.createdAt || a.timestamp || 0) - new Date(b.createdAt || b.timestamp || 0)
-    );
-    const lastMsg = threadMsgs[threadMsgs.length - 1];
-
-    return {
-      contactName,
-      lastMsgText: lastMsg?.body || lastMsg?.message || 'Tap to chat with your Property Manager',
-      lastMsgTime: lastMsg?.createdAt ? new Date(lastMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today',
-      badgeColor: '#f59e0b',
-      roleText: 'Manager',
-      messages: threadMsgs,
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
     };
-  });
+  }, [activeView, conversationId]);
 
-  // Filter threads by search
-  const filteredThreads = conversationThreads.filter((t) =>
-    t.contactName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.lastMsgText.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Send reply in active thread
-  const handleSendReply = async () => {
-    if (!inputText.trim()) return;
-    const bodyText = inputText.trim();
+  // Send message
+  const handleSend = async () => {
+    if (!inputText.trim() || !conversationId || sending) return;
+    const text = inputText.trim();
     setInputText('');
+    setSending(true);
 
+    const tempId = `temp-${Date.now()}`;
     const optimisticMsg = {
-      id: String(Date.now()),
-      sender: user?.name || user?.email || 'You',
-      recipient: defaultManagerContact,
-      body: bodyText,
+      id: tempId,
+      conversationId,
+      body: text,
+      status: 'SENT',
       createdAt: new Date().toISOString(),
-      isOutbound: true,
-      contactName: defaultManagerContact,
+      isMine: true,
+      senderName: user?.name || 'You',
     };
 
-    setMessages((prev) => [optimisticMsg, ...prev]);
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 50);
 
     try {
-      const isTenant = user?.role === 'Tenant';
-      const isOwner = user?.role === 'Owner';
-      const endpoint = isTenant ? '/portal/tenant/messages' : (isOwner ? '/portal/owner/messages' : '/messages');
-
-      await apiClient.post(
-        endpoint,
-        {
-          recipient: defaultManagerContact,
-          body: bodyText,
-          subject: '1-to-1 Chat',
-        },
+      const res = await apiClient.post(
+        `/chat/conversations/${conversationId}/messages`,
+        { body: text },
         logout,
         refreshAccessToken
       );
+      const savedMsg = res?.data || res;
+
+      if (savedMsg?.id) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...savedMsg, isMine: true } : m))
+        );
+      }
     } catch (e) {
-      console.log('Post message fallback:', e.message);
-    }
-  };
-
-  // Start new conversation from modal
-  const handleStartNewChat = async () => {
-    if (!newChatBody.trim()) {
-      Alert.alert('Required', 'Please enter your message.');
-      return;
-    }
-
-    Keyboard.dismiss();
-    setSubmitting(true);
-    const bodyText = newChatBody.trim();
-
-    try {
-      const isTenant = user?.role === 'Tenant';
-      const isOwner = user?.role === 'Owner';
-      const endpoint = isTenant ? '/portal/tenant/messages' : (isOwner ? '/portal/owner/messages' : '/messages');
-
-      await apiClient.post(
-        endpoint,
-        {
-          recipient: defaultManagerContact,
-          body: bodyText,
-          subject: 'General Inquiry',
-        },
-        logout,
-        refreshAccessToken
-      );
-
-      const optimisticMsg = {
-        id: String(Date.now()),
-        sender: user?.name || user?.email || 'You',
-        recipient: defaultManagerContact,
-        body: bodyText,
-        createdAt: new Date().toISOString(),
-        isOutbound: true,
-        contactName: defaultManagerContact,
-      };
-      setMessages((prev) => [optimisticMsg, ...prev]);
-
-      setNewChatModalOpen(false);
-      setNewChatBody('');
-      setActiveContactName(defaultManagerContact);
-    } catch (e) {
-      const optimisticMsg = {
-        id: String(Date.now()),
-        sender: user?.name || user?.email || 'You',
-        recipient: defaultManagerContact,
-        body: bodyText,
-        createdAt: new Date().toISOString(),
-        isOutbound: true,
-        contactName: defaultManagerContact,
-      };
-      setMessages((prev) => [optimisticMsg, ...prev]);
-      setNewChatModalOpen(false);
-      setNewChatBody('');
-      setActiveContactName(defaultManagerContact);
+      console.log('Error sending message:', e?.message || e);
     } finally {
-      setSubmitting(false);
+      setSending(false);
     }
   };
 
-  const activeThreadMessages = activeContactName ? (threadMap[activeContactName] || []) : [];
+  const roleTitle = user?.role === 'Owner' ? 'Property Owner Portal' : 'Tenant Portal';
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background || '#090d16' }]}>
-      {/* HEADER BAR */}
+      {/* HEADER */}
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
           <TouchableOpacity
             style={styles.backBtn}
             onPress={() => {
-              if (activeContactName !== null) {
-                setActiveContactName(null);
-              } else if (onBack) {
-                onBack();
-              } else if (onNavigate) {
-                onNavigate('back');
-              }
+              if (onBack) onBack();
+              else if (onNavigate) onNavigate('back');
             }}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             activeOpacity={0.7}
@@ -284,319 +200,217 @@ export const TenantMessagesScreen = ({ onNavigate, onBack }) => {
             <Ionicons name="arrow-back" size={24} color={colors.textPrimary || '#f8fafc'} />
           </TouchableOpacity>
 
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title} allowFontScaling={false}>
-              {activeContactName !== null ? activeContactName : 'Messages'}
-            </Text>
+          <View style={{ flex: 1, marginLeft: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.title} allowFontScaling={false}>
+                Property Manager Office
+              </Text>
+              <View style={styles.liveBadge}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>Live</Text>
+              </View>
+            </View>
             <Text style={styles.subtitle} numberOfLines={1} allowFontScaling={false}>
-              {activeContactName !== null
-                ? 'Direct 1-to-1 with Management Office'
-                : 'Direct Communication with Property Manager'}
+              Direct Encrypted Channel • {roleTitle}
             </Text>
           </View>
 
-          {activeContactName === null && (
-            <TouchableOpacity
-              style={styles.newChatBtn}
-              onPress={() => {
-                Keyboard.dismiss();
-                setNewChatModalOpen(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="create-outline" size={16} color="#0f172a" style={{ marginRight: 4 }} />
-              <Text style={styles.newChatBtnText} allowFontScaling={false}>New Chat</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.refreshBtn}
+            onPress={() => {
+              if (conversationId) fetchMessages(conversationId, true);
+              else initChat(true);
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="refresh" size={18} color="#38bdf8" />
+          </TouchableOpacity>
         </View>
 
-        {/* Search bar when in conversation list */}
-        {activeContactName === null && (
-          <View style={styles.searchBarRow}>
-            <Ionicons name="search-outline" size={16} color="#64748b" style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search conversation..."
-              placeholderTextColor="#64748b"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
+        {/* SUB TABS: Direct Chat | Notices & Bulletins */}
+        <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeView === 'chat' && styles.tabBtnActive]}
+            onPress={() => setActiveView('chat')}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={activeView === 'chat' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
+              size={15}
+              color={activeView === 'chat' ? '#38bdf8' : '#94a3b8'}
+              style={{ marginRight: 6 }}
             />
-            {searchQuery ? (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={16} color="#64748b" />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        )}
-        {/* SUB-NAV TABS: 1-to-1 Messages | Notices */}
-        {activeContactName === null && (
-          <View style={styles.tabBar}>
-            <TouchableOpacity
-              style={[styles.tabBtn, activeView === 'inbox' && styles.tabBtnActive]}
-              onPress={() => setActiveView('inbox')}
-            >
-              <Ionicons
-                name={activeView === 'inbox' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
-                size={14}
-                color={activeView === 'inbox' ? '#38bdf8' : '#94a3b8'}
-                style={{ marginRight: 6 }}
-              />
-              <Text style={[styles.tabBtnText, activeView === 'inbox' && styles.tabBtnTextActive]}>1-to-1 Messages</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tabBtn, activeView === 'announcements' && styles.tabBtnActive]}
-              onPress={() => {
-                setActiveView('announcements');
-                if (announcements.length === 0) fetchAnnouncements(true);
-              }}
-            >
-              <Ionicons
-                name={activeView === 'announcements' ? 'megaphone' : 'megaphone-outline'}
-                size={14}
-                color={activeView === 'announcements' ? '#38bdf8' : '#94a3b8'}
-                style={{ marginRight: 6 }}
-              />
-              <Text style={[styles.tabBtnText, activeView === 'announcements' && styles.tabBtnTextActive]}>Notices & Bulletins</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+            <Text style={[styles.tabBtnText, activeView === 'chat' && styles.tabBtnTextActive]}>
+              1-to-1 Chat
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tabBtn, activeView === 'notices' && styles.tabBtnActive]}
+            onPress={() => {
+              setActiveView('notices');
+              if (announcements.length === 0) fetchAnnouncements();
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={activeView === 'notices' ? 'megaphone' : 'megaphone-outline'}
+              size={15}
+              color={activeView === 'notices' ? '#38bdf8' : '#94a3b8'}
+              style={{ marginRight: 6 }}
+            />
+            <Text style={[styles.tabBtnText, activeView === 'notices' && styles.tabBtnTextActive]}>
+              Notices ({announcements.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* CONTENT AREA */}
-      {activeContactName === null ? (
-        activeView === 'inbox' ? (
-          // CONVERSATIONS LIST
-          <ScrollView
-            style={styles.container}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#38bdf8" />}
-          >
-            <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-              {loading && !refreshing ? (
-                <ActivityIndicator color="#38bdf8" style={{ marginTop: 40 }} />
-              ) : (
-                filteredThreads.map((thread, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={styles.threadCard}
-                    onPress={() => setActiveContactName(thread.contactName)}
-                    activeOpacity={0.75}
-                  >
-                    <View style={[styles.avatarCircle, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
-                      <Ionicons name="business" size={22} color="#f59e0b" />
-                    </View>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <View style={styles.rowBetween}>
-                        <Text style={styles.threadName} numberOfLines={1} allowFontScaling={false}>
-                          {thread.contactName}
-                        </Text>
-                        <Text style={styles.threadTime} allowFontScaling={false}>
-                          {thread.lastMsgTime}
-                        </Text>
-                      </View>
-                      <View style={[styles.rowBetween, { marginTop: 4 }]}>
-                        <Text style={styles.threadLastMsg} numberOfLines={1} allowFontScaling={false}>
-                          {thread.lastMsgText}
-                        </Text>
-                        <View style={[styles.roleBadge, { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.4)' }]}>
-                          <Text style={[styles.roleBadgeText, { color: '#f59e0b' }]} allowFontScaling={false}>
-                            Management
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                ))
-              )}
-            </Animated.View>
-          </ScrollView>
-        ) : (
-          // ANNOUNCEMENTS / NOTICES LIST
-          <ScrollView
-            style={styles.container}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#38bdf8" />}
-          >
-            <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-              {loading && !refreshing ? (
-                <ActivityIndicator color="#38bdf8" style={{ marginTop: 40 }} />
-              ) : announcements.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <Ionicons name="megaphone-outline" size={54} color="#475569" />
-                  <Text style={styles.emptyTitle}>No Community Notices</Text>
-                  <Text style={styles.emptySubtitle}>All upcoming elevator repairs, safety drills, or events will appear here.</Text>
-                </View>
-              ) : (
-                announcements.map((ann) => (
-                  <View key={ann.id} style={styles.noticeCard}>
-                    <View style={styles.rowBetween}>
-                      <View style={styles.noticeTag}>
-                        <Text style={styles.noticeTagText}>{ann.category || 'General'}</Text>
-                      </View>
-                      <Text style={styles.noticeDate}>
-                        {ann.createdAt ? new Date(ann.createdAt).toISOString().split('T')[0] : 'Recent'}
-                      </Text>
-                    </View>
-                    <Text style={styles.noticeTitle}>{ann.title || 'Notice'}</Text>
-                    <Text style={styles.noticeContent}>{ann.content || ann.body || ''}</Text>
-                  </View>
-                ))
-              )}
-            </Animated.View>
-          </ScrollView>
-        )
-      ) : (
-        // ACTIVE 1-TO-1 CHAT ROOM WITH PROPERTY MANAGER
+      {/* CONTENT */}
+      {activeView === 'chat' ? (
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 24}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 20}
         >
-          <ScrollView
-            ref={chatScrollRef}
-            style={styles.chatScroll}
-            contentContainerStyle={styles.chatScrollContent}
-            keyboardShouldPersistTaps="handled"
-            onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
-          >
-            {activeThreadMessages.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="chatbubbles-outline" size={48} color="#475569" />
-                <Text style={styles.emptyTitle}>Chat with Property Manager</Text>
-                <Text style={styles.emptySubtitle}>Send a private message below. Your Property Manager will respond directly.</Text>
+          {loading && messages.length === 0 ? (
+            <View style={styles.centerLoading}>
+              <ActivityIndicator size="large" color="#38bdf8" />
+              <Text style={styles.loadingText}>Connecting to Property Manager...</Text>
+            </View>
+          ) : (
+            <ScrollView
+              ref={chatScrollRef}
+              style={styles.chatScroll}
+              contentContainerStyle={styles.chatScrollContent}
+              keyboardShouldPersistTaps="handled"
+              onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
+            >
+              {/* SaaS Verified Notice Banner */}
+              <View style={styles.verifiedBanner}>
+                <Ionicons name="shield-checkmark" size={14} color="#10b981" style={{ marginRight: 6 }} />
+                <Text style={styles.verifiedBannerText}>
+                  SaaS Verified • Official Management Communication Channel
+                </Text>
               </View>
-            ) : (
-              activeThreadMessages.map((m) => {
-                const isMe = m.sender === 'user' || m.sender === user?.email || m.isOutbound;
-                const bodyText = m.body || m.text || m.message || '';
-                return (
-                  <View
-                    key={m.id || String(Math.random())}
-                    style={[
-                      styles.chatBubbleWrapper,
-                      isMe ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' },
-                    ]}
-                  >
+
+              {messages.length === 0 ? (
+                <View style={styles.emptyChatBox}>
+                  <Ionicons name="chatbubbles-outline" size={48} color="#64748b" />
+                  <Text style={styles.emptyTitle}>No messages in this discussion yet.</Text>
+                  <Text style={styles.emptySubtitle}>
+                    Type a message below to begin chatting directly with your Property Manager.
+                  </Text>
+                </View>
+              ) : (
+                messages.map((m) => {
+                  const isMine = m.isMine === true;
+                  const timeStr = m.createdAt
+                    ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : 'Just now';
+
+                  return (
                     <View
+                      key={m.id || String(Math.random())}
                       style={[
-                        styles.chatBubble,
-                        isMe ? styles.chatBubbleOutbound : styles.chatBubbleInbound,
+                        styles.bubbleWrapper,
+                        isMine ? styles.bubbleWrapperRight : styles.bubbleWrapperLeft,
                       ]}
                     >
-                      <Text style={[styles.chatBubbleText, isMe ? styles.chatTextOutbound : styles.chatTextInbound]}>
-                        {bodyText}
-                      </Text>
+                      {!isMine && (
+                        <Text style={styles.senderLabel}>
+                          {m.senderName || 'Property Manager'}
+                        </Text>
+                      )}
+
+                      <View
+                        style={[
+                          styles.bubbleBox,
+                          isMine ? styles.bubbleMine : styles.bubbleTheirs,
+                        ]}
+                      >
+                        <Text style={[styles.bubbleText, isMine ? styles.textMine : styles.textTheirs]}>
+                          {m.body || ''}
+                        </Text>
+                      </View>
+
+                      <View style={[styles.timeRow, isMine ? { justifyContent: 'flex-end' } : { justifyContent: 'flex-start' }]}>
+                        <Text style={styles.timeText}>{timeStr}</Text>
+                        {isMine && (
+                          <Ionicons
+                            name={m.status === 'READ' ? 'checkmark-done' : 'checkmark'}
+                            size={13}
+                            color={m.status === 'READ' ? '#38bdf8' : '#94a3b8'}
+                            style={{ marginLeft: 3 }}
+                          />
+                        )}
+                      </View>
                     </View>
-                    <Text style={styles.chatTimeText}>
-                      {m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (m.time || 'Now')}
-                    </Text>
-                  </View>
-                );
-              })
-            )}
-          </ScrollView>
+                  );
+                })
+              )}
+            </ScrollView>
+          )}
 
           {/* CHAT INPUT BAR */}
-          <View style={styles.chatInputBar}>
+          <View style={styles.inputBar}>
             <TextInput
-              style={styles.chatTextInput}
+              style={styles.textInput}
               placeholder="Type message to Property Manager..."
               placeholderTextColor="#64748b"
               value={inputText}
               onChangeText={setInputText}
-              multiline={true}
+              multiline={false}
+              returnKeyType="send"
+              onSubmitEditing={handleSend}
             />
             <TouchableOpacity
-              style={[styles.sendBtn, !inputText.trim() && { opacity: 0.5 }]}
-              onPress={handleSendReply}
-              disabled={!inputText.trim()}
+              style={[styles.sendBtn, (!inputText.trim() || sending) && { opacity: 0.5 }]}
+              onPress={handleSend}
+              disabled={!inputText.trim() || sending}
               activeOpacity={0.8}
             >
-              <Ionicons name="send" size={16} color="#0f172a" />
+              {sending ? (
+                <ActivityIndicator size="small" color="#0f172a" />
+              ) : (
+                <Ionicons name="send" size={16} color="#0f172a" />
+              )}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
-      )}
-
-      {/* NEW CHAT MODAL WITH DISMISSIBLE KEYBOARD AVOIDING VIEW */}
-      <Modal visible={newChatModalOpen} animationType="slide" transparent={true} onRequestClose={() => setNewChatModalOpen(false)}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1 }}
+      ) : (
+        // NOTICES / BULLETINS TAB
+        <ScrollView
+          style={styles.chatScroll}
+          contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
         >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                <View style={styles.modalSheet}>
-                  <View style={styles.modalHeader}>
-                    <View>
-                      <Text style={styles.modalTitle}>Message Property Manager</Text>
-                      <Text style={styles.modalSubTitle}>Direct communication with management office</Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => {
-                        Keyboard.dismiss();
-                        setNewChatModalOpen(false);
-                      }}
-                      hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                      style={styles.modalCloseBtn}
-                    >
-                      <Ionicons name="close" size={24} color={colors.textPrimary || '#f8fafc'} />
-                    </TouchableOpacity>
-                  </View>
-
-                  <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                    <Text style={styles.fieldLabel}>Recipient:</Text>
-                    <View style={styles.lockedContactCard}>
-                      <View style={[styles.avatarCircle, { backgroundColor: 'rgba(245, 158, 11, 0.2)', width: 34, height: 34, borderRadius: 17 }]}>
-                        <Ionicons name="business" size={18} color="#f59e0b" />
-                      </View>
-                      <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={styles.lockedContactTitle}>Property Manager Office</Text>
-                        <Text style={styles.lockedContactSub}>Official Management Desk</Text>
-                      </View>
-                      <Ionicons name="checkmark-circle" size={20} color="#10b981" />
-                    </View>
-
-                    <View style={[styles.rowBetween, { marginTop: 14 }]}>
-                      <Text style={styles.fieldLabel}>Your Message:</Text>
-                      <TouchableOpacity onPress={Keyboard.dismiss}>
-                        <Text style={styles.hideKeyboardLink}>Hide Keyboard ✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={styles.modalTextArea}
-                      placeholder="Type your message for the Property Manager here..."
-                      placeholderTextColor="#64748b"
-                      value={newChatBody}
-                      onChangeText={setNewChatBody}
-                      multiline={true}
-                    />
-
-                    <TouchableOpacity
-                      style={[styles.primaryActionBtn, (!newChatBody.trim() || submitting) && { opacity: 0.5 }]}
-                      onPress={handleStartNewChat}
-                      disabled={!newChatBody.trim() || submitting}
-                      activeOpacity={0.8}
-                    >
-                      {submitting ? (
-                        <ActivityIndicator color="#0f172a" size="small" />
-                      ) : (
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <Ionicons name="paper-plane" size={16} color="#0f172a" style={{ marginRight: 6 }} />
-                          <Text style={styles.primaryActionBtnText}>Send to Property Manager</Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  </ScrollView>
-                </View>
-              </TouchableWithoutFeedback>
+          {announcements.length === 0 ? (
+            <View style={styles.emptyChatBox}>
+              <Ionicons name="megaphone-outline" size={48} color="#64748b" />
+              <Text style={styles.emptyTitle}>No Community Notices</Text>
+              <Text style={styles.emptySubtitle}>
+                Elevator maintenance, building announcements, or general notices will appear here.
+              </Text>
             </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
+          ) : (
+            announcements.map((ann) => (
+              <View key={ann.id} style={styles.noticeCard}>
+                <View style={styles.noticeHeader}>
+                  <View style={styles.noticeTag}>
+                    <Text style={styles.noticeTagText}>{ann.category || 'General'}</Text>
+                  </View>
+                  <Text style={styles.noticeDate}>
+                    {ann.createdAt ? new Date(ann.createdAt).toISOString().split('T')[0] : 'Recent'}
+                  </Text>
+                </View>
+                <Text style={styles.noticeTitle}>{ann.title || 'Notice'}</Text>
+                <Text style={styles.noticeBody}>{ann.content || ann.body || ''}</Text>
+              </View>
+            ))
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 };
@@ -607,7 +421,7 @@ const getStyles = (colors, isDarkMode) =>
       flex: 1,
     },
     header: {
-      paddingTop: Platform.OS === 'ios' ? 56 : 24,
+      paddingTop: Platform.OS === 'ios' ? 54 : 24,
       paddingHorizontal: 16,
       paddingBottom: 12,
       backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
@@ -619,195 +433,207 @@ const getStyles = (colors, isDarkMode) =>
       alignItems: 'center',
     },
     backBtn: {
-      width: 38,
-      height: 38,
-      borderRadius: 10,
-      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 12,
-      borderWidth: 1,
-      borderColor: isDarkMode ? '#334155' : '#cbd5e1',
+      padding: 4,
+      marginRight: 8,
     },
     title: {
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: '800',
-      color: colors.textPrimary || '#f8fafc',
+      color: isDarkMode ? '#f8fafc' : '#0f172a',
     },
     subtitle: {
-      fontSize: 12,
-      color: colors.textSecondary || '#94a3b8',
+      fontSize: 11,
+      fontWeight: '500',
+      color: '#64748b',
       marginTop: 2,
     },
-    newChatBtn: {
+    liveBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: '#38bdf8',
-      paddingHorizontal: 12,
+      backgroundColor: 'rgba(16, 185, 129, 0.15)',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 12,
+      marginLeft: 8,
+    },
+    liveDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#10b981',
+      marginRight: 4,
+    },
+    liveText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#10b981',
+    },
+    refreshBtn: {
+      padding: 8,
+      borderRadius: 10,
+      backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+    },
+    tabBar: {
+      flexDirection: 'row',
+      backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+      borderRadius: 10,
+      padding: 3,
+      marginTop: 12,
+    },
+    tabBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
       paddingVertical: 7,
       borderRadius: 8,
     },
-    newChatBtnText: {
+    tabBtnActive: {
+      backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    tabBtnText: {
       fontSize: 12,
-      fontWeight: '700',
-      color: '#0f172a',
-    },
-    searchBarRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      marginTop: 10,
-      borderWidth: 1,
-      borderColor: isDarkMode ? '#334155' : '#e2e8f0',
-    },
-    searchInput: {
-      flex: 1,
-      fontSize: 13,
-      color: colors.textPrimary || '#f8fafc',
-      paddingVertical: 2,
-    },
-    container: {
-      flex: 1,
-    },
-    scrollContent: {
-      padding: 16,
-      paddingBottom: 40,
-    },
-    threadCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
-      borderRadius: 12,
-      padding: 14,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: isDarkMode ? '#334155' : '#e2e8f0',
-    },
-    avatarCircle: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    rowBetween: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    threadName: {
-      fontSize: 14.5,
-      fontWeight: '700',
-      color: colors.textPrimary || '#f8fafc',
-      flex: 1,
-    },
-    threadTime: {
-      fontSize: 11,
+      fontWeight: '600',
       color: '#64748b',
-      marginLeft: 8,
     },
-    threadLastMsg: {
-      fontSize: 12.5,
-      color: colors.textSecondary || '#94a3b8',
-      flex: 1,
-      marginRight: 8,
-    },
-    roleBadge: {
-      paddingHorizontal: 7,
-      paddingVertical: 2,
-      borderRadius: 6,
-      borderWidth: 1,
-    },
-    roleBadgeText: {
-      fontSize: 10,
+    tabBtnTextActive: {
+      color: '#38bdf8',
       fontWeight: '700',
     },
-    emptyState: {
+    centerLoading: {
+      flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 60,
-      paddingHorizontal: 24,
     },
-    emptyTitle: {
-      fontSize: 16,
-      fontWeight: '800',
-      color: colors.textPrimary || '#f8fafc',
-      marginTop: 14,
-    },
-    emptySubtitle: {
-      fontSize: 13,
-      color: colors.textSecondary || '#94a3b8',
-      textAlign: 'center',
-      marginTop: 6,
-      lineHeight: 18,
+    loadingText: {
+      fontSize: 12,
+      color: '#64748b',
+      marginTop: 10,
+      fontWeight: '600',
     },
     chatScroll: {
       flex: 1,
     },
     chatScrollContent: {
       padding: 16,
-      paddingBottom: 20,
+      paddingBottom: 24,
     },
-    chatBubbleWrapper: {
+    verifiedBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(16, 185, 129, 0.08)',
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 20,
+      alignSelf: 'center',
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: 'rgba(16, 185, 129, 0.2)',
+    },
+    verifiedBannerText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#10b981',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    emptyChatBox: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 60,
+      paddingHorizontal: 24,
+    },
+    emptyTitle: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: isDarkMode ? '#f8fafc' : '#0f172a',
+      marginTop: 12,
+      textAlign: 'center',
+    },
+    emptySubtitle: {
+      fontSize: 12,
+      color: '#64748b',
+      marginTop: 6,
+      textAlign: 'center',
+      lineHeight: 18,
+    },
+    bubbleWrapper: {
       marginBottom: 12,
+      maxWidth: '82%',
     },
-    chatBubble: {
-      maxWidth: '80%',
+    bubbleWrapperLeft: {
+      alignSelf: 'flex-start',
+    },
+    bubbleWrapperRight: {
+      alignSelf: 'flex-end',
+    },
+    senderLabel: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#94a3b8',
+      marginBottom: 3,
+      marginLeft: 4,
+    },
+    bubbleBox: {
       paddingHorizontal: 14,
       paddingVertical: 10,
-      borderRadius: 14,
+      borderRadius: 16,
     },
-    chatBubbleOutbound: {
-      backgroundColor: '#38bdf8',
+    bubbleMine: {
+      backgroundColor: '#0284c7',
       borderBottomRightRadius: 2,
     },
-    chatBubbleInbound: {
-      backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+    bubbleTheirs: {
+      backgroundColor: isDarkMode ? '#1e293b' : '#e2e8f0',
       borderBottomLeftRadius: 2,
-      borderWidth: 1,
-      borderColor: isDarkMode ? '#334155' : '#e2e8f0',
     },
-    chatBubbleText: {
-      fontSize: 13.5,
-      lineHeight: 19,
+    bubbleText: {
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '500',
     },
-    chatTextOutbound: {
-      color: '#0f172a',
-      fontWeight: '600',
+    textMine: {
+      color: '#ffffff',
     },
-    chatTextInbound: {
-      color: colors.textPrimary || '#f8fafc',
+    textTheirs: {
+      color: isDarkMode ? '#f8fafc' : '#0f172a',
     },
-    chatTimeText: {
+    timeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 3,
+      paddingHorizontal: 4,
+    },
+    timeText: {
       fontSize: 10,
       color: '#64748b',
-      marginTop: 4,
-      marginHorizontal: 4,
+      fontWeight: '500',
     },
-    chatInputBar: {
+    inputBar: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 12,
-      paddingVertical: 8,
+      paddingVertical: 10,
       backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
       borderTopWidth: 1,
       borderTopColor: isDarkMode ? '#1e293b' : '#e2e8f0',
-      gap: 8,
     },
-    chatTextInput: {
+    textInput: {
       flex: 1,
-      maxHeight: 90,
       backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+      color: isDarkMode ? '#f8fafc' : '#0f172a',
+      paddingHorizontal: 14,
+      paddingVertical: 9,
       borderRadius: 20,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      fontSize: 13.5,
-      color: colors.textPrimary || '#f8fafc',
-      borderWidth: 1,
-      borderColor: isDarkMode ? '#334155' : '#e2e8f0',
+      fontSize: 13,
+      fontWeight: '500',
+      marginRight: 8,
     },
     sendBtn: {
       width: 40,
@@ -817,163 +643,48 @@ const getStyles = (colors, isDarkMode) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.65)',
-      justifyContent: 'flex-end',
-    },
-    modalSheet: {
-      backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      padding: 20,
-      maxHeight: '90%',
-    },
-    modalHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: isDarkMode ? '#1e293b' : '#e2e8f0',
-      paddingBottom: 10,
-    },
-    modalTitle: {
-      fontSize: 17,
-      fontWeight: '800',
-      color: colors.textPrimary || '#f8fafc',
-    },
-    modalSubTitle: {
-      fontSize: 12,
-      color: colors.textSecondary || '#94a3b8',
-      marginTop: 2,
-    },
-    modalCloseBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    fieldLabel: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: colors.textSecondary || '#94a3b8',
-      marginBottom: 6,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-    },
-    lockedContactCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: isDarkMode ? '#1e293b' : '#f8fafc',
-      borderRadius: 12,
-      padding: 12,
-      borderWidth: 1,
-      borderColor: isDarkMode ? '#334155' : '#e2e8f0',
-    },
-    lockedContactTitle: {
-      fontSize: 14,
-      fontWeight: '700',
-      color: colors.textPrimary || '#f8fafc',
-    },
-    lockedContactSub: {
-      fontSize: 11.5,
-      color: colors.textSecondary || '#94a3b8',
-      marginTop: 2,
-    },
-    hideKeyboardLink: {
-      fontSize: 11.5,
-      fontWeight: '700',
-      color: '#38bdf8',
-    },
-    modalTextArea: {
-      backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
-      borderRadius: 10,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      fontSize: 13.5,
-      color: colors.textPrimary || '#f8fafc',
-      borderWidth: 1,
-      borderColor: isDarkMode ? '#334155' : '#cbd5e1',
-      height: 110,
-      textAlignVertical: 'top',
-      marginBottom: 16,
-    },
-    primaryActionBtn: {
-      backgroundColor: '#38bdf8',
-      borderRadius: 12,
-      paddingVertical: 13,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: 4,
-    },
-    primaryActionBtnText: {
-      fontSize: 14,
-      fontWeight: '800',
-      color: '#0f172a',
-    },
-    tabBar: {
-      flexDirection: 'row',
-      backgroundColor: isDarkMode ? '#1e293b' : '#e2e8f0',
-      borderRadius: 12,
-      padding: 4,
-      marginTop: 10,
-    },
-    tabBtn: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: 8,
-      borderRadius: 9,
-    },
-    tabBtnActive: {
-      backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
-    },
-    tabBtnText: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: colors.textSecondary || '#94a3b8',
-    },
-    tabBtnTextActive: {
-      color: '#38bdf8',
-    },
     noticeCard: {
       backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
       borderRadius: 14,
-      padding: 16,
+      padding: 14,
       marginBottom: 12,
       borderWidth: 1,
       borderColor: isDarkMode ? '#334155' : '#e2e8f0',
     },
+    noticeHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 8,
+    },
     noticeTag: {
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
       paddingHorizontal: 8,
       paddingVertical: 3,
       borderRadius: 6,
-      backgroundColor: 'rgba(56, 189, 248, 0.15)',
     },
     noticeTagText: {
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '700',
       color: '#38bdf8',
+      textTransform: 'uppercase',
     },
     noticeDate: {
       fontSize: 11,
-      color: '#94a3b8',
-      fontWeight: '600',
+      color: '#64748b',
+      fontWeight: '500',
     },
     noticeTitle: {
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: '700',
-      color: colors.textPrimary || '#f8fafc',
-      marginTop: 8,
+      color: isDarkMode ? '#f8fafc' : '#0f172a',
       marginBottom: 4,
     },
-    noticeContent: {
-      fontSize: 13,
-      color: colors.textSecondary || '#94a3b8',
+    noticeBody: {
+      fontSize: 12,
+      color: isDarkMode ? '#cbd5e1' : '#475569',
       lineHeight: 18,
     },
   });
+
+export default TenantMessagesScreen;

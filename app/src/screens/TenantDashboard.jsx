@@ -49,23 +49,6 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
   const [maintenanceList, setMaintenanceList] = useState([]);
   const [noticeModalVisible, setNoticeModalVisible] = useState(false);
 
-  // Helper for 6-Month Graphical Payment History
-  const getRecentMonths = () => {
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const now = new Date();
-    const result = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      result.push({
-        label: monthNames[d.getMonth()],
-        paid: true,
-        height: 38 + ((i * 3) % 8),
-      });
-    }
-    return result;
-  };
-  const paymentHistoryMonths = getRecentMonths();
-
   // Helper to determine active step in 3-stage maintenance pipeline
   const getMaintenanceStep = (status) => {
     const s = String(status || '').toLowerCase();
@@ -753,149 +736,106 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
         );
       })()}
 
-      {/* =========================================================================
-          TOP HERO: TOTAL AMOUNT DUE & FINANCIAL HEALTH GAUGE
-          ========================================================================= */}
-      <View style={[styles.heroCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-        <View style={styles.heroMainRow}>
-          {/* Circular Financial Health Ring Gauge */}
-          <View style={styles.gaugeContainer}>
-            <View style={[
-              styles.gaugeRingOuter, 
-              { borderColor: isOverdue ? '#ef4444' : (amountToPay > 0 ? '#f59e0b' : '#10b981') }
-            ]}>
-              <View style={[styles.gaugeRingInner, { backgroundColor: colors.card }]}>
-                <Ionicons 
-                  name={isOverdue ? 'alert-circle' : (amountToPay > 0 ? 'time' : 'shield-checkmark')} 
-                  size={24} 
-                  color={isOverdue ? '#ef4444' : (amountToPay > 0 ? '#f59e0b' : '#10b981')} 
-                />
-                <Text style={[styles.gaugeRingPercent, { color: isOverdue ? '#ef4444' : (amountToPay > 0 ? '#f59e0b' : '#10b981') }]} allowFontScaling={false}>
-                  {amountToPay > 0 ? (isOverdue ? 'ALERT' : 'DUE') : '100%'}
-                </Text>
-                <Text style={[styles.gaugeRingSub, { color: colors.textSecondary }]} allowFontScaling={false}>
-                  {amountToPay > 0 ? 'PENDING' : 'CLEARED'}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Amount Due Details */}
-          <View style={styles.heroDetailsCol}>
-            <View style={[styles.heroStatusBadge, { 
-              backgroundColor: isOverdue ? 'rgba(239, 68, 68, 0.15)' : (amountToPay > 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)') 
-            }]}>
-              <View style={[styles.heroDot, { backgroundColor: isOverdue ? '#ef4444' : (amountToPay > 0 ? '#f59e0b' : '#10b981') }]} />
-              <Text style={[styles.heroStatusText, { 
-                color: isOverdue ? '#ef4444' : (amountToPay > 0 ? '#f59e0b' : '#10b981') 
-              }]} allowFontScaling={false}>
-                {isOverdue ? 'Overdue' : (amountToPay > 0 ? 'Due Soon' : 'Paid in Full')}
-              </Text>
-            </View>
-
-            <Text style={[styles.heroCardLabel, { color: colors.textSecondary, marginTop: 6 }]} allowFontScaling={false}>
-              TOTAL AMOUNT DUE
-            </Text>
-
-            <Text style={[styles.heroAmountText, { color: isOverdue ? '#ef4444' : (amountToPay > 0 ? colors.textPrimary : '#10b981') }]} allowFontScaling={false}>
-              ${amountToPay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Text>
-
-            <Text style={[styles.heroDueDateText, { color: colors.textSecondary }]} allowFontScaling={false} numberOfLines={2}>
-              {amountToPay > 0 
-                ? (isOverdue 
-                    ? `Due: ${tenantData.nextDueDate !== 'N/A' ? tenantData.nextDueDate : 'Immediate'} · Outstanding balance pending`
-                    : `Due Date: ${tenantData.nextDueDate}`)
-                : 'No pending charges · Paid on time! 🎉'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Financial Health Progress Bar */}
-        <View style={styles.healthMeterContainer}>
-          <View style={styles.healthMeterHeader}>
-            <Text style={[styles.healthMeterLabel, { color: colors.textSecondary }]} allowFontScaling={false}>
-              MONTHLY RENT STATUS
-            </Text>
-            <Text style={[styles.healthMeterValue, { color: amountToPay > 0 ? '#f59e0b' : '#10b981' }]} allowFontScaling={false}>
-              {amountToPay > 0 ? 'Payment Pending' : '100% Cleared'}
-            </Text>
-          </View>
-          <View style={styles.healthMeterTrack}>
-            <View style={[styles.healthMeterFill, { 
-              width: amountToPay > 0 ? '30%' : '100%', 
-              backgroundColor: amountToPay > 0 ? '#f59e0b' : '#10b981' 
-            }]} />
-          </View>
-        </View>
-
+      {/* QUICK ACTIONS BAR (Matching Web) */}
+      <View style={[styles.quickActionsBar, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
         <TouchableOpacity
-          style={[styles.heroPayBtn, { backgroundColor: amountToPay > 0 ? '#0284c7' : '#10b981' }]}
+          style={[styles.quickActionBtn, styles.quickActionPrimary]}
           onPress={() => setPayModalVisible(true)}
           activeOpacity={0.8}
         >
-          <Ionicons name={amountToPay > 0 ? "card" : "checkmark-circle"} size={18} color="#ffffff" style={{ marginRight: 8 }} />
-          <Text style={styles.heroPayBtnText} allowFontScaling={false}>
-            {amountToPay > 0 ? `Pay $${amountToPay.toLocaleString()} Now` : 'Make Advance Payment'}
+          <Ionicons name="card" size={15} color="#ffffff" style={{ marginRight: 6 }} />
+          <Text style={styles.quickActionPrimaryText} allowFontScaling={false}>
+            {es ? 'Pagar Renta' : 'Pay Rent'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.quickActionBtn, styles.quickActionOutline, { borderColor: colors.cardBorder }]}
+          onPress={() => setTicketModalVisible(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="construct-outline" size={15} color={colors.textPrimary} style={{ marginRight: 6 }} />
+          <Text style={[styles.quickActionOutlineText, { color: colors.textPrimary }]} allowFontScaling={false}>
+            {es ? 'Solicitar Reparación' : 'Submit Repair Request'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.quickActionBtn, styles.quickActionOutline, { borderColor: colors.cardBorder }]}
+          onPress={() => onNavigate && onNavigate('messages')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.textPrimary} style={{ marginRight: 6 }} />
+          <Text style={[styles.quickActionOutlineText, { color: colors.textPrimary }]} allowFontScaling={false}>
+            {es ? 'Contactar Administración' : 'Contact Management'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.quickActionBtn, styles.quickActionOutline, { borderColor: colors.cardBorder }]}
+          onPress={() => onNavigate && onNavigate('lease')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="book-outline" size={15} color={colors.textPrimary} style={{ marginRight: 6 }} />
+          <Text style={[styles.quickActionOutlineText, { color: colors.textPrimary }]} allowFontScaling={false}>
+            {es ? 'Ver Contrato' : 'View Lease Terms'}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* =========================================================================
-          2x2 GRAPHICAL MICRO-METRICS TILES
-          ========================================================================= */}
-      <View style={styles.metricsGrid}>
-        <View style={[styles.metricTile, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-          <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
-            <Ionicons name="card" size={17} color="#10b981" />
-          </View>
-          <Text style={[styles.metricTileLabel, { color: colors.textSecondary }]} allowFontScaling={false}>RENT STATUS</Text>
-          <Text style={[styles.metricTileValue, { color: '#10b981' }]} allowFontScaling={false}>
-            {amountToPay === 0 ? 'Paid in Full' : `$${amountToPay.toLocaleString()}`}
+      {/* 2 REAL DYNAMIC METRIC CARDS (Matching Web exact layout & data) */}
+      <View style={styles.metricsRow}>
+        {/* Card 1: Current Rent Due */}
+        <View style={[styles.metricCardBox, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <Text style={styles.metricCardLabel} allowFontScaling={false}>
+            {es ? 'RENTA ACTUAL VENCIDA' : 'CURRENT RENT DUE'}
           </Text>
-          <Text style={[styles.metricTileSub, { color: colors.textSecondary }]} allowFontScaling={false}>
-            {amountToPay === 0 ? '0 balance due' : 'Payment pending'}
+          <Text style={styles.metricRentAmount} allowFontScaling={false}>
+            ${Number(tenantData.currentRent || 0).toLocaleString()}
+          </Text>
+          <Text style={styles.metricCardFooter} allowFontScaling={false}>
+            {es ? 'Fecha de Vencimiento: ' : 'Due Date: '}{tenantData.nextDueDate && tenantData.nextDueDate !== 'N/A' ? tenantData.nextDueDate : '2026-07-01'}
           </Text>
         </View>
 
-        <View style={[styles.metricTile, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-          <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(56, 189, 248, 0.12)' }]}>
-            <Ionicons name="construct" size={17} color="#38bdf8" />
-          </View>
-          <Text style={[styles.metricTileLabel, { color: colors.textSecondary }]} allowFontScaling={false}>ACTIVE REPAIRS</Text>
-          <Text style={[styles.metricTileValue, { color: colors.textPrimary }]} allowFontScaling={false}>
-            {maintenanceList.filter(t => t.status !== 'Completed' && t.status !== 'Closed' && t.status !== 'Resolved').length || (recentTicket ? 1 : 0)} Active
+        {/* Card 2: Outstanding Balance */}
+        <View style={[styles.metricCardBox, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <Text style={styles.metricCardLabel} allowFontScaling={false}>
+            {es ? 'SALDO PENDIENTE' : 'OUTSTANDING BALANCE'}
           </Text>
-          <Text style={[styles.metricTileSub, { color: colors.textSecondary }]} allowFontScaling={false}>
-            {recentTicket ? (recentTicket.status || 'In Progress') : 'All resolved'}
+          <Text style={styles.metricBalanceAmount} allowFontScaling={false}>
+            ${Number(tenantData.outstandingBalance || 0).toLocaleString()}
+          </Text>
+          <Text style={styles.metricCardFooter} allowFontScaling={false}>
+            {tenantData.outstandingBalance > 0
+              ? (es ? 'Estado: Saldo pendiente' : 'Account status: Overdue / Outstanding')
+              : (es ? 'Estado: Pagado por completo' : 'Account status: Paid in Full')}
+          </Text>
+        </View>
+      </View>
+
+      {/* ACTIVE LEASE RENEWAL OPTION CARD (Matching Web) */}
+      <View style={[styles.renewalBannerCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+        <View style={{ flex: 1, marginRight: 12 }}>
+          <Text style={[styles.renewalBannerTitle, { color: colors.textPrimary }]} allowFontScaling={false}>
+            {es ? 'OPCIÓN DE RENOVACIÓN DE CONTRATO ACTIVA' : 'ACTIVE LEASE RENEWAL OPTION'}
+          </Text>
+          <Text style={styles.renewalBannerSub} allowFontScaling={false}>
+            {es
+              ? `Su contrato vence el ${tenantData.leaseExpiration}. Asegure su tarifa para el próximo año.`
+              : `Your lease expires on ${tenantData.leaseExpiration}. Lock in your rate for next year.`}
           </Text>
         </View>
 
-        <View style={[styles.metricTile, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-          <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
-            <Ionicons name="cube" size={17} color="#f59e0b" />
-          </View>
-          <Text style={[styles.metricTileLabel, { color: colors.textSecondary }]} allowFontScaling={false}>PACKAGES</Text>
-          <Text style={[styles.metricTileValue, { color: colors.textPrimary }]} allowFontScaling={false}>
-            {tenantData.packagesWaiting} Waiting
+        <TouchableOpacity
+          style={styles.reviewRenewalBtn}
+          onPress={() => onNavigate && onNavigate('lease')}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.reviewRenewalBtnText} allowFontScaling={false}>
+            {es ? 'REVISAR RENOVACIÓN' : 'REVIEW RENEWAL'}
           </Text>
-          <Text style={[styles.metricTileSub, { color: colors.textSecondary }]} allowFontScaling={false}>
-            Front desk pickup
-          </Text>
-        </View>
-
-        <View style={[styles.metricTile, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-          <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(168, 85, 247, 0.12)' }]}>
-            <Ionicons name="people" size={17} color="#a855f7" />
-          </View>
-          <Text style={[styles.metricTileLabel, { color: colors.textSecondary }]} allowFontScaling={false}>VISITOR PASSES</Text>
-          <Text style={[styles.metricTileValue, { color: colors.textPrimary }]} allowFontScaling={false}>
-            {tenantData.activeVisitors} Active
-          </Text>
-          <Text style={[styles.metricTileSub, { color: colors.textSecondary }]} allowFontScaling={false}>
-            Pre-approved
-          </Text>
-        </View>
+        </TouchableOpacity>
       </View>
 
       <View style={{ height: 24 }} />
@@ -1419,17 +1359,6 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
               >
                 <Text style={styles.modalCancelBtnText}>Close</Text>
               </TouchableOpacity>
-              {amountToPay > 0 && (
-                <TouchableOpacity
-                  style={[styles.modalBtn, styles.modalConfirmBtn]}
-                  onPress={() => {
-                    setNoticeModalVisible(false);
-                    setPayModalVisible(true);
-                  }}
-                >
-                  <Text style={styles.modalConfirmBtnText}>Pay Now</Text>
-                </TouchableOpacity>
-              )}
             </View>
           </View>
         </View>
@@ -1582,266 +1511,118 @@ const getStyles = (colors, isDarkMode) =>
       marginBottom: 14,
     },
 
-    // TOP HERO FINANCIAL CARD
-    heroCard: {
-      borderRadius: 20,
+    // Quick Actions Bar (Matching Web)
+    quickActionsBar: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      padding: 10,
+      borderRadius: 16,
       borderWidth: 1,
-      padding: 18,
-      marginBottom: 16,
-      elevation: 2,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDarkMode ? 0.3 : 0.06,
-      shadowRadius: 10,
+      marginBottom: 14,
     },
-    heroMainRow: {
+    quickActionBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 16,
-    },
-    gaugeContainer: {
-      alignItems: 'center',
       justifyContent: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 10,
     },
-    gaugeRingOuter: {
-      width: 90,
-      height: 90,
-      borderRadius: 45,
-      borderWidth: 6,
-      justifyContent: 'center',
-      alignItems: 'center',
-      borderStyle: 'solid',
+    quickActionPrimary: {
+      backgroundColor: '#0284c7',
     },
-    gaugeRingInner: {
-      width: 74,
-      height: 74,
-      borderRadius: 37,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    gaugeRingPercent: {
-      fontSize: 10.5,
-      fontWeight: '900',
-      marginTop: 2,
-      letterSpacing: 0.4,
-    },
-    gaugeRingSub: {
-      fontSize: 8,
-      fontWeight: '700',
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-    },
-    heroDetailsCol: {
-      flex: 1,
-    },
-    heroDot: {
-      width: 7,
-      height: 7,
-      borderRadius: 3.5,
-      marginRight: 6,
-    },
-    heroCardLabel: {
-      fontSize: 11,
-      fontWeight: '800',
-      letterSpacing: 0.8,
-      textTransform: 'uppercase',
-    },
-    heroStatusBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 9,
-      paddingVertical: 3.5,
-      borderRadius: 12,
-      alignSelf: 'flex-start',
-    },
-    heroStatusText: {
-      fontSize: 11,
-      fontWeight: '800',
-    },
-    heroAmountText: {
-      fontSize: 30,
-      fontWeight: '900',
-      letterSpacing: -0.6,
-      marginVertical: 2,
-    },
-    heroDueDateText: {
+    quickActionPrimaryText: {
+      color: '#ffffff',
       fontSize: 12,
+      fontWeight: '700',
+    },
+    quickActionOutline: {
+      borderWidth: 1,
+      backgroundColor: 'transparent',
+    },
+    quickActionOutlineText: {
+      fontSize: 12,
+      fontWeight: '600',
+    },
+
+    // 2 Metrics Cards Grid (Matching Web)
+    metricsRow: {
+      flexDirection: 'row',
+      gap: 12,
+      marginBottom: 14,
+    },
+    metricCardBox: {
+      flex: 1,
+      borderWidth: 1,
+      borderRadius: 16,
+      padding: 14,
+      justifyContent: 'space-between',
+      minHeight: 110,
+    },
+    metricCardLabel: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#64748b',
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+      marginBottom: 4,
+    },
+    metricRentAmount: {
+      fontSize: 22,
+      fontWeight: '900',
+      color: '#0284c7',
+      marginVertical: 4,
+    },
+    metricBalanceAmount: {
+      fontSize: 22,
+      fontWeight: '900',
+      color: '#10b981',
+      marginVertical: 4,
+    },
+    metricCardFooter: {
+      fontSize: 10.5,
+      fontWeight: '600',
+      color: '#64748b',
+      marginTop: 4,
+    },
+
+    // Active Lease Renewal Card (Matching Web)
+    renewalBannerCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderWidth: 1,
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 16,
+    },
+    renewalBannerTitle: {
+      fontSize: 12.5,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+    },
+    renewalBannerSub: {
+      fontSize: 11.5,
+      color: '#64748b',
+      marginTop: 3,
       fontWeight: '500',
       lineHeight: 16,
     },
-
-    // Financial Health Meter
-    healthMeterContainer: {
-      marginTop: 16,
-      paddingTop: 12,
-      borderTopWidth: 1,
-      borderTopColor: 'rgba(100, 116, 139, 0.15)',
-    },
-    healthMeterHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 6,
-    },
-    healthMeterLabel: {
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.6,
-    },
-    healthMeterValue: {
-      fontSize: 11,
-      fontWeight: '700',
-    },
-    healthMeterTrack: {
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: 'rgba(100, 116, 139, 0.15)',
-      overflow: 'hidden',
-    },
-    healthMeterFill: {
-      height: '100%',
-      borderRadius: 3,
-    },
-
-    heroPayBtn: {
-      borderRadius: 14,
-      flexDirection: 'row',
+    reviewRenewalBtn: {
+      backgroundColor: '#0284c7',
+      paddingVertical: 9,
+      paddingHorizontal: 13,
+      borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 13,
-      marginTop: 14,
-      elevation: 2,
     },
-    heroPayBtnText: {
+    reviewRenewalBtnText: {
       color: '#ffffff',
-      fontSize: 14,
-      fontWeight: '800',
-    },
-
-    // 2x2 MICRO-METRICS TILES GRID
-    metricsGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 10,
-      marginBottom: 16,
-    },
-    metricTile: {
-      flex: 1,
-      minWidth: '46%',
-      borderWidth: 1,
-      borderRadius: 16,
-      padding: 13,
-    },
-    metricIconWrap: {
-      width: 32,
-      height: 32,
-      borderRadius: 10,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginBottom: 8,
-    },
-    metricTileLabel: {
-      fontSize: 10,
-      fontWeight: '800',
-      letterSpacing: 0.6,
-      marginBottom: 2,
-    },
-    metricTileValue: {
-      fontSize: 15,
-      fontWeight: '800',
-      marginBottom: 2,
-    },
-    metricTileSub: {
       fontSize: 11,
-      fontWeight: '500',
-    },
-
-    // 6-MONTH PAYMENT HISTORY BAR CHART
-    chartCard: {
-      borderRadius: 18,
-      borderWidth: 1,
-      padding: 16,
-      marginBottom: 16,
-      elevation: 1,
-    },
-    chartHeaderRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 16,
-    },
-    chartIconWrap: {
-      width: 32,
-      height: 32,
-      borderRadius: 9,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginRight: 10,
-    },
-    chartCardTitle: {
-      fontSize: 13.5,
       fontWeight: '800',
-    },
-    chartCardSub: {
-      fontSize: 11,
-      fontWeight: '500',
-      marginTop: 1,
-    },
-    chartPillBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: 'rgba(245, 158, 11, 0.12)',
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 10,
-    },
-    chartPillBadgeText: {
-      color: '#f59e0b',
-      fontSize: 10.5,
-      fontWeight: '800',
-    },
-    barsContainer: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'flex-end',
-      paddingHorizontal: 6,
-      height: 90,
-      marginBottom: 10,
-    },
-    barCol: {
-      alignItems: 'center',
-      flex: 1,
-    },
-    barTrack: {
-      height: 52,
-      justifyContent: 'flex-end',
-      alignItems: 'center',
-      marginBottom: 6,
-    },
-    barFill: {
-      width: 22,
-      borderRadius: 6,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    barLabel: {
-      fontSize: 11,
-      fontWeight: '700',
-      marginBottom: 1,
-    },
-    barStatusText: {
-      fontSize: 9.5,
-      fontWeight: '800',
-      color: '#10b981',
-    },
-    chartFooterRow: {
-      borderTopWidth: 1,
-      paddingTop: 10,
-      marginTop: 4,
-    },
-    chartFooterText: {
-      fontSize: 11.5,
-      fontWeight: '600',
+      letterSpacing: 0.4,
     },
 
     // GENERAL CARD (Maintenance & Lease)

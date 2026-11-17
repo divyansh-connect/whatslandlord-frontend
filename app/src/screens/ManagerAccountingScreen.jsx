@@ -260,11 +260,12 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate, onBack
   const fetchCoaList = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const [accountsRes, incomeRes, payRes, expRes, chartsRes, metricsRes] = await Promise.all([
+      const [accountsRes, incomeRes, payRes, expRes, invoicesRes, chartsRes, metricsRes] = await Promise.all([
         apiClient.get('/accounting/accounts', logout, refreshAccessToken).catch(() => []),
         apiClient.get('/portal/income', logout, refreshAccessToken).catch(() => []),
         apiClient.get('/payments', logout, refreshAccessToken).catch(() => apiClient.get('/portal/payments', logout, refreshAccessToken).catch(() => [])),
         apiClient.get('/portal/expenses', logout, refreshAccessToken).catch(() => []),
+        apiClient.get('/invoices', logout, refreshAccessToken).catch(() => []),
         apiClient.get('/dashboard/charts', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/dashboard/metrics', logout, refreshAccessToken).catch(() => null),
       ]);
@@ -274,6 +275,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate, onBack
       const rawPayments = Array.isArray(payRes) ? payRes : (payRes?.data || []);
       const livePayments = rawPayments.filter((p) => !p.status || p.status.toLowerCase() === 'paid' || p.status.toLowerCase() === 'completed' || Number(p.amount) > 0);
       const liveExpenses = Array.isArray(expRes) ? expRes : (expRes?.data || []);
+      const liveInvoices = Array.isArray(invoicesRes) ? invoicesRes : (invoicesRes?.data || []);
 
       setPaymentsList(livePayments);
       if (chartsRes?.data || chartsRes?.incomeVsExpenses) setDashboardCharts(chartsRes?.data || chartsRes);
@@ -309,48 +311,85 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate, onBack
         return true;
       });
 
-      // Real live balances
-      const realCash = 0;
-      const realRentIncome = (paymentsList || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-      const realExpenses = (expenseList || []).reduce((s, e) => s + (Number(e.amountPaid || e.amount) || 0), 0);
+      // 1. Process Income strictly from live GET /portal/income (100% Web Parity & Company Isolated)
+      const incomeByCategory = {};
+      (liveIncome || []).forEach((inc) => {
+        let parsed = {};
+        try {
+          parsed = typeof inc.description === 'string' ? JSON.parse(inc.description) : (inc.description || {});
+        } catch { parsed = {}; }
+        if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return;
+        if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments', 'Property'].includes(parsed.propertyName) && !parsed.propertyId) return;
 
-      // Standard Professional Property Management Chart of Accounts
-      const STANDARD_COA = [
-        { id: 'coa-std-1010', accountNumber: '1010', accountName: 'Operating Checking Account', accountType: 'Assets', balance: realCash, status: 'Active' },
-        { id: 'coa-std-1020', accountNumber: '1020', accountName: 'Security Deposit Escrow Account', accountType: 'Assets', balance: 0, status: 'Active' },
-        { id: 'coa-std-2010', accountNumber: '2010', accountName: 'Accounts Payable (AP)', accountType: 'Liabilities', balance: 0, status: 'Active' },
-        { id: 'coa-std-2020', accountNumber: '2020', accountName: 'Tenant Security Deposit Liability', accountType: 'Liabilities', balance: 0, status: 'Active' },
-        { id: 'coa-std-3010', accountNumber: '3010', accountName: "Owner's Equity Capital", accountType: 'Equity', balance: 0, status: 'Active' },
-        { id: 'coa-std-4010', accountNumber: '4010', accountName: 'Rental Revenue Income', accountType: 'Income', balance: realRentIncome, status: 'Active' },
-        { id: 'coa-std-4020', accountNumber: '4020', accountName: 'Late Fee & Penalty Income', accountType: 'Income', balance: 0, status: 'Active' },
-        { id: 'coa-std-5010', accountNumber: '5010', accountName: 'Maintenance & Repair Expense', accountType: 'Expenses', balance: realExpenses, status: 'Active' },
-        { id: 'coa-std-5020', accountNumber: '5020', accountName: 'Property Insurance Expense', accountType: 'Expenses', balance: 0, status: 'Active' },
-        { id: 'coa-std-5030', accountNumber: '5030', accountName: 'Management & Administrative Fee', accountType: 'Expenses', balance: 0, status: 'Active' },
-      ];
+        const rawCat = (inc.category || 'Rent').trim();
+        const cat = rawCat.charAt(0).toUpperCase() + rawCat.slice(1).toLowerCase();
+        const amt = Number(inc.amount) || 0;
+        incomeByCategory[cat] = (incomeByCategory[cat] || 0) + amt;
+      });
+
+      // If no explicit portal income recorded, synthesize from invoices
+      if (Object.keys(incomeByCategory).length === 0 && (liveInvoices || []).length > 0) {
+        const invTotal = (liveInvoices || []).reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
+        if (invTotal > 0) {
+          incomeByCategory['Rent'] = invTotal;
+        }
+      }
+
+      // 2. Process Expenses strictly from live GET /portal/expenses (100% Web Parity & Company Isolated)
+      const expenseByCategory = {};
+      (liveExpenses || []).forEach((exp) => {
+        let parsed = {};
+        try {
+          parsed = typeof exp.description === 'string' ? JSON.parse(exp.description) : (exp.description || {});
+        } catch { parsed = {}; }
+        if (userCompanyId && parsed.companyId && parsed.companyId !== userCompanyId) return;
+        if (!isDemo && ['Sunset Heights', 'Highland Tower', 'Grand View Apartments'].includes(parsed.propertyName) && !parsed.propertyId) return;
+
+        const rawCat = (exp.category || 'Maintenance').trim();
+        const cat = rawCat.charAt(0).toUpperCase() + rawCat.slice(1).toLowerCase();
+        const amt = Number(exp.amount) || 0;
+        expenseByCategory[cat] = (expenseByCategory[cat] || 0) + amt;
+      });
 
       const finalAccountsMap = new Map();
-      STANDARD_COA.forEach((std) => {
-        if (!deletedCoaIds.includes(std.id) && !deletedCoaIds.includes(std.accountNumber)) {
-          finalAccountsMap.set(std.accountNumber, { ...std });
-        }
+
+      // Synthesize Live Feed Income Accounts starting at 4100
+      let incCodeBase = 4100;
+      Object.entries(incomeByCategory).forEach(([category, balance]) => {
+        const accNum = String(incCodeBase);
+        incCodeBase += 10;
+        finalAccountsMap.set(accNum, {
+          id: `inc-${category}`,
+          accountNumber: accNum,
+          accountName: category.toLowerCase().includes('income') || category.toLowerCase().includes('revenue') ? category : `${category} Income`,
+          accountType: 'Income',
+          balance: balance,
+          currency: 'USD',
+          status: 'Active',
+          isLiveFeed: true,
+          description: `Live income tracking for ${category}`,
+        });
       });
 
-      cleanDbAccounts.forEach((a) => {
-        const accNum = a.accountCode || a.accountNumber || '';
-        const accType = a.type === 'Asset' ? 'Assets' : a.type === 'Revenue' ? 'Income' : a.type === 'Expense' ? 'Expenses' : (a.type || a.accountType || 'Assets');
-        if (accNum) {
-          finalAccountsMap.set(accNum, {
-            id: a.id,
-            companyId: a.companyId,
-            accountNumber: accNum,
-            accountName: a.accountName || 'Custom Ledger Account',
-            accountType: accType,
-            balance: Number(a.balance) || 0,
-            status: a.isActive !== false ? 'Active' : 'Inactive',
-          });
-        }
+      // Synthesize Live Feed Expense Accounts starting at 5100
+      let expCodeBase = 5100;
+      Object.entries(expenseByCategory).forEach(([category, balance]) => {
+        const accNum = String(expCodeBase);
+        expCodeBase += 10;
+        finalAccountsMap.set(accNum, {
+          id: `exp-${category}`,
+          accountNumber: accNum,
+          accountName: category.toLowerCase().includes('expense') ? category : `${category} Expense`,
+          accountType: 'Expenses',
+          balance: balance,
+          currency: 'USD',
+          status: 'Active',
+          isLiveFeed: true,
+          description: `Live expense tracking for ${category}`,
+        });
       });
 
+      // Show ONLY live Income and Expense accounts per user request (no non-income/expense dummy accounts)
       const combinedAccounts = Array.from(finalAccountsMap.values());
       combinedAccounts.sort((a, b) => (a.accountNumber || '').localeCompare(b.accountNumber || ''));
 
@@ -1826,30 +1865,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate, onBack
                 />
               </TouchableOpacity>
 
-              {activeTab === 'coa' && (
-                <TouchableOpacity style={styles.addBtn} onPress={() => setCreateCoaOpen(true)} activeOpacity={0.8}>
-                  <Ionicons name="add" size={16} color="#0f172a" />
-                  <Text style={styles.addBtnText} allowFontScaling={false}>
-                    {language === 'es' ? 'Cuenta' : language === 'hi' ? 'खाता' : 'New'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              {activeTab === 'income' && (
-                <TouchableOpacity style={styles.addBtn} onPress={() => setCreateIncomeOpen(true)} activeOpacity={0.8}>
-                  <Ionicons name="add" size={16} color="#0f172a" />
-                  <Text style={styles.addBtnText} allowFontScaling={false}>
-                    {language === 'es' ? 'Ingreso' : language === 'hi' ? 'आय' : 'Record'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              {activeTab === 'expenses' && (
-                <TouchableOpacity style={styles.addBtn} onPress={() => setCreateExpenseOpen(true)} activeOpacity={0.8}>
-                  <Ionicons name="add" size={16} color="#0f172a" />
-                  <Text style={styles.addBtnText} allowFontScaling={false}>
-                    {language === 'es' ? 'Gasto' : language === 'hi' ? 'खर्च' : 'Record'}
-                  </Text>
-                </TouchableOpacity>
-              )}
+              {/* Post/Create buttons for CoA, Income, and Expenses hidden per user request */}
             </View>
 
             {/* Active Filter Pill */}
@@ -2046,20 +2062,14 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate, onBack
                             {item.accountNumber || item.accountCode || '----'}
                           </Text>
                         </View>
-                        <Text style={styles.cardTitle} allowFontScaling={false}>
+                        <Text style={[styles.cardTitle, { flex: 1, marginHorizontal: 8 }]} allowFontScaling={false} numberOfLines={1}>
                           {item.accountName || 'Ledger Account'}
                         </Text>
-                        <TouchableOpacity
-                          style={{ padding: 4 }}
-                          onPress={() => handleDeleteAccount(item.id, item.accountName)}
-                          disabled={deletingItemId === item.id}
-                        >
-                          {deletingItemId === item.id ? (
-                            <ActivityIndicator size="small" color="#f43f5e" />
-                          ) : (
-                            <Ionicons name="trash-outline" size={18} color="#f43f5e" />
-                          )}
-                        </TouchableOpacity>
+                        <View style={{ backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: isDarkMode ? '#94a3b8' : '#64748b', textTransform: 'uppercase' }} allowFontScaling={false}>
+                            LIVE FEED
+                          </Text>
+                        </View>
                       </View>
                       <View style={styles.cardDivider} />
                       <View style={styles.cardDetailRow}>
@@ -2230,7 +2240,7 @@ export const ManagerAccountingScreen = ({ initialTab = 'coa', onNavigate, onBack
 
             <ScrollView style={{ paddingVertical: 12 }} showsVerticalScrollIndicator={false}>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {activeTab === 'coa' && ['ALL', 'Assets', 'Liabilities', 'Equity', 'Revenue', 'Expenses'].map((t) => (
+                {activeTab === 'coa' && ['ALL', 'Income', 'Expenses', 'Assets', 'Liabilities', 'Equity'].map((t) => (
                   <TouchableOpacity
                     key={t}
                     style={[styles.filterChip, (selectedType === t || (!selectedType && t === 'ALL')) && styles.filterChipActive]}

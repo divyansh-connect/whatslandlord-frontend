@@ -23,6 +23,7 @@ import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { paymentSchema, invoiceSchema } from '../validations/mobile.validation';
+import { softDeleteToBin } from '../utils/restoreBinHelper';
 import { CustomDatePicker } from '../components/CustomDatePicker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -49,16 +50,40 @@ export const ManagerRentPaymentsScreen = ({
   targetInvoiceId = null,
   initialStatusFilter = null,
 }) => {
-  const { logout, refreshAccessToken } = useAuthStore();
+  const { user, logout, refreshAccessToken } = useAuthStore();
+  const isCollectionManager = user?.role === 'Collection Manager';
   const { language } = useThemeStore();
   const { colors, isDarkMode } = useThemeColors();
   const styles = getStyles(colors, isDarkMode);
 
   // Sub-tab: 'dashboard' | 'payments' | 'invoices' | 'ledger'
-  const [activeTab, setActiveTab] = useState(
-    initialTab === 'rent-dashboard' || initialTab === 'rent' ? 'dashboard' : initialTab
-  );
+  const [activeTab, setActiveTab] = useState(() => {
+    if (isCollectionManager) {
+      if (initialTab === 'rent-dashboard' || initialTab === 'rent' || initialTab === 'payments') return 'payments';
+      if (initialTab === 'rent-ledger' || initialTab === 'ledger') return 'ledger';
+      if (initialTab === 'invoices') return 'invoices';
+      return 'payments';
+    }
+    return initialTab === 'rent-dashboard' || initialTab === 'rent' ? 'dashboard' : initialTab;
+  });
   const [tabHistory, setTabHistory] = useState([]);
+
+  useEffect(() => {
+    if (initialTab) {
+      if (isCollectionManager) {
+        if (initialTab === 'rent-dashboard' || initialTab === 'rent' || initialTab === 'payments') {
+          setActiveTab('payments');
+        } else if (initialTab === 'rent-ledger' || initialTab === 'ledger') {
+          setActiveTab('ledger');
+        } else if (initialTab === 'invoices') {
+          setActiveTab('invoices');
+        }
+      } else {
+        const nextTab = (initialTab === 'rent-dashboard' || initialTab === 'rent') ? 'dashboard' : (initialTab === 'rent-ledger' ? 'ledger' : initialTab);
+        setActiveTab(nextTab);
+      }
+    }
+  }, [initialTab, isCollectionManager]);
 
   const switchTab = (tabName) => {
     if (tabName !== activeTab) {
@@ -68,6 +93,16 @@ export const ManagerRentPaymentsScreen = ({
   };
 
   const handleBackNavigation = () => {
+    if (isCollectionManager) {
+      if (onNavigate) {
+        onNavigate('dashboard');
+        return;
+      }
+      if (onBack) {
+        onBack();
+        return;
+      }
+    }
     if (tabHistory.length > 0) {
       const prevTab = tabHistory[tabHistory.length - 1];
       setTabHistory((prev) => prev.slice(0, -1));
@@ -118,6 +153,7 @@ export const ManagerRentPaymentsScreen = ({
   const [paymentsList, setPaymentsList] = useState([]);
   const [invoicesList, setInvoicesList] = useState([]);
   const [ledgerList, setLedgerList] = useState([]);
+  const [delinqReportData, setDelinqReportData] = useState(null);
 
   // Auto-open specific payment receipt when deep-linked from notification
   useEffect(() => {
@@ -293,12 +329,13 @@ export const ManagerRentPaymentsScreen = ({
     try {
       if (showLoading) setLoading(true);
 
-      const [paymentsRes, invoicesRes, propsRes, unitsRes, tenantsRes] = await Promise.all([
+      const [paymentsRes, invoicesRes, propsRes, unitsRes, tenantsRes, delinqRes] = await Promise.all([
         apiClient.get('/payments', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/invoices', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/properties', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/units', logout, refreshAccessToken).catch(() => null),
         apiClient.get('/tenants', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/reports/delinquency', logout, refreshAccessToken).catch(() => null),
       ]);
 
       const rawPayments = Array.isArray(paymentsRes) ? paymentsRes : (paymentsRes?.data || []);
@@ -306,6 +343,7 @@ export const ManagerRentPaymentsScreen = ({
       const rawProps = Array.isArray(propsRes) ? propsRes : (propsRes?.data || []);
       const rawUnits = Array.isArray(unitsRes) ? unitsRes : (unitsRes?.data || []);
       const rawTenants = Array.isArray(tenantsRes) ? tenantsRes : (tenantsRes?.data || []);
+      if (delinqRes) setDelinqReportData(delinqRes);
 
       if (rawProps.length > 0) setProperties(rawProps);
       if (rawUnits.length > 0) setUnits(rawUnits);
@@ -427,32 +465,136 @@ export const ManagerRentPaymentsScreen = ({
         const isValidDate = !isNaN(invDate.getTime());
         const monthName = isValidDate ? invDate.toLocaleString('en-US', { month: 'long' }) : 'Monthly';
         const year = isValidDate ? invDate.getFullYear() : new Date().getFullYear();
+        const dateVal = inv.dueDate && inv.dueDate !== 'N/A' ? inv.dueDate : new Date().toISOString().split('T')[0];
+        const totalInvAmount = Number(inv.amount) || 0;
 
-        const isLateFee =
-          (inv.notes || '').toLowerCase().includes('late fee') ||
-          (inv.status || '').toLowerCase().includes('late') ||
-          inv.lineItems.some((item) => (item.description || '').toLowerCase().includes('late fee'));
+        let lateFeeAmount = 0;
+        let baseRentAmount = 0;
 
-        const description = isLateFee
-          ? `Late Fee — ${monthName} ${year}`
-          : `Monthly Rent Invoice — ${monthName} ${year}`;
-        const transactionType = isLateFee ? 'Late Fee' : 'Rent Charge';
+        const lineItemsParsed = Array.isArray(inv.lineItems) ? inv.lineItems : [];
+        if (lineItemsParsed.length > 0) {
+          lineItemsParsed.forEach((item) => {
+            const desc = String(item?.description || '').toLowerCase();
+            const amt = Number(item?.amount) || 0;
+            if (desc.includes('late fee') || desc.includes('penalty')) {
+              lateFeeAmount += amt;
+            } else {
+              baseRentAmount += amt;
+            }
+          });
+        }
 
-        allTransactions.push({
-          type: 'charge',
-          date: inv.dueDate && inv.dueDate !== 'N/A' ? inv.dueDate : new Date().toISOString().split('T')[0],
-          amount: inv.amount,
-          tenantId: inv.tenantId,
-          tenantName: inv.tenantName,
-          propertyName: inv.propertyName,
-          unitNumber: inv.unitNumber,
-          description,
-          transactionType,
-          id: `led-chg-${inv.id}`,
-          invoiceStatus: inv.status,
-          invoicePaidAmount: inv.paidAmount,
-          invoiceBalance: inv.balance,
-        });
+        // Fallback: check matched unit's base rent if lineItems didn't split out the late fee
+        if (lateFeeAmount === 0 && totalInvAmount > 0) {
+          const matchedUnit = rawUnits.find(
+            (u) =>
+              (inv.unitId && u.id === inv.unitId) ||
+              (String(u.unitNumber || '').toLowerCase() === String(inv.unitNumber || '').toLowerCase())
+          );
+          const unitBaseRent = Number(matchedUnit?.rentAmount || 0);
+
+          if (
+            unitBaseRent > 0 &&
+            totalInvAmount > unitBaseRent &&
+            totalInvAmount - unitBaseRent <= unitBaseRent * 0.5
+          ) {
+            baseRentAmount = unitBaseRent;
+            lateFeeAmount = totalInvAmount - unitBaseRent;
+          } else if (
+            (inv.notes || '').toLowerCase().includes('late fee') ||
+            (inv.status || '').toLowerCase().includes('late')
+          ) {
+            if (unitBaseRent > 0 && totalInvAmount > unitBaseRent) {
+              baseRentAmount = unitBaseRent;
+              lateFeeAmount = totalInvAmount - unitBaseRent;
+            } else {
+              lateFeeAmount = totalInvAmount;
+              baseRentAmount = 0;
+            }
+          } else {
+            baseRentAmount = totalInvAmount;
+          }
+        } else if (lateFeeAmount > 0 && baseRentAmount === 0 && totalInvAmount > lateFeeAmount) {
+          baseRentAmount = totalInvAmount - lateFeeAmount;
+        }
+
+        // Push separate Base Rent Charge and Late Fee rows when both exist (identical to Web)
+        if (lateFeeAmount > 0 && baseRentAmount > 0) {
+          allTransactions.push({
+            type: 'charge',
+            sortOrder: 1,
+            date: dateVal,
+            amount: baseRentAmount,
+            tenantId: inv.tenantId,
+            tenantName: inv.tenantName,
+            propertyName: inv.propertyName,
+            unitNumber: inv.unitNumber,
+            description: `Monthly Rent Invoice — ${monthName} ${year}`,
+            transactionType: 'Rent Charge',
+            invoiceId: inv.id,
+            invoiceStatus: inv.status,
+            invoicePaidAmount: Number(inv.paidAmount) || 0,
+            invoiceBalance: Number(inv.balance) || totalInvAmount,
+            id: `led-chg-${inv.id}`,
+            rawInvoice: inv,
+          });
+          allTransactions.push({
+            type: 'charge',
+            sortOrder: 2,
+            date: dateVal,
+            amount: lateFeeAmount,
+            tenantId: inv.tenantId,
+            tenantName: inv.tenantName,
+            propertyName: inv.propertyName,
+            unitNumber: inv.unitNumber,
+            description: `Late Fee — ${monthName} ${year}`,
+            transactionType: 'Late Fee',
+            invoiceId: inv.id,
+            invoiceStatus: inv.status,
+            invoicePaidAmount: 0,
+            invoiceBalance: lateFeeAmount,
+            id: `led-late-${inv.id}`,
+            rawInvoice: inv,
+          });
+        } else if (lateFeeAmount > 0 && baseRentAmount === 0) {
+          allTransactions.push({
+            type: 'charge',
+            sortOrder: 2,
+            date: dateVal,
+            amount: lateFeeAmount,
+            tenantId: inv.tenantId,
+            tenantName: inv.tenantName,
+            propertyName: inv.propertyName,
+            unitNumber: inv.unitNumber,
+            description: `Late Fee — ${monthName} ${year}`,
+            transactionType: 'Late Fee',
+            invoiceId: inv.id,
+            invoiceStatus: inv.status,
+            invoicePaidAmount: Number(inv.paidAmount) || 0,
+            invoiceBalance: Number(inv.balance) || lateFeeAmount,
+            id: `led-late-${inv.id}`,
+            rawInvoice: inv,
+          });
+        } else {
+          allTransactions.push({
+            type: 'charge',
+            sortOrder: 1,
+            date: dateVal,
+            amount: totalInvAmount,
+            tenantId: inv.tenantId,
+            tenantName: inv.tenantName,
+            propertyName: inv.propertyName,
+            unitNumber: inv.unitNumber,
+            description: `Monthly Rent Invoice — ${monthName} ${year}`,
+            transactionType: 'Rent Charge',
+            invoiceId: inv.id,
+            invoiceStatus: inv.status,
+            invoicePaidAmount: Number(inv.paidAmount) || 0,
+            invoiceBalance: Number(inv.balance) || totalInvAmount,
+            id: `led-chg-${inv.id}`,
+            rawInvoice: inv,
+          });
+        }
       });
 
       parsedPayments.forEach((pay) => {
@@ -460,6 +602,7 @@ export const ManagerRentPaymentsScreen = ({
         const ref = pay.referenceNumber ? ` · Ref# ${pay.referenceNumber}` : '';
         allTransactions.push({
           type: 'payment',
+          sortOrder: 3,
           date: pay.paidDate || new Date().toISOString().split('T')[0],
           amount: pay.amount,
           tenantId: pay.tenantId,
@@ -483,6 +626,7 @@ export const ManagerRentPaymentsScreen = ({
           if (!hasPayment) {
             allTransactions.push({
               type: 'payment',
+              sortOrder: 3,
               date: inv.dueDate && inv.dueDate !== 'N/A' ? inv.dueDate : new Date().toISOString().split('T')[0],
               amount: invPaid,
               tenantId: inv.tenantId,
@@ -497,8 +641,13 @@ export const ManagerRentPaymentsScreen = ({
         }
       });
 
-      // Chronological sort ascending
-      allTransactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      // Chronological sort ascending: date first, then sortOrder
+      allTransactions.sort((a, b) => {
+        const timeA = new Date(a.date).getTime();
+        const timeB = new Date(b.date).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return (a.sortOrder || 1) - (b.sortOrder || 1);
+      });
 
       const ledgerItems = [];
       allTransactions.forEach((tx) => {
@@ -579,17 +728,23 @@ export const ManagerRentPaymentsScreen = ({
     const overdueInvoices = invoicesList.filter(
       (i) => i.status === 'Overdue' || (i.status !== 'Paid' && (Number(i.balance) > 0 || Number(i.amount) > Number(i.paidAmount || 0)))
     );
-    const outstandingBalance = overdueInvoices.reduce((sum, i) => {
+    const fallbackOutstanding = overdueInvoices.reduce((sum, i) => {
       const bal = i.balance !== undefined && i.balance !== null ? Number(i.balance) : (Number(i.amount) || 0) - (Number(i.paidAmount) || 0);
       return sum + (bal || 0);
     }, 0);
+
+    const outstandingBalance = delinqReportData?.summary?.totalDelinquentBalance !== undefined
+      ? Number(delinqReportData.summary.totalDelinquentBalance)
+      : fallbackOutstanding;
 
     const todayTransactions = paidPayments.filter(
       (p) => isTransactionToday(p.paidDate) || isTransactionToday(p.createdAt)
     );
 
     const collectedToday = todayTransactions.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-    const latePayments = overdueInvoices.length;
+    const latePayments = delinqReportData?.summary?.totalDelinquentInvoices !== undefined
+      ? Number(delinqReportData.summary.totalDelinquentInvoices)
+      : overdueInvoices.length;
 
     // Daily Collection Trends grouped by day of week
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -641,7 +796,7 @@ export const ManagerRentPaymentsScreen = ({
       recentPayments,
       largestOverdue,
     };
-  }, [paymentsList, invoicesList]);
+  }, [paymentsList, invoicesList, delinqReportData]);
 
   // ==============================================================
   // ACTIONS: DELETE PAYMENT & DELETE INVOICE (With live API calls & Instant Optimistic UI)
@@ -662,6 +817,15 @@ export const ManagerRentPaymentsScreen = ({
           onPress: async () => {
             try {
               setDeletingPaymentId(payment.id);
+              await softDeleteToBin({
+                entityType: 'Payment',
+                entityId: payment.id,
+                title: `Payment ${payment.receiptNumber || payment.id}`,
+                subtitle: `$${Number(payment.amount || 0).toLocaleString()} · ${payment.tenantName || ''}`,
+                data: payment,
+                logout,
+                refreshAccessToken,
+              });
               await apiClient.delete(`/payments/${payment.id}`, logout, refreshAccessToken);
               // Optimistic instant removal: list updates immediately!
               setPaymentsList((prev) => prev.filter((p) => p.id !== payment.id));
@@ -697,6 +861,15 @@ export const ManagerRentPaymentsScreen = ({
           onPress: async () => {
             try {
               setDeletingInvoiceId(invoice.id);
+              await softDeleteToBin({
+                entityType: 'Invoice',
+                entityId: invoice.id,
+                title: `Invoice ${invoice.invoiceNumber || invoice.id}`,
+                subtitle: `$${Number(invoice.amount || 0).toLocaleString()} · ${invoice.tenantName || ''}`,
+                data: invoice,
+                logout,
+                refreshAccessToken,
+              });
               await apiClient.delete(`/invoices/${invoice.id}`, logout, refreshAccessToken);
               // Optimistic instant removal: list updates immediately!
               setInvoicesList((prev) => prev.filter((i) => i.id !== invoice.id));
@@ -1212,7 +1385,9 @@ export const ManagerRentPaymentsScreen = ({
   };
 
   const getStatementData = () => {
-    if (!selectedStatementTenant) return { txs: [], tenant: {}, totalOutstanding: 0 };
+    if (!selectedStatementTenant) {
+      return { txs: [], tenant: {}, totalOutstanding: 0, totalCharged: 0, totalPaid: 0, outstanding: 0, lateFees: 0 };
+    }
     const nameToMatch = selectedStatementTenant.tenantName.toLowerCase().trim();
     const tDetail =
       tenants.find(
@@ -1236,9 +1411,23 @@ export const ManagerRentPaymentsScreen = ({
     });
 
     computedTxs.reverse();
+    const totalCharged = computedTxs.reduce((sum, e) => sum + (e.debit || 0), 0);
+    const totalPaid = computedTxs.reduce((sum, e) => sum + (e.credit || 0), 0);
+    const outstanding = totalCharged - totalPaid;
+    const lateFees = computedTxs.reduce((sum, e) => {
+      if (e.transactionType === 'Late Fee' || (e.description || '').toLowerCase().includes('late fee')) {
+        return sum + (e.debit || 0);
+      }
+      return sum;
+    }, 0);
+
     return {
       txs: computedTxs,
       tenant: tDetail,
+      totalCharged,
+      totalPaid,
+      outstanding,
+      lateFees,
       totalOutstanding: Math.max(0, running),
     };
   };
@@ -1316,14 +1505,30 @@ export const ManagerRentPaymentsScreen = ({
             )}
             <View style={{ flex: 1 }}>
               <Text style={styles.title} allowFontScaling={false}>
-                {language === 'es' ? 'Alquiler y Pagos' : language === 'hi' ? 'किराया और भुगतान' : 'Rent & Payments'}
+                {isCollectionManager ? (
+                  activeTab === 'invoices'
+                    ? (language === 'es' ? 'Facturas de Inquilinos' : 'Tenant Invoices')
+                    : activeTab === 'ledger'
+                    ? (language === 'es' ? 'Libro Mayor de Inquilinos' : 'Tenant Ledger')
+                    : (language === 'es' ? 'Historial de Pagos' : 'Payment History')
+                ) : (
+                  language === 'es' ? 'Alquiler y Pagos' : language === 'hi' ? 'किराया और भुगतान' : 'Rent & Payments'
+                )}
               </Text>
               <Text style={styles.subtitle} allowFontScaling={false}>
-                {language === 'es'
-                  ? 'Registre recibos, facture mensualidades y audite el libro mayor'
-                  : language === 'hi'
-                  ? 'किराया रसीदें दर्ज करें, चालान बनाएं और खाता बही का मिलान करें'
-                  : 'Track rent receipts, monthly invoices, and tenant ledgers'}
+                {isCollectionManager ? (
+                  activeTab === 'invoices'
+                    ? (language === 'es' ? 'Distribución y cargos de facturación de inquilinos' : 'Resident billing distributions and itemized charges')
+                    : activeTab === 'ledger'
+                    ? (language === 'es' ? 'Registros cronológicos de débitos y créditos' : 'Chronological debit/credit transaction line items')
+                    : (language === 'es' ? 'Registros de transacciones y recibos liquidados' : 'Individual cleared transaction logs and receipts')
+                ) : (
+                  language === 'es'
+                    ? 'Registre recibos, facture mensualidades y audite el libro mayor'
+                    : language === 'hi'
+                    ? 'किराया रसीदें दर्ज करें, चालान बनाएं और खाता बही का मिलान करें'
+                    : 'Track rent receipts, monthly invoices, and tenant ledgers'
+                )}
               </Text>
             </View>
           </View>
@@ -1332,64 +1537,66 @@ export const ManagerRentPaymentsScreen = ({
           </TouchableOpacity>
         </View>
 
-        {/* Tab Switcher - 4 Submenus identical to Web */}
-        <View style={{ marginTop: 10 }}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingRight: 10 }}
-            keyboardShouldPersistTaps="handled"
-            nestedScrollEnabled={true}
-          >
-            <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'dashboard' && styles.tabItemActive]}
-              onPress={() => switchTab('dashboard')}
+        {/* Tab Switcher - 4 Submenus identical to Web (Hidden for Collection Manager because bottom navbar navigates) */}
+        {!isCollectionManager && (
+          <View style={{ marginTop: 10 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingRight: 10 }}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled={true}
             >
-              <Text
-                style={[styles.tabItemText, activeTab === 'dashboard' && styles.tabItemTextActive]}
-                allowFontScaling={false}
+              <TouchableOpacity
+                style={[styles.tabItem, activeTab === 'dashboard' && styles.tabItemActive]}
+                onPress={() => switchTab('dashboard')}
               >
-                {language === 'es' ? 'Panel' : language === 'hi' ? 'डैशबोर्ड' : 'Dashboard'}
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[styles.tabItemText, activeTab === 'dashboard' && styles.tabItemTextActive]}
+                  allowFontScaling={false}
+                >
+                  {language === 'es' ? 'Panel' : language === 'hi' ? 'डैशबोर्ड' : 'Dashboard'}
+                </Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'payments' && styles.tabItemActive]}
-              onPress={() => switchTab('payments')}
-            >
-              <Text
-                style={[styles.tabItemText, activeTab === 'payments' && styles.tabItemTextActive]}
-                allowFontScaling={false}
+              <TouchableOpacity
+                style={[styles.tabItem, activeTab === 'payments' && styles.tabItemActive]}
+                onPress={() => switchTab('payments')}
               >
-                {language === 'es' ? 'Pagos' : language === 'hi' ? 'भुगतान' : 'Payments'}
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[styles.tabItemText, activeTab === 'payments' && styles.tabItemTextActive]}
+                  allowFontScaling={false}
+                >
+                  {language === 'es' ? 'Pagos' : language === 'hi' ? 'भुगतान' : 'Payments'}
+                </Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'invoices' && styles.tabItemActive]}
-              onPress={() => switchTab('invoices')}
-            >
-              <Text
-                style={[styles.tabItemText, activeTab === 'invoices' && styles.tabItemTextActive]}
-                allowFontScaling={false}
+              <TouchableOpacity
+                style={[styles.tabItem, activeTab === 'invoices' && styles.tabItemActive]}
+                onPress={() => switchTab('invoices')}
               >
-                {language === 'es' ? 'Facturas' : language === 'hi' ? 'चालान' : 'Invoices'}
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[styles.tabItemText, activeTab === 'invoices' && styles.tabItemTextActive]}
+                  allowFontScaling={false}
+                >
+                  {language === 'es' ? 'Facturas' : language === 'hi' ? 'चालान' : 'Invoices'}
+                </Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'ledger' && styles.tabItemActive]}
-              onPress={() => switchTab('ledger')}
-            >
-              <Text
-                style={[styles.tabItemText, activeTab === 'ledger' && styles.tabItemTextActive]}
-                allowFontScaling={false}
+              <TouchableOpacity
+                style={[styles.tabItem, activeTab === 'ledger' && styles.tabItemActive]}
+                onPress={() => switchTab('ledger')}
               >
-                {language === 'es' ? 'Libro' : language === 'hi' ? 'खाता बही' : 'Rent Ledger'}
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
+                <Text
+                  style={[styles.tabItemText, activeTab === 'ledger' && styles.tabItemTextActive]}
+                  allowFontScaling={false}
+                >
+                  {language === 'es' ? 'Libro' : language === 'hi' ? 'खाता बही' : 'Rent Ledger'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        )}
 
         {/* Search bar & Primary CTA button */}
         <View style={[styles.searchBarRow, { marginTop: 10 }]}>
@@ -1417,7 +1624,7 @@ export const ManagerRentPaymentsScreen = ({
             )}
           </View>
 
-          {activeTab === 'invoices' && (
+          {activeTab === 'invoices' && !isCollectionManager && (
             <TouchableOpacity
               style={styles.addBtn}
               onPress={() => setCreateInvoiceOpen(true)}
@@ -1430,7 +1637,7 @@ export const ManagerRentPaymentsScreen = ({
             </TouchableOpacity>
           )}
 
-          {activeTab === 'payments' && (
+          {activeTab === 'payments' && !isCollectionManager && (
             <TouchableOpacity
               style={styles.addBtn}
               onPress={() => setRecordPaymentOpen(true)}
@@ -1539,7 +1746,7 @@ export const ManagerRentPaymentsScreen = ({
                   >
                     <Text style={styles.metricCardLabel} allowFontScaling={false}>COLLECTED TODAY</Text>
                     <Text style={[styles.metricCardValue, { color: '#10b981' }]} allowFontScaling={false}>
-                      ${dashboardMetrics.collectedToday.toLocaleString(undefined, { minimumFractionDigits: 0 })}
+                      ${dashboardMetrics.collectedToday.toLocaleString('en-US', { minimumFractionDigits: 0 })}
                     </Text>
                     <Text style={styles.metricCardSub} allowFontScaling={false}>Daily bank clearing →</Text>
                   </TouchableOpacity>
@@ -1552,7 +1759,7 @@ export const ManagerRentPaymentsScreen = ({
                   >
                     <Text style={styles.metricCardLabel} allowFontScaling={false}>MONTHLY COLLECTED</Text>
                     <Text style={[styles.metricCardValue, { color: '#10b981' }]} allowFontScaling={false}>
-                      ${dashboardMetrics.monthlyCollected.toLocaleString(undefined, { minimumFractionDigits: 0 })}
+                      ${dashboardMetrics.monthlyCollected.toLocaleString('en-US', { minimumFractionDigits: 0 })}
                     </Text>
                     <View style={styles.rowTrend}>
                       <Ionicons name="trending-up" size={12} color="#10b981" />
@@ -1574,7 +1781,7 @@ export const ManagerRentPaymentsScreen = ({
                   >
                     <Text style={styles.metricCardLabel} allowFontScaling={false}>OUTSTANDING BALANCE</Text>
                     <Text style={[styles.metricCardValue, { color: '#ef4444' }]} allowFontScaling={false}>
-                      ${dashboardMetrics.outstandingBalance.toLocaleString(undefined, { minimumFractionDigits: 0 })}
+                      ${dashboardMetrics.outstandingBalance.toLocaleString('en-US', { minimumFractionDigits: 0 })}
                     </Text>
                     <View style={styles.rowTrend}>
                       <Ionicons name="alert-circle" size={12} color="#ef4444" />
@@ -1599,35 +1806,37 @@ export const ManagerRentPaymentsScreen = ({
                 </View>
 
                 {/* Quick Actions Bar */}
-                <View style={[styles.rowBetween, { marginTop: 8, marginBottom: 16 }]}>
-                  <TouchableOpacity
-                    style={[styles.addBtn, { flex: 1, marginRight: 8, height: 42, justifyContent: 'center' }]}
-                    onPress={() => setRecordPaymentOpen(true)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="card" size={16} color="#0f172a" style={{ marginRight: 6 }} />
-                    <Text style={styles.addBtnText} allowFontScaling={false}>Record Payment</Text>
-                  </TouchableOpacity>
+                {!isCollectionManager && (
+                  <View style={[styles.rowBetween, { marginTop: 8, marginBottom: 16 }]}>
+                    <TouchableOpacity
+                      style={[styles.addBtn, { flex: 1, marginRight: 8, height: 42, justifyContent: 'center' }]}
+                      onPress={() => setRecordPaymentOpen(true)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="card" size={16} color="#0f172a" style={{ marginRight: 6 }} />
+                      <Text style={styles.addBtnText} allowFontScaling={false}>Record Payment</Text>
+                    </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.addBtn,
-                      {
-                        flex: 1,
-                        height: 42,
-                        justifyContent: 'center',
-                        backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
-                      },
-                    ]}
-                    onPress={() => setCreateInvoiceOpen(true)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="document-text" size={16} color={colors.textPrimary} style={{ marginRight: 6 }} />
-                    <Text style={[styles.addBtnText, { color: colors.textPrimary }]} allowFontScaling={false}>
-                      Create Invoice
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.addBtn,
+                        {
+                          flex: 1,
+                          height: 42,
+                          justifyContent: 'center',
+                          backgroundColor: isDarkMode ? '#334155' : '#e2e8f0',
+                        },
+                      ]}
+                      onPress={() => setCreateInvoiceOpen(true)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="document-text" size={16} color={colors.textPrimary} style={{ marginRight: 6 }} />
+                      <Text style={[styles.addBtnText, { color: colors.textPrimary }]} allowFontScaling={false}>
+                        Create Invoice
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
 
                 {/* Daily Collection Trends */}
                 <View style={styles.sectionCard}>
@@ -1820,23 +2029,25 @@ export const ManagerRentPaymentsScreen = ({
                           </Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                          style={[styles.cardActionBtn, { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.06)' }]}
-                          onPress={() => handleDeletePayment(item)}
-                          disabled={deletingPaymentId === item.id}
-                          activeOpacity={0.7}
-                        >
-                          {deletingPaymentId === item.id ? (
-                            <ActivityIndicator size="small" color="#ef4444" />
-                          ) : (
-                            <>
-                              <Ionicons name="trash-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
-                              <Text style={[styles.cardActionBtnText, { color: '#ef4444' }]} allowFontScaling={false}>
-                                Delete
-                              </Text>
-                            </>
-                          )}
-                        </TouchableOpacity>
+                        {!isCollectionManager && (
+                          <TouchableOpacity
+                            style={[styles.cardActionBtn, { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.06)' }]}
+                            onPress={() => handleDeletePayment(item)}
+                            disabled={deletingPaymentId === item.id}
+                            activeOpacity={0.7}
+                          >
+                            {deletingPaymentId === item.id ? (
+                              <ActivityIndicator size="small" color="#ef4444" />
+                            ) : (
+                              <>
+                                <Ionicons name="trash-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
+                                <Text style={[styles.cardActionBtnText, { color: '#ef4444' }]} allowFontScaling={false}>
+                                  Delete
+                                </Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
                   ))
@@ -1976,23 +2187,25 @@ export const ManagerRentPaymentsScreen = ({
                             </Text>
                           </TouchableOpacity>
 
-                          <TouchableOpacity
-                            style={[styles.cardActionBtn, { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.06)' }]}
-                            onPress={() => handleDeleteInvoice(item)}
-                            disabled={deletingInvoiceId === item.id}
-                            activeOpacity={0.7}
-                          >
-                            {deletingInvoiceId === item.id ? (
-                              <ActivityIndicator size="small" color="#ef4444" />
-                            ) : (
-                              <>
-                                <Ionicons name="trash-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
-                                <Text style={[styles.cardActionBtnText, { color: '#ef4444' }]} allowFontScaling={false}>
-                                  Delete
-                                </Text>
-                              </>
-                            )}
-                          </TouchableOpacity>
+                          {!isCollectionManager && (
+                            <TouchableOpacity
+                              style={[styles.cardActionBtn, { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.06)' }]}
+                              onPress={() => handleDeleteInvoice(item)}
+                              disabled={deletingInvoiceId === item.id}
+                              activeOpacity={0.7}
+                            >
+                              {deletingInvoiceId === item.id ? (
+                                <ActivityIndicator size="small" color="#ef4444" />
+                              ) : (
+                                <>
+                                  <Ionicons name="trash-outline" size={14} color="#ef4444" style={{ marginRight: 4 }} />
+                                  <Text style={[styles.cardActionBtnText, { color: '#ef4444' }]} allowFontScaling={false}>
+                                    Delete
+                                  </Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                          )}
                         </View>
                       </View>
                     );
@@ -2052,46 +2265,43 @@ export const ManagerRentPaymentsScreen = ({
                     </Text>
                   </View>
                 ) : (
-                  paginatedLedger.map((item, idx) => {
-                    const isPayment = item.debit === null;
-                    const badgeColor = isPayment ? '#10b981' : item.transactionType === 'Late Fee' ? '#f59e0b' : '#38bdf8';
-
-                    return (
-                      <TouchableOpacity
-                        key={item.id || idx}
-                        style={styles.recordsCard}
-                        activeOpacity={0.85}
-                        onPress={() => {
-                          setSelectedStatementTenant(item);
-                          setStatementModalOpen(true);
-                        }}
-                      >
-                        {/* Top Header Row: Date on Left, Badge on Right */}
-                        <View style={styles.cardHeaderRow}>
-                          <View style={styles.numTag}>
-                            <Text style={styles.coaNum} allowFontScaling={false}>{item.date}</Text>
-                          </View>
-                          <View style={[styles.badge, { borderColor: badgeColor, backgroundColor: `${badgeColor}14` }]}>
-                            <Text style={[styles.badgeText, { color: badgeColor }]} allowFontScaling={false}>
-                              {item.transactionType}
+                  /* --- STICKY / FROZEN COLUMN TABLE VIEW FOR RENT LEDGER (WEB SPREADSHEET EXACT MATCH) --- */
+                  <View style={styles.tableCardContainer}>
+                    {/* Left Frozen Column: Date & Tenant */}
+                    <View style={styles.leftFrozenColumn}>
+                      <View style={styles.frozenHeaderCell}>
+                        <Text style={styles.tableHeaderText} allowFontScaling={false}>DATE & TENANT</Text>
+                      </View>
+                      {paginatedLedger.map((item, idx) => (
+                        <TouchableOpacity
+                          key={`ledger-frozen-${item.id || idx}`}
+                          style={[
+                            styles.frozenDataCell,
+                            idx % 2 === 1 && styles.tableRowAltBg,
+                          ]}
+                          onPress={() => {
+                            setSelectedStatementTenant(item);
+                            setStatementModalOpen(true);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.frozenPropName} numberOfLines={1} allowFontScaling={false}>
+                            {item.date}
+                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                            <Text style={[styles.frozenUnitNumber, { flex: 1, marginRight: 4 }]} numberOfLines={1} allowFontScaling={false}>
+                              {item.tenantName}
                             </Text>
-                          </View>
-                        </View>
-
-                        {/* Resident Info & Health Badge */}
-                        <View style={{ marginTop: 8, marginBottom: 8 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Text style={styles.recordLabel} allowFontScaling={false}>{item.tenantName}</Text>
                             <View
                               style={[
                                 styles.healthBadge,
-                                { backgroundColor: item.balance <= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)' },
+                                { paddingHorizontal: 5, paddingVertical: 1, backgroundColor: item.balance <= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)' },
                               ]}
                             >
                               <Text
                                 style={[
                                   styles.healthBadgeText,
-                                  { color: item.balance <= 0 ? '#10b981' : '#f59e0b' },
+                                  { fontSize: 9, color: item.balance <= 0 ? '#10b981' : '#f59e0b' },
                                 ]}
                                 allowFontScaling={false}
                               >
@@ -2099,76 +2309,106 @@ export const ManagerRentPaymentsScreen = ({
                               </Text>
                             </View>
                           </View>
-                          <Text style={styles.recordSubText} allowFontScaling={false}>
-                            {item.propertyName} · Unit {item.unitNumber}
-                          </Text>
-                          {Boolean(item.description) && (
-                            <Text style={styles.ledgerDesc} allowFontScaling={false} numberOfLines={1}>
-                              {item.description}
-                            </Text>
-                          )}
-                          {Boolean(item.invoiceStatus) && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                              <View
-                                style={[
-                                  styles.badge,
-                                  {
-                                    paddingVertical: 1.5,
-                                    paddingHorizontal: 7,
-                                    borderColor: item.invoiceStatus === 'Paid' ? '#10b981' : item.invoiceStatus === 'Partially Paid' ? '#f59e0b' : '#ef4444',
-                                    backgroundColor: item.invoiceStatus === 'Paid' ? 'rgba(16, 185, 129, 0.12)' : item.invoiceStatus === 'Partially Paid' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-                                  },
-                                ]}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 9.5,
-                                    fontWeight: '800',
-                                    color: item.invoiceStatus === 'Paid' ? '#10b981' : item.invoiceStatus === 'Partially Paid' ? '#f59e0b' : '#ef4444',
-                                  }}
-                                  allowFontScaling={false}
-                                >
-                                  {item.invoiceStatus === 'Partially Paid'
-                                    ? `Partially Paid: $${Number(item.invoicePaidAmount || 0).toLocaleString()} Paid`
-                                    : item.invoiceStatus === 'Paid'
-                                    ? 'Fully Paid'
-                                    : 'Unpaid / Overdue'}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    {/* Right Horizontally Scrollable Columns */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.rightScrollView}>
+                      <View>
+                        {/* Table Header Row */}
+                        <View style={styles.tableHeaderRow}>
+                          <View style={[styles.tableHeaderCell, { width: 140 }]}><Text style={styles.tableHeaderText} allowFontScaling={false}>PROPERTY (UNIT)</Text></View>
+                          <View style={[styles.tableHeaderCell, { width: 175 }]}><Text style={styles.tableHeaderText} allowFontScaling={false}>DESCRIPTION</Text></View>
+                          <View style={[styles.tableHeaderCell, { width: 105 }]}><Text style={styles.tableHeaderText} allowFontScaling={false}>DEBIT (+)</Text></View>
+                          <View style={[styles.tableHeaderCell, { width: 105 }]}><Text style={styles.tableHeaderText} allowFontScaling={false}>CREDIT (-)</Text></View>
+                          <View style={[styles.tableHeaderCell, { width: 125 }]}><Text style={styles.tableHeaderText} allowFontScaling={false}>RUNNING BAL</Text></View>
+                          <View style={[styles.tableHeaderCell, { width: 110 }]}><Text style={styles.tableHeaderText} allowFontScaling={false}>TYPE</Text></View>
+                          <View style={[styles.tableHeaderCell, { width: 65, borderRightWidth: 0 }]}><Text style={styles.tableHeaderText} allowFontScaling={false}>ACTION</Text></View>
+                        </View>
+
+                        {/* Table Body Rows */}
+                        {paginatedLedger.map((item, idx) => {
+                          const isPayment = item.debit === null;
+                          const badgeColor = isPayment ? '#10b981' : item.transactionType === 'Late Fee' ? '#f59e0b' : '#38bdf8';
+                          const isBalPositive = (item.balance || 0) > 0;
+
+                          return (
+                            <TouchableOpacity
+                              key={`ledger-scroll-${item.id || idx}`}
+                              style={[
+                                styles.tableDataRow,
+                                idx % 2 === 1 && styles.tableRowAltBg,
+                              ]}
+                              onPress={() => {
+                                setSelectedStatementTenant(item);
+                                setStatementModalOpen(true);
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              {/* Property (Unit) */}
+                              <View style={[styles.tableDataCell, { width: 140 }]}>
+                                <Text style={styles.tableCellTextMuted} numberOfLines={1} allowFontScaling={false}>
+                                  {item.propertyName} · Unit {item.unitNumber}
                                 </Text>
                               </View>
-                            </View>
-                          )}
-                        </View>
 
-                        {/* Financial Ledger Metrics Grid */}
-                        <View style={styles.ledgerBox}>
-                          <View style={styles.ledgerGridItem}>
-                            <Text style={styles.ledgerGridLabel} allowFontScaling={false}>DEBIT (+)</Text>
-                            <Text style={[styles.ledgerGridVal, { color: item.debit ? '#ef4444' : colors.textSecondary }]} allowFontScaling={false}>
-                              {item.debit ? `+$${Number(item.debit).toLocaleString()}` : '-'}
-                            </Text>
-                          </View>
-                          <View style={styles.ledgerGridItem}>
-                            <Text style={styles.ledgerGridLabel} allowFontScaling={false}>CREDIT (-)</Text>
-                            <Text style={[styles.ledgerGridVal, { color: item.credit ? '#10b981' : colors.textSecondary }]} allowFontScaling={false}>
-                              {item.credit ? `-$${Number(item.credit).toLocaleString()}` : '-'}
-                            </Text>
-                          </View>
-                          <View style={styles.ledgerGridItem}>
-                            <Text style={styles.ledgerGridLabel} allowFontScaling={false}>RUNNING BAL</Text>
-                            <Text style={[styles.ledgerGridVal, { color: '#38bdf8' }]} allowFontScaling={false}>
-                              ${Number(item.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                            </Text>
-                          </View>
-                        </View>
+                              {/* Description */}
+                              <View style={[styles.tableDataCell, { width: 175 }]}>
+                                <Text style={styles.tableCellTextBold} numberOfLines={1} allowFontScaling={false}>
+                                  {item.description || item.transactionType}
+                                </Text>
+                              </View>
 
-                        {/* Statement link footer */}
-                        <View style={styles.statementLinkRow}>
-                          <Text style={styles.statementLinkText} allowFontScaling={false}>Tap to view official statement</Text>
-                          <Ionicons name="arrow-forward-outline" size={14} color="#38bdf8" />
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })
+                              {/* Debit (+) */}
+                              <View style={[styles.tableDataCell, { width: 105 }]}>
+                                <Text style={[styles.tableCellTextBold, { color: item.debit ? '#ef4444' : colors.textSecondary }]} allowFontScaling={false}>
+                                  {item.debit ? `+$${Number(item.debit).toLocaleString()}` : '-'}
+                                </Text>
+                              </View>
+
+                              {/* Credit (-) */}
+                              <View style={[styles.tableDataCell, { width: 105 }]}>
+                                <Text style={[styles.tableCellTextBold, { color: item.credit ? '#10b981' : colors.textSecondary }]} allowFontScaling={false}>
+                                  {item.credit ? `-$${Number(item.credit).toLocaleString()}` : '-'}
+                                </Text>
+                              </View>
+
+                              {/* Running Balance */}
+                              <View style={[styles.tableDataCell, { width: 125 }]}>
+                                <Text style={[styles.tableCellTextBold, { color: isBalPositive ? '#ef4444' : '#10b981' }]} allowFontScaling={false}>
+                                  ${Number(item.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                </Text>
+                              </View>
+
+                              {/* Type Badge */}
+                              <View style={[styles.tableDataCell, { width: 110 }]}>
+                                <View style={[styles.badge, { borderColor: badgeColor, backgroundColor: `${badgeColor}14` }]}>
+                                  <Text style={[styles.badgeText, { color: badgeColor, fontSize: 10 }]} allowFontScaling={false}>
+                                    {item.transactionType}
+                                  </Text>
+                                </View>
+                              </View>
+
+                              {/* Action Eye */}
+                              <View style={[styles.tableDataCell, { width: 65, borderRightWidth: 0, justifyContent: 'center' }]}>
+                                <TouchableOpacity
+                                  style={styles.eyeBtn}
+                                  onPress={() => {
+                                    setSelectedStatementTenant(item);
+                                    setStatementModalOpen(true);
+                                  }}
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons name="eye-outline" size={16} color="#38bdf8" />
+                                </TouchableOpacity>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                  </View>
                 )}
 
                 {/* Pagination Controls */}
@@ -2279,17 +2519,19 @@ export const ManagerRentPaymentsScreen = ({
                   <TouchableOpacity style={styles.cancelBtn} onPress={() => setSelectedReceipt(null)}>
                     <Text style={styles.cancelBtnText} allowFontScaling={false}>Close</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.submitBtn, { backgroundColor: '#ef4444' }]}
-                    onPress={() => {
-                      const p = selectedReceipt;
-                      setSelectedReceipt(null);
-                      handleDeletePayment(p);
-                    }}
-                  >
-                    <Ionicons name="trash-outline" size={15} color="#ffffff" style={{ marginRight: 4 }} />
-                    <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>Delete Payment</Text>
-                  </TouchableOpacity>
+                  {!isCollectionManager && (
+                    <TouchableOpacity
+                      style={[styles.submitBtn, { backgroundColor: '#ef4444' }]}
+                      onPress={() => {
+                        const p = selectedReceipt;
+                        setSelectedReceipt(null);
+                        handleDeletePayment(p);
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={15} color="#ffffff" style={{ marginRight: 4 }} />
+                      <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>Delete Payment</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </ScrollView>
             )}
@@ -2387,17 +2629,19 @@ export const ManagerRentPaymentsScreen = ({
                   <TouchableOpacity style={styles.cancelBtn} onPress={() => setSelectedInvoice(null)}>
                     <Text style={styles.cancelBtnText} allowFontScaling={false}>Close</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.submitBtn, { backgroundColor: '#ef4444' }]}
-                    onPress={() => {
-                      const inv = selectedInvoice;
-                      setSelectedInvoice(null);
-                      handleDeleteInvoice(inv);
-                    }}
-                  >
-                    <Ionicons name="trash-outline" size={15} color="#ffffff" style={{ marginRight: 4 }} />
-                    <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>Delete Invoice</Text>
-                  </TouchableOpacity>
+                  {!isCollectionManager && (
+                    <TouchableOpacity
+                      style={[styles.submitBtn, { backgroundColor: '#ef4444' }]}
+                      onPress={() => {
+                        const inv = selectedInvoice;
+                        setSelectedInvoice(null);
+                        handleDeleteInvoice(inv);
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={15} color="#ffffff" style={{ marginRight: 4 }} />
+                      <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>Delete Invoice</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </ScrollView>
             )}
@@ -2832,7 +3076,7 @@ export const ManagerRentPaymentsScreen = ({
             </View>
 
             {selectedStatementTenant ? (() => {
-              const { txs, tenant, totalOutstanding } = getStatementData();
+              const { txs, tenant, totalOutstanding, totalCharged, totalPaid, outstanding, lateFees } = getStatementData();
               return (
                 <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false}>
                   {/* STATEMENT RECIPIENT & COMPANY HEADER */}
@@ -2885,6 +3129,41 @@ export const ManagerRentPaymentsScreen = ({
                     </View>
                   </View>
 
+                  {/* FINANCIAL SUMMARY CARDS (WEB STATEMENT EXACT MATCH) */}
+                  <View style={styles.stmtSummaryGrid}>
+                    <View style={[styles.stmtSummaryCard, { backgroundColor: isDarkMode ? 'rgba(244, 63, 94, 0.08)' : '#fff1f2', borderColor: 'rgba(244, 63, 94, 0.25)' }]}>
+                      <Text style={[styles.stmtSummaryLabel, { color: '#f43f5e' }]} allowFontScaling={false}>TOTAL INVOICED</Text>
+                      <Text style={[styles.stmtSummaryValue, { color: '#f43f5e' }]} allowFontScaling={false}>
+                        ${Number(totalCharged || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Text>
+                      <Text style={[styles.stmtSummarySub, { color: colors.textMuted }]} allowFontScaling={false}>Rent + Late Fees</Text>
+                    </View>
+
+                    <View style={[styles.stmtSummaryCard, { backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.08)' : '#ecfdf5', borderColor: 'rgba(16, 185, 129, 0.25)' }]}>
+                      <Text style={[styles.stmtSummaryLabel, { color: '#10b981' }]} allowFontScaling={false}>TOTAL PAID</Text>
+                      <Text style={[styles.stmtSummaryValue, { color: '#10b981' }]} allowFontScaling={false}>
+                        ${Number(totalPaid || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Text>
+                      <Text style={[styles.stmtSummarySub, { color: colors.textMuted }]} allowFontScaling={false}>Payments Received</Text>
+                    </View>
+
+                    <View style={[styles.stmtSummaryCard, { backgroundColor: isDarkMode ? (outstanding > 0 ? 'rgba(244, 63, 94, 0.08)' : 'rgba(16, 185, 129, 0.08)') : (outstanding > 0 ? '#fff1f2' : '#ecfdf5'), borderColor: outstanding > 0 ? 'rgba(244, 63, 94, 0.25)' : 'rgba(16, 185, 129, 0.25)' }]}>
+                      <Text style={[styles.stmtSummaryLabel, { color: outstanding > 0 ? '#f43f5e' : '#10b981' }]} allowFontScaling={false}>OUTSTANDING</Text>
+                      <Text style={[styles.stmtSummaryValue, { color: outstanding > 0 ? '#f43f5e' : '#10b981' }]} allowFontScaling={false}>
+                        ${Number(outstanding || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Text>
+                      <Text style={[styles.stmtSummarySub, { color: colors.textMuted }]} allowFontScaling={false}>{outstanding > 0 ? 'Current Arrears' : 'Good Standing'}</Text>
+                    </View>
+
+                    <View style={[styles.stmtSummaryCard, { backgroundColor: isDarkMode ? 'rgba(245, 158, 11, 0.08)' : '#fffbeb', borderColor: 'rgba(245, 158, 11, 0.25)' }]}>
+                      <Text style={[styles.stmtSummaryLabel, { color: '#f59e0b' }]} allowFontScaling={false}>LATE FEES</Text>
+                      <Text style={[styles.stmtSummaryValue, { color: '#f59e0b' }]} allowFontScaling={false}>
+                        ${Number(lateFees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Text>
+                      <Text style={[styles.stmtSummarySub, { color: colors.textMuted }]} allowFontScaling={false}>Cumulative Penalties</Text>
+                    </View>
+                  </View>
+
                   {/* SCROLLABLE TABLE HINT */}
                   <View style={styles.stmtScrollHintRow}>
                     <Text style={styles.stmtScrollHintText} allowFontScaling={false}>
@@ -2911,9 +3190,20 @@ export const ManagerRentPaymentsScreen = ({
                         {txs.map((tx, idx) => (
                           <View key={tx.id || idx} style={[styles.stmtTableRow, idx % 2 === 1 && styles.stmtTableRowAlt]}>
                             <Text style={[styles.stmtTableColText, styles.stmtColDate]} allowFontScaling={false}>{tx.date}</Text>
-                            <Text style={[styles.stmtTableColText, styles.stmtColDesc, { color: colors.textPrimary }]} allowFontScaling={false} numberOfLines={2}>
-                              {tx.description}
-                            </Text>
+                            <View style={[styles.stmtColDesc, { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }]}>
+                              <Text style={[styles.stmtTableColText, { color: colors.textPrimary }]} allowFontScaling={false}>
+                                {tx.description}
+                              </Text>
+                              {tx.transactionType === 'Late Fee' ? (
+                                <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.3)', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                                  <Text style={{ fontSize: 9, fontWeight: '800', color: '#f59e0b' }} allowFontScaling={false}>Late Fee</Text>
+                                </View>
+                              ) : tx.transactionType === 'Rent Charge' ? (
+                                <View style={{ backgroundColor: 'rgba(244, 63, 94, 0.15)', borderWidth: 1, borderColor: 'rgba(244, 63, 94, 0.3)', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                                  <Text style={{ fontSize: 9, fontWeight: '800', color: '#f43f5e' }} allowFontScaling={false}>Unpaid</Text>
+                                </View>
+                              ) : null}
+                            </View>
                             <Text style={[styles.stmtTableColText, styles.stmtColDebit, { color: tx.debit ? '#ef4444' : '#64748b' }]} allowFontScaling={false}>
                               {tx.debit ? formatCurrency(tx.debit) : '—'}
                             </Text>
@@ -3718,7 +4008,7 @@ const getStyles = (colors, isDarkMode) =>
       marginBottom: 14,
     },
     stmtTableInner: {
-      minWidth: 575,
+      minWidth: 625,
     },
     stmtTableHeaderRow: {
       flexDirection: 'row',
@@ -3744,7 +4034,7 @@ const getStyles = (colors, isDarkMode) =>
     stmtTableColText: { fontSize: 11, color: colors.textSecondary },
 
     stmtColDate: { width: 95 },
-    stmtColDesc: { width: 190 },
+    stmtColDesc: { width: 240 },
     stmtColDebit: { width: 85, textAlign: 'right' },
     stmtColCredit: { width: 85, textAlign: 'right' },
     stmtColBal: { width: 105, textAlign: 'right' },
@@ -3794,6 +4084,136 @@ const getStyles = (colors, isDarkMode) =>
     inlineDropdownTextActive: {
       color: '#38bdf8',
       fontWeight: '800',
+    },
+
+    // Sticky Table View for Rent Ledger
+    tableCardContainer: {
+      backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#334155' : '#e2e8f0',
+      overflow: 'hidden',
+      flexDirection: 'row',
+      marginBottom: 16,
+    },
+    leftFrozenColumn: {
+      width: 140,
+      backgroundColor: isDarkMode ? '#0f172a' : '#f8fafc',
+      borderRightWidth: 1.5,
+      borderRightColor: isDarkMode ? '#334155' : '#cbd5e1',
+      zIndex: 2,
+      elevation: 3,
+    },
+    frozenHeaderCell: {
+      height: 44,
+      paddingHorizontal: 10,
+      justifyContent: 'center',
+      borderBottomWidth: 1.5,
+      borderBottomColor: isDarkMode ? '#334155' : '#cbd5e1',
+      backgroundColor: isDarkMode ? '#090d16' : '#f1f5f9',
+    },
+    frozenDataCell: {
+      height: 64,
+      paddingHorizontal: 10,
+      justifyContent: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
+    },
+    frozenPropName: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: isDarkMode ? '#ffffff' : '#0f172a',
+    },
+    frozenUnitNumber: {
+      fontSize: 11,
+      color: '#38bdf8',
+      fontWeight: '700',
+      marginTop: 2,
+    },
+    rightScrollView: {
+      flex: 1,
+    },
+    tableHeaderRow: {
+      flexDirection: 'row',
+      height: 44,
+      backgroundColor: isDarkMode ? '#090d16' : '#f1f5f9',
+      borderBottomWidth: 1.5,
+      borderBottomColor: isDarkMode ? '#334155' : '#cbd5e1',
+    },
+    tableHeaderCell: {
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+      borderRightWidth: 1,
+      borderRightColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#e2e8f0',
+    },
+    tableHeaderText: {
+      fontSize: 9.5,
+      fontWeight: '900',
+      color: isDarkMode ? '#94a3b8' : '#64748b',
+      letterSpacing: 0.5,
+    },
+    tableDataRow: {
+      flexDirection: 'row',
+      height: 64,
+      borderBottomWidth: 1,
+      borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
+    },
+    tableDataCell: {
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+      borderRightWidth: 1,
+      borderRightColor: isDarkMode ? 'rgba(255,255,255,0.06)' : '#e2e8f0',
+    },
+    tableRowAltBg: {
+      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)',
+    },
+    tableCellTextBold: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: isDarkMode ? '#ffffff' : '#0f172a',
+    },
+    tableCellTextMuted: {
+      fontSize: 11.5,
+      color: isDarkMode ? '#94a3b8' : '#64748b',
+    },
+    eyeBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.12)' : '#f0f9ff',
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.25)' : '#bae6fd',
+    },
+    // Statement Summary Cards
+    stmtSummaryGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 14,
+    },
+    stmtSummaryCard: {
+      flex: 1,
+      minWidth: '47%',
+      padding: 10,
+      borderRadius: 10,
+      borderWidth: 1,
+    },
+    stmtSummaryLabel: {
+      fontSize: 8.5,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+      marginBottom: 2,
+    },
+    stmtSummaryValue: {
+      fontSize: 15,
+      fontWeight: '900',
+    },
+    stmtSummarySub: {
+      fontSize: 9,
+      marginTop: 2,
     },
   });
 

@@ -62,17 +62,49 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
 
       const formatted = rawList.map((p) => {
         const rawUnits = p.units || [];
-        const totalUnitsCount = rawUnits.length > 0 ? rawUnits.length : (p.unitsCount || 0);
-        const occupiedCount = rawUnits.filter(
-          (u) => (u.status || '').toLowerCase() === 'occupied'
-        ).length;
+        const mappedUnits = rawUnits.map((u) => {
+          const activeLease = (u.leases || []).find((l) => 
+            l.status === 'Active' || l.status === 'Pending_Move_In' || l.status === 'Pending'
+          ) || (u.leases || [])[0];
+          const matchedTenant = (u.tenants || [])[0] || activeLease?.tenant;
+          const rent = Number(activeLease?.rentAmount ?? u.rentAmount ?? 0);
+          const dep = Number(activeLease?.depositAmount ?? activeLease?.deposit ?? activeLease?.securityDeposit ?? u.securityDeposit ?? 0);
+          const residentName = matchedTenant 
+            ? `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim() 
+            : (activeLease?.tenantName || (u.tenants?.length ? `${u.tenants[0].firstName} ${u.tenants[0].lastName}`.trim() : u.tenantName) || '');
+          const isOcc = (u.status || '').toLowerCase() === 'occupied' || !!activeLease || !!matchedTenant;
+
+          const rawUnitName = u.unitNumber || u.name || `Unit ${u.id?.slice(0, 4)}`;
+          const cleanUnitName = String(rawUnitName).startsWith('Unit') ? rawUnitName : `Unit ${rawUnitName}`;
+
+          return {
+            id: u.id,
+            unitNumber: cleanUnitName,
+            floor: u.floor || 1,
+            bedrooms: u.bedrooms || 2,
+            bathrooms: u.bathrooms || 2,
+            squareFootage: u.squareFootage || 850,
+            rentAmount: rent,
+            securityDeposit: dep,
+            status: isOcc ? 'Occupied' : 'Vacant',
+            tenantName: isOcc ? (residentName || 'Resident') : 'Vacant',
+          };
+        });
+
+        const occupiedCount = mappedUnits.filter((u) => u.status === 'Occupied').length;
+        const totalUnitsCount = Math.max(mappedUnits.length, Number(p.totalUnits || p.unitsCount || p.buildings?.[0]?.unitsCount || 1));
         const vacantCount = Math.max(0, totalUnitsCount - occupiedCount);
         const computedOccupancyRate = totalUnitsCount > 0
           ? Math.round((occupiedCount / totalUnitsCount) * 100)
           : (p.occupancyRate || 0);
 
-        const calculatedRent = rawUnits.reduce((sum, u) => sum + Number(u.rentAmount || 0), 0);
-        const monthlyRent = calculatedRent > 0 ? calculatedRent : Number(p.monthlyRevenue || 0);
+        const calculatedRent = mappedUnits
+          .filter((u) => u.status === 'Occupied')
+          .reduce((sum, u) => sum + Number(u.rentAmount || 0), 0);
+        const monthlyRent = calculatedRent > 0 ? calculatedRent : Number(p.monthlyRevenue || p.monthlyRent || 0);
+
+        const hasRealValuation = p.currentValue && p.currentValue !== 1200000 && p.currentValue !== 1000000 && Number(p.currentValue) > 0;
+        const hasRealPurchasePrice = p.purchasePrice && p.purchasePrice !== 1000000 && p.purchasePrice !== 1200000 && Number(p.purchasePrice) > 0;
 
         return {
           id: p.id,
@@ -83,35 +115,24 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
           state: p.state || '',
           zip: p.zip || '',
           country: p.country || 'USA',
-          type: p.type || 'Commercial',
+          type: p.type || 'Apartment',
           status: p.status || 'Active',
-          squareFootage: p.squareFootage || 0,
-          yearBuilt: p.yearBuilt || null,
-          purchasePrice: p.purchasePrice || 0,
-          currentValue: p.currentValue || p.purchasePrice || 0,
+          squareFootage: p.squareFootage && p.squareFootage !== 10000 ? p.squareFootage : 0,
+          yearBuilt: p.yearBuilt && p.yearBuilt !== 2020 ? p.yearBuilt : null,
+          purchasePrice: hasRealPurchasePrice ? p.purchasePrice : 0,
+          currentValue: hasRealValuation ? p.currentValue : 0,
+          hasRealValuation: !!hasRealValuation,
           ownershipPercentage: p.ownershipPercentage || 100,
-          managementCompany: p.managementCompany || 'Divine Properties',
+          managementCompany: (p.managementCompany && !p.managementCompany.includes('Apex')) ? p.managementCompany : 'Check Properties',
           totalBuildings: p.buildings?.length || p.totalBuildings || 1,
-          buildings: p.buildings || [],
+          totalFloors: p.buildings?.[0]?.floors || p.totalFloors || p.floors || 7,
           unitsCount: totalUnitsCount,
           occupiedUnits: occupiedCount,
           vacantUnits: vacantCount,
           occupancyRate: computedOccupancyRate,
           monthlyRent: monthlyRent,
-          units: rawUnits.map((u) => ({
-            id: u.id,
-            unitNumber: u.unitNumber || u.name || `Unit ${u.id?.slice(0, 4)}`,
-            floor: u.floor || 1,
-            bedrooms: u.bedrooms || 1,
-            bathrooms: u.bathrooms || 1,
-            squareFootage: u.squareFootage || 0,
-            rentAmount: Number(u.rentAmount || 0),
-            securityDeposit: Number(u.securityDeposit || 0),
-            status: u.status || 'Vacant',
-            tenantName: u.tenants?.length
-              ? `${u.tenants[0].firstName} ${u.tenants[0].lastName}`
-              : (u.tenantName || 'Vacant'),
-          })),
+          units: mappedUnits,
+          owner: p.owner || null,
         };
       });
 
@@ -245,22 +266,8 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
                     </Text>
                   </View>
 
-                  {/* Specs Pills */}
+                  {/* Specs Pills - Matching Web 1:1 */}
                   <View style={styles.specsPillsRow}>
-                    {p.squareFootage > 0 && (
-                      <View style={styles.specPill}>
-                        <Text style={styles.specPillText} allowFontScaling={false}>
-                          {Number(p.squareFootage).toLocaleString()} sq ft
-                        </Text>
-                      </View>
-                    )}
-                    {p.yearBuilt && (
-                      <View style={styles.specPill}>
-                        <Text style={styles.specPillText} allowFontScaling={false}>
-                          Built {p.yearBuilt}
-                        </Text>
-                      </View>
-                    )}
                     <View style={styles.specPill}>
                       <Text style={styles.specPillText} allowFontScaling={false}>
                         {p.ownershipPercentage || 100}% Share
@@ -281,22 +288,20 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
                     <View style={styles.metricCol}>
                       <Text style={styles.metricLabel} allowFontScaling={false}>EST. MONTHLY RENT</Text>
                       <Text style={[styles.metricValMain, { color: '#10b981' }]} allowFontScaling={false}>
-                        ${Number(p.monthlyRent || 0).toLocaleString()}
+                        ${Number(p.monthlyRent || 0).toLocaleString('en-US')}
                       </Text>
                       <Text style={styles.metricSubText} allowFontScaling={false}>
                         Occ. Rate: {p.occupancyRate || 0}%
                       </Text>
                     </View>
 
-                    {p.currentValue > 0 && (
-                      <View style={styles.metricCol}>
-                        <Text style={styles.metricLabel} allowFontScaling={false}>ASSET VALUATION</Text>
-                        <Text style={[styles.metricValMain, { color: '#38bdf8' }]} allowFontScaling={false}>
-                          ${Number(p.currentValue).toLocaleString()}
-                        </Text>
-                        <Text style={styles.metricSubText} allowFontScaling={false}>Market Value</Text>
-                      </View>
-                    )}
+                    <View style={styles.metricCol}>
+                      <Text style={styles.metricLabel} allowFontScaling={false}>ASSET VALUATION</Text>
+                      <Text style={[styles.metricValMain, { color: p.hasRealValuation ? '#38bdf8' : colors.textPrimary }]} allowFontScaling={false}>
+                        {p.hasRealValuation ? `$${Number(p.currentValue).toLocaleString('en-US')}` : 'N/A'}
+                      </Text>
+                      <Text style={styles.metricSubText} allowFontScaling={false}>Market Value</Text>
+                    </View>
                   </View>
 
                   {/* Action Button: View Details */}
@@ -340,7 +345,7 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
             </View>
 
             {selectedProperty && (
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+              <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
                 {/* Property Identity Card */}
                 <View style={styles.modalIdentityCard}>
                   <View style={styles.modalIdentityRow}>
@@ -361,61 +366,137 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
                   </View>
                 </View>
 
-                {/* 4-Grid Overview */}
-                <View style={styles.overviewGrid}>
-                  <View style={styles.gridItem}>
-                    <Text style={styles.gridLabel} allowFontScaling={false}>PROPERTY TYPE</Text>
-                    <Text style={styles.gridValue} allowFontScaling={false}>{selectedProperty.type}</Text>
-                  </View>
-                  <View style={styles.gridItem}>
-                    <Text style={styles.gridLabel} allowFontScaling={false}>TOTAL VALUATION</Text>
-                    <Text style={[styles.gridValue, { color: '#38bdf8' }]} allowFontScaling={false}>
-                      ${Number(selectedProperty.currentValue || 0).toLocaleString()}
+                {/* Top 4 Metric Cards Matching Web 1:1 */}
+                <View style={styles.modalFourGrid}>
+                  <View style={styles.modalGridCard}>
+                    <Text style={styles.modalGridLabel} allowFontScaling={false}>TOTAL UNITS</Text>
+                    <Text style={styles.modalGridVal} allowFontScaling={false}>{selectedProperty.unitsCount || 0} Units</Text>
+                    <Text style={styles.modalGridSub} allowFontScaling={false}>
+                      {selectedProperty.occupiedUnits || 0} Occ / {selectedProperty.vacantUnits || 0} Vac
                     </Text>
                   </View>
-                  <View style={styles.gridItem}>
-                    <Text style={styles.gridLabel} allowFontScaling={false}>MONTHLY RENT</Text>
-                    <Text style={[styles.gridValue, { color: '#10b981' }]} allowFontScaling={false}>
-                      ${Number(selectedProperty.monthlyRent || 0).toLocaleString()}
+
+                  <View style={styles.modalGridCard}>
+                    <Text style={styles.modalGridLabel} allowFontScaling={false}>OCCUPANCY RATE</Text>
+                    <Text style={[styles.modalGridVal, { color: '#10b981' }]} allowFontScaling={false}>
+                      {selectedProperty.occupancyRate || 0}%
                     </Text>
+                    <Text style={styles.modalGridSub} allowFontScaling={false}>Active Leased</Text>
                   </View>
-                  <View style={styles.gridItem}>
-                    <Text style={styles.gridLabel} allowFontScaling={false}>OWNERSHIP SHARE</Text>
-                    <Text style={styles.gridValue} allowFontScaling={false}>
+
+                  <View style={styles.modalGridCard}>
+                    <Text style={styles.modalGridLabel} allowFontScaling={false}>MONTHLY RENT REVENUE</Text>
+                    <Text style={[styles.modalGridVal, { color: '#10b981' }]} allowFontScaling={false}>
+                      ${Number(selectedProperty.monthlyRent || 0).toLocaleString('en-US')}
+                    </Text>
+                    <Text style={styles.modalGridSub} allowFontScaling={false}>Contractual Rent</Text>
+                  </View>
+
+                  <View style={styles.modalGridCard}>
+                    <Text style={styles.modalGridLabel} allowFontScaling={false}>OWNERSHIP SHARE</Text>
+                    <Text style={styles.modalGridVal} allowFontScaling={false}>
                       {selectedProperty.ownershipPercentage || 100}%
                     </Text>
+                    <Text style={styles.modalGridSub} allowFontScaling={false}>Title Equity</Text>
                   </View>
                 </View>
 
-                {/* Technical Specifications */}
-                <View style={styles.techSpecsCard}>
-                  <View style={styles.techSpecCol}>
-                    <Text style={styles.techSpecLabel} allowFontScaling={false}>SQ FOOTAGE</Text>
-                    <Text style={styles.techSpecVal} allowFontScaling={false}>
-                      {selectedProperty.squareFootage ? `${Number(selectedProperty.squareFootage).toLocaleString()} sq ft` : 'N/A'}
-                    </Text>
+                {/* Two Parameter Cards Matching Web: Asset Parameters & Ownership & Financials */}
+                <View style={styles.twoBoxesContainer}>
+                  {/* Card 1: Asset Parameters */}
+                  <View style={styles.boxCard}>
+                    <View style={styles.boxHeaderRow}>
+                      <Ionicons name="business-outline" size={15} color="#38bdf8" style={{ marginRight: 6 }} />
+                      <Text style={styles.boxTitle} allowFontScaling={false}>ASSET PARAMETERS</Text>
+                    </View>
+                    <View style={styles.boxDivider} />
+
+                    <View style={styles.paramGrid}>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>PROPERTY TYPE</Text>
+                        <Text style={styles.paramVal} allowFontScaling={false}>{selectedProperty.type || 'Apartment'}</Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>TOTAL FLOORS</Text>
+                        <Text style={styles.paramVal} allowFontScaling={false}>{selectedProperty.totalFloors ? `${selectedProperty.totalFloors} Floor` : '7 Floor'}</Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>TOTAL UNITS</Text>
+                        <Text style={styles.paramVal} allowFontScaling={false}>{selectedProperty.unitsCount ? `${selectedProperty.unitsCount} Unit` : '0 Unit'}</Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>MANAGEMENT CO.</Text>
+                        <Text style={styles.paramVal} allowFontScaling={false}>{selectedProperty.managementCompany || 'Check Properties'}</Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>NYC BIN #</Text>
+                        <Text style={[styles.paramVal, { color: '#f59e0b' }]} allowFontScaling={false}>N/A</Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>CITY, STATE & ZIP</Text>
+                        <Text style={styles.paramVal} allowFontScaling={false} numberOfLines={1}>
+                          {[selectedProperty.city, selectedProperty.state, selectedProperty.zip].filter(Boolean).join(', ') || selectedProperty.address || 'N/A'}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.techSpecCol}>
-                    <Text style={styles.techSpecLabel} allowFontScaling={false}>YEAR BUILT</Text>
-                    <Text style={styles.techSpecVal} allowFontScaling={false}>{selectedProperty.yearBuilt || 'N/A'}</Text>
-                  </View>
-                  <View style={styles.techSpecCol}>
-                    <Text style={styles.techSpecLabel} allowFontScaling={false}>MANAGEMENT CO.</Text>
-                    <Text style={styles.techSpecVal} allowFontScaling={false}>{selectedProperty.managementCompany}</Text>
+
+                  {/* Card 2: Ownership & Financials */}
+                  <View style={styles.boxCard}>
+                    <View style={styles.boxHeaderRow}>
+                      <Ionicons name="wallet-outline" size={15} color="#38bdf8" style={{ marginRight: 6 }} />
+                      <Text style={styles.boxTitle} allowFontScaling={false}>OWNERSHIP & FINANCIALS</Text>
+                    </View>
+                    <View style={styles.boxDivider} />
+
+                    <View style={styles.paramGrid}>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>OWNER ACCOUNT</Text>
+                        <Text style={styles.paramVal} allowFontScaling={false}>Owner</Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>SHARE PERCENTAGE</Text>
+                        <Text style={styles.paramVal} allowFontScaling={false}>{selectedProperty.ownershipPercentage || 100}%</Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>PURCHASE PRICE</Text>
+                        <Text style={styles.paramVal} allowFontScaling={false}>
+                          {selectedProperty.purchasePrice > 0 ? `$${selectedProperty.purchasePrice.toLocaleString('en-US')}` : 'N/A'}
+                        </Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>CURRENT VALUATION</Text>
+                        <Text style={[styles.paramVal, { color: selectedProperty.hasRealValuation ? '#38bdf8' : colors.textPrimary }]} allowFontScaling={false}>
+                          {selectedProperty.hasRealValuation ? `$${selectedProperty.currentValue.toLocaleString('en-US')}` : 'N/A'}
+                        </Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>MONTHLY EXPENSES</Text>
+                        <Text style={[styles.paramVal, { color: '#f43f5e' }]} allowFontScaling={false}>$0</Text>
+                      </View>
+                      <View style={styles.paramCol}>
+                        <Text style={styles.paramLabel} allowFontScaling={false}>NET OPERATING INCOME</Text>
+                        <Text style={[styles.paramVal, { color: '#10b981' }]} allowFontScaling={false}>
+                          ${Number(selectedProperty.monthlyRent || 0).toLocaleString('en-US')}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                 </View>
 
                 {/* Units Breakdown Header */}
                 <View style={styles.unitsSectionHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="layers-outline" size={17} color="#38bdf8" style={{ marginRight: 6 }} />
-                    <Text style={styles.unitsSectionTitle} allowFontScaling={false}>
-                      Units Breakdown ({selectedProperty.units?.length || 0})
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                    <Ionicons name="layers-outline" size={16} color="#38bdf8" style={{ marginRight: 6 }} />
+                    <Text style={styles.unitsSectionTitle} numberOfLines={1} allowFontScaling={false}>
+                      UNITS BREAKDOWN ({selectedProperty.units?.length || 0})
                     </Text>
                   </View>
-                  <Text style={styles.unitsCountBadge} allowFontScaling={false}>
-                    {selectedProperty.occupiedUnits || 0} Occ / {selectedProperty.vacantUnits || 0} Vac
-                  </Text>
+                  <View style={styles.unitsCountPill}>
+                    <Text style={styles.unitsCountBadge} allowFontScaling={false}>
+                      {selectedProperty.occupiedUnits || 0} Occ / {selectedProperty.vacantUnits || 0} Vac
+                    </Text>
+                  </View>
                 </View>
 
                 {/* Units List */}
@@ -430,7 +511,7 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
                               {unit.unitNumber}
                             </Text>
                             <Text style={styles.unitBedsText} allowFontScaling={false}>
-                              {unit.bedrooms || 1} Bed · {unit.bathrooms || 1} Bath{unit.squareFootage ? ` · ${unit.squareFootage} sq ft` : ''}
+                              {unit.bedrooms || 2}B / {unit.bathrooms || 2}Ba
                             </Text>
                           </View>
                           <View style={[styles.unitBadge, { borderColor: isUnitOccupied ? '#10b981' : '#64748b', backgroundColor: isUnitOccupied ? 'rgba(16, 185, 129, 0.12)' : 'rgba(100, 116, 139, 0.12)' }]}>
@@ -445,12 +526,12 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
                         <View style={styles.unitBottomRow}>
                           <View>
                             <Text style={styles.unitRentLabel} allowFontScaling={false}>Monthly Rent</Text>
-                            <Text style={styles.unitRentVal} allowFontScaling={false}>
-                              ${Number(unit.rentAmount || 0).toLocaleString()}/mo
+                            <Text style={[styles.unitRentVal, { color: '#10b981' }]} allowFontScaling={false}>
+                              ${Number(unit.rentAmount || 0).toLocaleString('en-US')}/mo
                             </Text>
                           </View>
                           <View style={{ alignItems: 'flex-end' }}>
-                            <Text style={styles.unitRentLabel} allowFontScaling={false}>Tenant / Resident</Text>
+                            <Text style={styles.unitRentLabel} allowFontScaling={false}>Resident</Text>
                             <Text style={styles.unitTenantName} allowFontScaling={false} numberOfLines={1}>
                               {unit.tenantName}
                             </Text>
@@ -803,52 +884,84 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     fontWeight: '500',
   },
 
-  overviewGrid: {
+  modalFourGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 12,
   },
-  gridItem: {
-    width: '48%',
+  modalGridCard: {
+    flexBasis: '48%',
+    flexGrow: 1,
     backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : '#f8fafc',
     borderRadius: 10,
     padding: 10,
     borderWidth: 1,
     borderColor: colors.cardBorder,
   },
-  gridLabel: {
+  modalGridLabel: {
     fontSize: 8.5,
     fontWeight: '900',
     color: colors.textSecondary,
     letterSpacing: 0.5,
   },
-  gridValue: {
-    fontSize: 13,
+  modalGridVal: {
+    fontSize: 14,
     fontWeight: '900',
     color: colors.textPrimary,
-    marginTop: 4,
+    marginTop: 3,
+  },
+  modalGridSub: {
+    fontSize: 9.5,
+    color: colors.textMuted,
+    fontWeight: '600',
+    marginTop: 2,
   },
 
-  techSpecsCard: {
-    flexDirection: 'row',
+  twoBoxesContainer: {
+    marginTop: 12,
+    gap: 10,
+  },
+  boxCard: {
     backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : '#f8fafc',
-    borderRadius: 10,
-    padding: 10,
-    marginTop: 10,
+    borderRadius: 12,
+    padding: 12,
     borderWidth: 1,
     borderColor: colors.cardBorder,
   },
-  techSpecCol: {
-    flex: 1,
+  boxHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  techSpecLabel: {
+  boxTitle: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: colors.textSecondary,
+    letterSpacing: 0.6,
+  },
+  boxDivider: {
+    height: 1,
+    backgroundColor: colors.cardBorder,
+    marginBottom: 10,
+  },
+  paramGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: 10,
+  },
+  paramCol: {
+    width: '50%',
+    paddingRight: 6,
+  },
+  paramLabel: {
     fontSize: 8,
     fontWeight: '800',
-    color: colors.textSecondary,
+    color: colors.textMuted,
+    letterSpacing: 0.4,
   },
-  techSpecVal: {
-    fontSize: 11,
+  paramVal: {
+    fontSize: 11.5,
     fontWeight: '800',
     color: colors.textPrimary,
     marginTop: 2,
@@ -862,13 +975,22 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
     marginBottom: 10,
   },
   unitsSectionTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
     color: colors.textPrimary,
+    flexShrink: 1,
+  },
+  unitsCountPill: {
+    backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.1)' : '#f1f5f9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.25)' : '#e2e8f0',
   },
   unitsCountBadge: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: '800',
     color: colors.textSecondary,
   },
 

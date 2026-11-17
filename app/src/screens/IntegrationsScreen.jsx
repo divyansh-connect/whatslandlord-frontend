@@ -33,11 +33,97 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
   const [authTokenValue, setAuthTokenValue] = useState('');
   const [showAuthToken, setShowAuthToken] = useState(false);
   const [enableStatus, setEnableStatus] = useState('Inactive');
+  const [isEditing, setIsEditing] = useState(false);
 
   // Test & Save states
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const DEFAULT_LIST = [
+    {
+      id: 'int-twilio',
+      name: 'Twilio SMS',
+      provider: 'TWILIO',
+      category: 'Communications',
+      description: 'Configure Twilio to send tenant notices, announcements, and booking alerts via SMS.',
+      logo: '💬',
+      status: 'Inactive',
+      accountSid: '',
+      senderId: '',
+      hasToken: false,
+    },
+    {
+      id: 'int-whatsapp',
+      name: 'WhatsApp Business (Meta API)',
+      provider: 'WHATSAPP',
+      category: 'Communications',
+      description: 'Configure Meta Cloud API to broadcast automated messages directly to tenant WhatsApp accounts.',
+      logo: '📱',
+      status: 'Inactive',
+      accountSid: '',
+      senderId: '',
+      hasToken: false,
+    },
+    {
+      id: 'int-sendgrid',
+      name: 'Twilio SendGrid (Email)',
+      provider: 'SENDGRID',
+      category: 'Communications',
+      description: 'Connect Twilio SendGrid to dispatch automated emails for tenant registrations, leases, and invoices.',
+      logo: '📧',
+      status: 'Inactive',
+      accountSid: '',
+      senderId: '',
+      hasToken: false,
+    },
+    {
+      id: 'int-stripe',
+      name: 'Stripe Payments',
+      provider: 'STRIPE',
+      category: 'Payments',
+      description: 'Connect Stripe to accept credit cards, debit cards, and Apple Pay from tenants directly.',
+      logo: '💳',
+      status: 'Inactive',
+      accountSid: '',
+      senderId: '',
+      hasToken: false,
+    },
+    {
+      id: 'int-authorizenet',
+      name: 'Authorize.Net Merchant',
+      provider: 'AUTHORIZE_NET',
+      category: 'Payments',
+      description: 'Configure Authorize.Net to process credit cards and electronic checks (eChecks) safely.',
+      logo: '🔒',
+      status: 'Inactive',
+      accountSid: '',
+      senderId: '',
+      hasToken: false,
+    },
+    {
+      id: 'int-razorpay',
+      name: 'Razorpay Gateway',
+      provider: 'RAZORPAY',
+      category: 'Payments',
+      description: 'Integrate Razorpay to accept UPI, netbanking, credit cards, and wallets from international/local tenants.',
+      logo: '⚡',
+      status: 'Inactive',
+      accountSid: '',
+      senderId: '',
+      hasToken: false,
+    },
+  ];
+
+  const mergedIntegrations = React.useMemo(() => {
+    const list = Array.isArray(dbIntegrations) && dbIntegrations.length > 0 ? [...dbIntegrations] : DEFAULT_LIST;
+    if (!list.some((i) => i.provider === 'SENDGRID')) {
+      const commIdx = list.findIndex((i) => i.provider === 'WHATSAPP');
+      const insertAt = commIdx !== -1 ? commIdx + 1 : 2;
+      list.splice(insertAt, 0, DEFAULT_LIST[2]);
+    }
+    return list;
+  }, [dbIntegrations]);
 
   const fetchIntegrations = async (silent = false) => {
     try {
@@ -63,6 +149,7 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
     setEnableStatus(integration.status || 'Inactive');
     setShowAuthToken(false);
     setTestResult(null);
+    setIsEditing(integration.status !== 'Active');
   };
 
   const handleTestConnection = async () => {
@@ -70,7 +157,12 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
     const isPayment = ['STRIPE', 'AUTHORIZE_NET', 'RAZORPAY'].includes(selectedIntegration.provider);
     
     // Validate required fields
-    if (!accountSidValue.trim() || (!isPayment && !senderIdValue.trim()) || !authTokenValue.trim()) {
+    if (selectedIntegration.provider === 'SENDGRID') {
+      if (!senderIdValue.trim() || !authTokenValue.trim()) {
+        setTestResult({ success: false, message: 'Please provide both Sender Email and SendGrid API Key.' });
+        return;
+      }
+    } else if (!accountSidValue.trim() || (!isPayment && !senderIdValue.trim()) || !authTokenValue.trim()) {
       setTestResult({ success: false, message: 'Please fill in all credentials before testing.' });
       return;
     }
@@ -80,8 +172,8 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
     try {
       const res = await apiClient.post('/integrations/test', {
         provider: selectedIntegration.provider,
-        accountSid: accountSidValue.trim(),
-        senderId: senderIdValue.trim(),
+        accountSid: accountSidValue.trim() || 'Property Management',
+        senderId: isPayment ? 'N/A' : senderIdValue.trim(),
         authToken: authTokenValue.trim(),
       }, logout, refreshAccessToken);
       
@@ -97,25 +189,67 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
     }
   };
 
-  const handleSaveIntegration = async () => {
+  const handleAutoVerifyAndSave = async () => {
     if (!selectedIntegration?.provider) return;
-    
+    const isPayment = ['STRIPE', 'AUTHORIZE_NET', 'RAZORPAY'].includes(selectedIntegration.provider);
+
+    if (selectedIntegration.provider === 'SENDGRID') {
+      if (!senderIdValue.trim()) {
+        Alert.alert('Required', 'Verified Sender Email is required.');
+        return;
+      }
+      if (authTokenValue !== '******' && !authTokenValue.trim()) {
+        Alert.alert('Required', 'SendGrid API Key is required.');
+        return;
+      }
+    } else if (!accountSidValue.trim() || (!isPayment && !senderIdValue.trim())) {
+      Alert.alert('Required', isPayment ? 'Key / ID is required.' : 'Account ID and Sender ID are required.');
+      return;
+    }
+
     setIsSaving(true);
+    setTestResult(null);
+
+    // Auto-verify if authToken provided
+    if (authTokenValue && authTokenValue !== '******') {
+      try {
+        const testRes = await apiClient.post('/integrations/test', {
+          provider: selectedIntegration.provider,
+          accountSid: accountSidValue.trim() || 'Property Management',
+          senderId: isPayment ? 'N/A' : senderIdValue.trim(),
+          authToken: authTokenValue.trim(),
+        }, logout, refreshAccessToken);
+
+        const testData = testRes?.data || testRes || {};
+        if (testData.success === false) {
+          setTestResult({ success: false, message: testRes.message || 'Verification failed. Please check credentials.' });
+          Alert.alert('Verification Failed', testRes.message || 'The credentials could not be verified by the provider API. Integration remained Inactive.');
+          setIsSaving(false);
+          return;
+        }
+      } catch (testErr) {
+        setTestResult({ success: false, message: testErr.message || 'API validation failed.' });
+        Alert.alert('Verification Error', testErr.message || 'Could not verify credentials. Integration not activated.');
+        setIsSaving(false);
+        return;
+      }
+    }
+
+    // Verified -> Save as Active
     try {
       const payload = {
         provider: selectedIntegration.provider,
-        accountSid: accountSidValue.trim(),
-        senderId: senderIdValue.trim(),
-        status: enableStatus,
+        accountSid: accountSidValue.trim() || 'Property Management',
+        senderId: isPayment ? 'N/A' : senderIdValue.trim(),
+        status: 'Active',
       };
 
-      // Only send authToken if it has been updated
       if (authTokenValue !== '******') {
         payload.authToken = authTokenValue.trim();
       }
 
       await apiClient.post('/integrations/update', payload, logout, refreshAccessToken);
-      Alert.alert('Success', 'Integration configurations saved successfully.');
+      Alert.alert('Connected & Active', `${selectedIntegration.name} credentials verified and activated successfully!`);
       setSelectedIntegration(null);
       fetchIntegrations(true);
     } catch (e) {
@@ -125,10 +259,43 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
     }
   };
 
+  const handleDisconnect = async () => {
+    if (!selectedIntegration?.provider) return;
+    Alert.alert(
+      'Disconnect Integration',
+      `Are you sure you want to disconnect ${selectedIntegration.name}? Automated services using this integration will be paused.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            setIsSaving(true);
+            try {
+              await apiClient.post('/integrations/update', {
+                provider: selectedIntegration.provider,
+                accountSid: accountSidValue || 'Property Management',
+                senderId: senderIdValue || 'N/A',
+                status: 'Inactive',
+              }, logout, refreshAccessToken);
+              Alert.alert('Disconnected', `${selectedIntegration.name} has been disconnected.`);
+              setSelectedIntegration(null);
+              fetchIntegrations(true);
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Failed to disconnect integration.');
+            } finally {
+              setIsSaving(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const categories = ['All', 'Payments', 'Communications'];
   const filtered = activeCategory === 'All'
-    ? dbIntegrations
-    : dbIntegrations.filter((i) => i.category === activeCategory);
+    ? mergedIntegrations
+    : mergedIntegrations.filter((i) => i.category === activeCategory);
 
   const getPlaceholderSid = (provider) => {
     if (provider === 'STRIPE') return 'Publishable Key (pk_test_...)';
@@ -136,7 +303,8 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
     if (provider === 'RAZORPAY') return 'Key ID';
     if (provider === 'TWILIO') return 'Account SID';
     if (provider === 'WHATSAPP') return 'Phone Number ID';
-    return 'Account Account / Client ID';
+    if (provider === 'SENDGRID') return 'e.g. Property Management (Sender From Name)';
+    return 'Account ID / Client ID';
   };
 
   const getPlaceholderToken = (provider) => {
@@ -145,12 +313,14 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
     if (provider === 'RAZORPAY') return 'Key Secret';
     if (provider === 'TWILIO') return 'Auth Token';
     if (provider === 'WHATSAPP') return 'Permanent Access Token';
+    if (provider === 'SENDGRID') return 'SendGrid API Key (SG.xxxx)';
     return 'API Access Token / Secret Key';
   };
 
   const getPlaceholderSender = (provider) => {
     if (provider === 'TWILIO') return 'Twilio Phone Number / Messaging Service SID';
     if (provider === 'WHATSAPP') return 'WhatsApp Business Account ID';
+    if (provider === 'SENDGRID') return 'Verified Sender Email (e.g. info@domain.com)';
     return 'Sender ID';
   };
 
@@ -248,64 +418,130 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
                 </TouchableOpacity>
               </View>
 
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {/* Status Toggle */}
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+                {/* Integration Status Banner */}
                 <View style={styles.toggleRow}>
-                  <Text style={styles.fieldLabel} allowFontScaling={false}>INTEGRATION STATUS</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={[styles.toggleText, { color: enableStatus === 'Active' ? '#10b981' : colors.textSecondary }]} allowFontScaling={false}>
-                      {enableStatus === 'Active' ? 'Enabled' : 'Disabled'}
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={styles.fieldLabel} allowFontScaling={false}>INTEGRATION STATUS</Text>
+                    <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 2 }} allowFontScaling={false}>
+                      {selectedIntegration.status === 'Active'
+                        ? 'Credentials verified and active. Service is live.'
+                        : 'Inactive. Enter credentials and connect.'}
                     </Text>
-                    <Switch
-                      value={enableStatus === 'Active'}
-                      onValueChange={(val) => setEnableStatus(val ? 'Active' : 'Inactive')}
-                      trackColor={{ false: colors.cardBorder, true: '#38bdf8' }}
-                      thumbColor={Platform.OS === 'android' ? '#ffffff' : undefined}
-                    />
+                  </View>
+                  <View style={[
+                    styles.statusBadge,
+                    selectedIntegration.status === 'Active' ? styles.statusActive : styles.statusInactive,
+                    { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6 }
+                  ]}>
+                    <View style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 4,
+                      backgroundColor: selectedIntegration.status === 'Active' ? '#10b981' : colors.textSecondary
+                    }} />
+                    <Text style={selectedIntegration.status === 'Active' ? styles.statusTextActive : styles.statusTextInactive} allowFontScaling={false}>
+                      {selectedIntegration.status === 'Active' ? 'Connected & Active' : 'Inactive'}
+                    </Text>
                   </View>
                 </View>
 
+                {/* Locked notice when Active and not Editing */}
+                {selectedIntegration.status === 'Active' && !isEditing && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(56, 189, 248, 0.25)',
+                    borderRadius: 10,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    marginBottom: 12,
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                      <Ionicons name="lock-closed" size={15} color="#38bdf8" style={{ marginRight: 6 }} />
+                      <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '600' }} allowFontScaling={false}>
+                        Inputs are locked to protect saved credentials.
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setIsEditing(true)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        backgroundColor: '#38bdf8',
+                        borderRadius: 6,
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#0f172a' }} allowFontScaling={false}>
+                        Edit
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
                 {/* Input accountSid */}
                 <Text style={styles.fieldLabel} allowFontScaling={false}>
-                  {selectedIntegration.provider === 'STRIPE' ? 'PUBLISHABLE KEY (SID) *' : 'ACCOUNT SID / API KEY *'}
+                  {selectedIntegration.provider === 'STRIPE' ? 'PUBLISHABLE KEY (SID) *' : selectedIntegration.provider === 'SENDGRID' ? 'SENDER FROM NAME (INBOX DISPLAY)' : 'ACCOUNT SID / API KEY *'}
                 </Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    (selectedIntegration.status === 'Active' && !isEditing) && { opacity: 0.6, backgroundColor: colors.background }
+                  ]}
                   placeholder={getPlaceholderSid(selectedIntegration.provider)}
                   placeholderTextColor="#64748b"
                   value={accountSidValue}
                   onChangeText={setAccountSidValue}
+                  editable={selectedIntegration.status !== 'Active' || isEditing}
                 />
 
-                {/* Input senderId (only for twilio & whatsapp) */}
+                {/* Input senderId (for twilio, whatsapp & sendgrid) */}
                 {!['STRIPE', 'AUTHORIZE_NET', 'RAZORPAY'].includes(selectedIntegration.provider) && (
                   <>
-                    <Text style={styles.fieldLabel} allowFontScaling={false}>SENDER ID / SENDER NUMBER *</Text>
+                    <Text style={styles.fieldLabel} allowFontScaling={false}>
+                      {selectedIntegration.provider === 'SENDGRID' ? 'VERIFIED SENDER EMAIL *' : 'SENDER ID / SENDER NUMBER *'}
+                    </Text>
                     <TextInput
-                      style={styles.input}
+                      style={[
+                        styles.input,
+                        (selectedIntegration.status === 'Active' && !isEditing) && { opacity: 0.6, backgroundColor: colors.background }
+                      ]}
                       placeholder={getPlaceholderSender(selectedIntegration.provider)}
                       placeholderTextColor="#64748b"
                       value={senderIdValue}
                       onChangeText={setSenderIdValue}
+                      autoCapitalize="none"
+                      keyboardType={selectedIntegration.provider === 'SENDGRID' ? 'email-address' : 'default'}
+                      editable={selectedIntegration.status !== 'Active' || isEditing}
                     />
                   </>
                 )}
 
                 {/* Input authToken */}
                 <Text style={styles.fieldLabel} allowFontScaling={false}>
-                  {selectedIntegration.provider === 'STRIPE' ? 'SECRET KEY (TOKEN) *' : 'AUTHENTICATION TOKEN / KEY SECRET *'}
+                  {selectedIntegration.provider === 'STRIPE' ? 'SECRET KEY (TOKEN) *' : selectedIntegration.provider === 'SENDGRID' ? 'SENDGRID API KEY *' : 'AUTHENTICATION TOKEN / KEY SECRET *'}
                 </Text>
                 <View style={{ position: 'relative' }}>
                   <TextInput
-                    style={[styles.input, { paddingRight: 40 }]}
+                    style={[
+                      styles.input,
+                      { paddingRight: 40 },
+                      (selectedIntegration.status === 'Active' && !isEditing) && { opacity: 0.6, backgroundColor: colors.background }
+                    ]}
                     placeholder={getPlaceholderToken(selectedIntegration.provider)}
                     placeholderTextColor="#64748b"
                     secureTextEntry={authTokenValue === '******' ? true : !showAuthToken}
                     value={authTokenValue}
                     onChangeText={setAuthTokenValue}
+                    editable={selectedIntegration.status !== 'Active' || isEditing}
                   />
                   <TouchableOpacity
                     style={styles.eyeIcon}
+                    disabled={selectedIntegration.status === 'Active' && !isEditing}
                     onPress={() => {
                       if (authTokenValue === '******') {
                         setAuthTokenValue('');
@@ -337,36 +573,57 @@ export const IntegrationsScreen = ({ onNavigate, onBack }) => {
                 )}
 
                 {/* MODAL ACTIONS */}
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={[styles.testBtn, { borderColor: colors.cardBorder }]}
-                    onPress={handleTestConnection}
-                    disabled={isTesting}
-                  >
-                    {isTesting ? (
-                      <ActivityIndicator size="small" color="#38bdf8" />
-                    ) : (
-                      <>
-                        <Ionicons name="git-network-outline" size={16} color="#38bdf8" style={{ marginRight: 4 }} />
-                        <Text style={styles.testBtnText} allowFontScaling={false}>Test Connection</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+                {selectedIntegration.status === 'Active' && !isEditing ? (
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.testBtn, { borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.08)' }]}
+                      onPress={handleDisconnect}
+                      disabled={isSaving}
+                    >
+                      <Ionicons name="trash-outline" size={16} color="#ef4444" style={{ marginRight: 4 }} />
+                      <Text style={[styles.testBtnText, { color: '#ef4444' }]} allowFontScaling={false}>Disconnect</Text>
+                    </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[styles.submitBtn, { backgroundColor: '#38bdf8' }]}
-                    onPress={handleSaveIntegration}
-                    disabled={isSaving}
-                  >
-                    {isSaving ? (
-                      <ActivityIndicator size="small" color="#0f172a" />
-                    ) : (
+                    <TouchableOpacity
+                      style={[styles.submitBtn, { backgroundColor: '#38bdf8' }]}
+                      onPress={() => setIsEditing(true)}
+                    >
                       <Text style={[styles.submitBtnText, { color: '#0f172a', fontWeight: '800' }]} allowFontScaling={false}>
-                        Save Settings
+                        Edit Credentials
                       </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.testBtn, { borderColor: colors.cardBorder }]}
+                      onPress={() => {
+                        if (selectedIntegration.status === 'Active') {
+                          setIsEditing(false);
+                        } else {
+                          setSelectedIntegration(null);
+                        }
+                      }}
+                      disabled={isSaving}
+                    >
+                      <Text style={[styles.testBtnText, { color: colors.textSecondary }]} allowFontScaling={false}>Cancel</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.submitBtn, { backgroundColor: '#38bdf8' }]}
+                      onPress={handleAutoVerifyAndSave}
+                      disabled={isSaving}
+                    >
+                      {isSaving ? (
+                        <ActivityIndicator size="small" color="#0f172a" />
+                      ) : (
+                        <Text style={[styles.submitBtnText, { color: '#0f172a', fontWeight: '800' }]} allowFontScaling={false}>
+                          Save & Connect
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
               </ScrollView>
             </View>
           </View>
@@ -459,8 +716,8 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 60, gap: 10 },
   emptyText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
 
-  modalBg: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.85)', justifyContent: 'center', padding: 20 },
-  modalCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 18, borderWidth: 1, borderColor: colors.cardBorder, maxHeight: '80%' },
+  modalBg: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.85)', justifyContent: 'center', padding: 16 },
+  modalCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 18, borderWidth: 1, borderColor: colors.cardBorder, maxHeight: Platform.OS === 'ios' ? '85%' : '88%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, borderBottomWidth: 1, borderBottomColor: colors.cardBorder, paddingBottom: 12 },
   modalTitle: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
 

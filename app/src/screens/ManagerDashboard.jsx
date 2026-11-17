@@ -279,7 +279,7 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
         occupancyRate: occRate,
         monthlyRevenue: Number(m.monthlyRevenue || prev.monthlyRevenue || 0),
         pendingRent: Number(m.pendingRent || prev.pendingRent || 0),
-        expenses: Number(prev.expenses || 0),
+        expenses: Number(m.expenses !== undefined && m.expenses !== null ? m.expenses : (prev.expenses || 0)),
         openMaintenance: Number(m.openMaintenance !== undefined && m.openMaintenance !== null ? m.openMaintenance : prev.openMaintenance),
         leasesExpiringSoon: Number(m.leasesExpiringSoon !== undefined && m.leasesExpiringSoon !== null ? m.leasesExpiringSoon : prev.leasesExpiringSoon),
       }));
@@ -415,14 +415,75 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
         } catch {}
       }
 
+      const activePropIds = new Set(propArray.map((p) => p.id));
+      const activePropNames = new Set(
+        propArray.map((p) => String(p.name || '').toLowerCase().trim()).filter(Boolean)
+      );
+      const activeUnits = propArray.length === 0
+        ? []
+        : unitArray.filter((u) => {
+            const pName = String(u.propertyName || u.property?.name || '').toLowerCase().trim();
+            return (u.propertyId && activePropIds.has(u.propertyId)) || (pName && activePropNames.has(pName));
+          });
+
       const invList = Array.isArray(rawInvoices) ? rawInvoices : [];
-      const unpaidInvoices = invList.filter((inv) => {
-        const bal = (inv.balance !== undefined && inv.balance !== null && Number(inv.balance) > 0)
-          ? Number(inv.balance)
-          : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
-        const st = String(inv.status || '').toLowerCase().trim();
-        return bal > 0 && st !== 'paid' && st !== 'void' && st !== 'cancelled';
-      });
+      const unpaidInvoices = invList
+        .filter((inv) => {
+          const bal = (inv.balance !== undefined && inv.balance !== null && Number(inv.balance) > 0)
+            ? Number(inv.balance)
+            : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+          const st = String(inv.status || '').toLowerCase().trim();
+          if (bal <= 0 || st === 'paid' || st === 'void' || st === 'cancelled') return false;
+
+          const cleanUnitNum = String(inv.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
+          const matchedUnit = activeUnits.find(
+            (u) =>
+              (inv.unitId && u.id === inv.unitId) ||
+              (cleanUnitNum &&
+                String(u.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim() === cleanUnitNum &&
+                (!inv.propertyId || u.propertyId === inv.propertyId || !inv.propertyName || activePropNames.has(String(inv.propertyName).toLowerCase().trim())))
+          );
+          if (!matchedUnit && inv.propertyId && !activePropIds.has(inv.propertyId) && (!inv.propertyName || !activePropNames.has(String(inv.propertyName).toLowerCase().trim()))) {
+            return false;
+          }
+
+          return true;
+        })
+        .map((inv, idx) => {
+          const bal = (inv.balance !== undefined && inv.balance !== null && Number(inv.balance) > 0)
+            ? Number(inv.balance)
+            : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+          const cleanUnitNum = String(inv.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
+          const matchedUnit = activeUnits.find(
+            (u) =>
+              (inv.unitId && u.id === inv.unitId) ||
+              (cleanUnitNum &&
+                String(u.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim() === cleanUnitNum)
+          );
+          const matchedTenant = tenantArray.find(
+            (t) =>
+              (inv.tenantId && t.id === inv.tenantId) ||
+              (matchedUnit && (t.unitId === matchedUnit.id || t.id === matchedUnit.tenantId)) ||
+              (inv.tenantName && `${t.firstName || ''} ${t.lastName || ''}`.toLowerCase().trim() === String(inv.tenantName).toLowerCase().trim())
+          );
+          const prop = propArray.find((p) => p.id === (inv.propertyId || matchedUnit?.propertyId) || p.name === inv.propertyName);
+          const unitLabel = matchedUnit?.unitNumber || inv.unitNumber || 'Unassigned';
+          const tName = matchedTenant ? `${matchedTenant.firstName} ${matchedTenant.lastName}`.trim() : (inv.tenantName || 'Resident');
+          const pName = prop?.name || inv.propertyName || 'Property';
+
+          return {
+            ...inv,
+            id: inv.id || `inv-${idx + 1}`,
+            receiptNumber: inv.invoiceNumber || `INV-${String(idx + 1).padStart(4, '0')}`,
+            tenantName: tName,
+            propertyName: pName,
+            unitNumber: String(unitLabel).startsWith('Unit') ? unitLabel : `Unit ${unitLabel}`,
+            numericAmount: bal,
+            balance: bal,
+            dueDate: inv.dueDate ? String(inv.dueDate).split('T')[0] : 'Immediate',
+            status: inv.status === 'Partially Paid' ? 'Partially Paid' : 'Overdue',
+          };
+        });
       setOutstandingInvoices(unpaidInvoices);
 
       const rawPayments = Array.isArray(paymentsRes) ? paymentsRes : (paymentsRes?.data || []);
@@ -544,7 +605,11 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
             ? m.pendingRent 
             : (totalPendingRent > 0 ? totalPendingRent : (m.pendingRent || 0))
         ),
-        expenses: totalExpensesSum,
+        expenses: Number(
+          m.expenses !== undefined && m.expenses !== null && Number(m.expenses) > 0
+            ? m.expenses
+            : (totalExpensesSum > 0 ? totalExpensesSum : (Number(m.expenses) || 0))
+        ),
         openMaintenance: Number(m.openMaintenance !== undefined && m.openMaintenance !== null ? m.openMaintenance : (woNotStarted + woInProgress + woOverdue + taskNotStarted + taskInProgress + taskOverdue)),
         leasesExpiringSoon: Number(
           activeUpcoming.length > 0
@@ -580,7 +645,11 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
               ? m.pendingRent 
               : (totalPendingRent > 0 ? totalPendingRent : (m.pendingRent || 0))
           ),
-          expenses: totalExpensesSum,
+          expenses: Number(
+            m.expenses !== undefined && m.expenses !== null && Number(m.expenses) > 0
+              ? m.expenses
+              : (totalExpensesSum > 0 ? totalExpensesSum : (Number(m.expenses) || 0))
+          ),
           openMaintenance: Number(m.openMaintenance !== undefined && m.openMaintenance !== null ? m.openMaintenance : (woNotStarted + woInProgress + woOverdue + taskNotStarted + taskInProgress + taskOverdue)),
           leasesExpiringSoon: Number(
             activeUpcoming.length > 0
@@ -756,11 +825,17 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
         const invoiceItems = outstandingInvoices.map((inv) => {
           const bal = (inv.balance !== undefined && inv.balance !== null && Number(inv.balance) > 0)
             ? Number(inv.balance)
-            : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+            : (inv.numericAmount || ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0)));
+          const refNo = inv.receiptNumber || inv.invoiceNumber || '';
+          const tName = inv.tenantName || (inv.tenant ? `${inv.tenant.firstName || ''} ${inv.tenant.lastName || ''}`.trim() : null) || 'Resident';
+          const pName = inv.propertyName || inv.property?.name || 'Property';
+          const uNum = inv.unitNumber ? (String(inv.unitNumber).startsWith('Unit') ? inv.unitNumber : `Unit ${inv.unitNumber}`) : '';
+          const dueStr = inv.dueDate ? ` · Due: ${inv.dueDate}` : '';
+
           return {
             id: `inv-${inv.id}`,
-            title: inv.tenantName || (inv.tenant ? `${inv.tenant.firstName || ''} ${inv.tenant.lastName || ''}`.trim() : null) || 'Tenant Invoice',
-            subtitle: `${inv.propertyName || inv.property?.name || 'Property'}${inv.unitNumber ? ` · Unit ${inv.unitNumber}` : ''}`,
+            title: `${tName}${refNo ? ` · ${refNo}` : ''}`,
+            subtitle: `${pName}${uNum ? ` · ${uNum}` : ''}${dueStr}`,
             badge: `$${Number(bal || 0).toLocaleString()}`,
             badgeColor: '#ef4444',
             targetScreen: 'rent',
@@ -780,7 +855,7 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
 
         let allPending = [...invoiceItems, ...paymentItems];
 
-        // Guaranteed alignment: If pendingRent metric is > 0, ensure user sees the matching outstanding rent record
+        // Guaranteed fallback: If pendingRent metric is > 0 and no item parsed, synthesize from active lease
         if (allPending.length === 0 && Number(metrics.pendingRent) > 0) {
           const matchLease = (allLeasesList || []).find((l) => Number(l.rentAmount) === Number(metrics.pendingRent)) || (allLeasesList || [])[0];
           const tName = matchLease ? matchLease.tenantName : 'Resident Account';
@@ -933,7 +1008,7 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
       case 'occupancyRate':
         return { name: 'Portfolio Occupancy', count: `${metrics.occupancyRate}% Leased`, dest: 'units', destParams: { statusFilter: 'All' }, destLabel: 'Manage Units & Leases' };
       case 'pendingRent':
-        return { name: 'Outstanding Rent Balances', count: `$${metrics.pendingRent.toLocaleString()}`, dest: 'rent', destParams: null, destLabel: 'Open Rent & Collections' };
+        return { name: 'Pending & Delinquent Rent Matrix', count: `$${metrics.pendingRent.toLocaleString()}`, dest: 'rent', destParams: null, destLabel: 'Open Rent & Collections' };
       case 'openMaintenance':
         return { name: 'Active Maintenance Orders', count: `${metrics.openMaintenance} Open Tasks`, dest: 'maintenance', destParams: { tab: 'work_orders' }, destLabel: 'Manage Work Orders' };
       case 'leasesExpiringSoon':

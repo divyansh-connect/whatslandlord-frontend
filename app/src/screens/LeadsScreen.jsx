@@ -26,6 +26,8 @@ import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { leadSchema, screeningSchema, leaseSchema, moveInSchema, moveOutSchema } from '../validations/mobile.validation';
 import { CustomDatePicker } from '../components/CustomDatePicker';
 
@@ -303,6 +305,7 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
   // 7. Background screening details modal states
   const [selectedScreening, setSelectedScreening] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [openingDoc, setOpeningDoc] = useState(false);
   const [screeningDocFile, setScreeningDocFile] = useState(null);
   const [screeningDob, setScreeningDob] = useState('');
   const [screeningSsn, setScreeningSsn] = useState('');
@@ -312,6 +315,7 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
   const [selectedMoveInOrOut, setSelectedMoveInOrOut] = useState(null);
   const [startInspectionModalOpen, setStartInspectionModalOpen] = useState(false);
   const [startInspectionTemplateId, setStartInspectionTemplateId] = useState('');
+  const [returnToInspectionModal, setReturnToInspectionModal] = useState(false);
   const [leadErrors, setLeadErrors] = useState({});
   const [appErrors, setAppErrors] = useState({});
   const [scrErrors, setScrErrors] = useState({});
@@ -1315,6 +1319,107 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
     }
   };
 
+  // Safe document viewer supporting base64 data URIs, Cloudinary, AWS S3, and standard URLs
+  const handleViewScreeningDocument = async (docUrl, docName) => {
+    if (!docUrl) {
+      Alert.alert('No Document', 'Document file is not available.');
+      return;
+    }
+
+    try {
+      setOpeningDoc(true);
+
+      // 1. If base64 data URI (e.g. data:text/plain;base64,... or data:application/pdf;base64,...)
+      if (typeof docUrl === 'string' && docUrl.startsWith('data:')) {
+        const commaIdx = docUrl.indexOf(',');
+        const header = commaIdx > -1 ? docUrl.substring(0, commaIdx) : '';
+        const base64Data = commaIdx > -1 ? docUrl.substring(commaIdx + 1) : docUrl;
+
+        let mimeType = 'application/octet-stream';
+        const mimeMatch = header.match(/^data:([^;]+)/);
+        if (mimeMatch) {
+          mimeType = mimeMatch[1];
+        }
+
+        let ext = 'bin';
+        if (mimeType.includes('pdf')) ext = 'pdf';
+        else if (mimeType.includes('plain') || mimeType.includes('text')) ext = 'txt';
+        else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg';
+        else if (mimeType.includes('png')) ext = 'png';
+        else if (mimeType.includes('webp')) ext = 'webp';
+        else if (mimeType.includes('msword')) ext = 'doc';
+        else if (mimeType.includes('wordprocessingml')) ext = 'docx';
+        else if (mimeType.includes('csv')) ext = 'csv';
+
+        const safeBaseName = (docName || 'Applicant_Document')
+          .replace(/[^a-zA-Z0-9_-]/g, '_')
+          .replace(/\.[^/.]+$/, '');
+        const fileName = `${safeBaseName}_${Date.now()}.${ext}`;
+        const localUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+        await FileSystem.writeAsStringAsync(localUri, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(localUri, {
+            mimeType,
+            dialogTitle: `View ${docName || 'Document'}`,
+            UTI: mimeType,
+          });
+        } else {
+          Alert.alert('Document Saved', `File saved locally: ${fileName}`);
+        }
+        return;
+      }
+
+      // 2. If remote HTTPS/HTTP URL (Cloudinary, AWS S3, etc.)
+      if (typeof docUrl === 'string' && (docUrl.startsWith('http://') || docUrl.startsWith('https://'))) {
+        let downloadUrl = docUrl.trim();
+        const extMatch = downloadUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+        const ext = extMatch ? extMatch[1] : 'pdf';
+        const safeBaseName = (docName || 'Applicant_Document')
+          .replace(/[^a-zA-Z0-9_-]/g, '_')
+          .replace(/\.[^/.]+$/, '');
+        const fileName = `${safeBaseName}_${Date.now()}.${ext}`;
+        const localUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+        try {
+          await FileSystem.downloadAsync(downloadUrl, localUri);
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(localUri, {
+              dialogTitle: `View ${docName || 'Document'}`,
+            });
+            return;
+          }
+        } catch (dlErr) {
+          console.warn('Download & share failed, falling back to browser:', dlErr);
+        }
+
+        const canOpen = await Linking.canOpenURL(downloadUrl).catch(() => false);
+        if (canOpen) {
+          await Linking.openURL(downloadUrl);
+        } else {
+          Alert.alert('Error', 'Unable to open file in browser or viewer.');
+        }
+        return;
+      }
+
+      // 3. Fallback for other URI schemes
+      const canOpen = await Linking.canOpenURL(docUrl).catch(() => false);
+      if (canOpen) {
+        await Linking.openURL(docUrl);
+      } else {
+        Alert.alert('Cannot Open', 'Unsupported file format or URL.');
+      }
+    } catch (err) {
+      console.error('Failed to open document:', err);
+      Alert.alert('Error Opening Document', err?.message || 'Could not display the document.');
+    } finally {
+      setOpeningDoc(false);
+    }
+  };
+
   const openCreateLeaseModal = () => {
     fetchOptions();
     if (!leaseStartDate) {
@@ -1894,10 +1999,10 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
   };
 
   // G. Template Builder Handlers (Matching Web InspectionTemplatesPage 1:1)
-  const handleOpenCreateTemplate = () => {
+  const handleOpenCreateTemplate = (type) => {
     setEditingTemplateId(null);
     setTemplateName('');
-    setTemplateType('MOVE_IN');
+    setTemplateType(type || (workflowType === 'moveout' ? 'MOVE_OUT' : 'MOVE_IN'));
     setTemplateDescription('');
     setTemplateBuilderRooms(JSON.parse(JSON.stringify(defaultStarterRooms)));
     setRecordTemplateOpen(true);
@@ -1971,16 +2076,29 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
         }))
       };
 
+      let newTplId = null;
       if (editingTemplateId) {
         await apiClient.put(`/inspection-templates/${editingTemplateId}`, payload, logout, refreshAccessToken);
         Alert.alert('Success', 'Inspection template updated successfully.');
       } else {
-        await apiClient.post('/inspection-templates', payload, logout, refreshAccessToken);
+        const createRes = await apiClient.post('/inspection-templates', payload, logout, refreshAccessToken);
         Alert.alert('Success', 'Inspection checklist template created.');
+        newTplId = createRes?.id || createRes?.data?.id || (createRes?.data?.template?.id) || createRes?.template?.id;
       }
       setRecordTemplateOpen(false);
       setEditingTemplateId(null);
-      fetchTemplates(true);
+      const updatedList = await fetchTemplates(true);
+      if (newTplId) {
+        setStartInspectionTemplateId(newTplId);
+      } else if (updatedList && updatedList.length > 0 && !startInspectionTemplateId) {
+        setStartInspectionTemplateId(updatedList[0].id);
+      }
+      if (returnToInspectionModal) {
+        setReturnToInspectionModal(false);
+        setTimeout(() => {
+          setStartInspectionModalOpen(true);
+        }, 350);
+      }
     } catch (e) {
       Alert.alert('Error', e.message || 'Failed to save template.');
     } finally {
@@ -4072,7 +4190,7 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
           keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, { height: Platform.OS === 'ios' ? '82%' : '84%', maxHeight: '88%' }]}>
               <View style={styles.modalHeader}>
                 <View style={{ flex: 1, marginRight: 10, paddingTop: 4 }}>
                   <Text style={styles.modalTitle} allowFontScaling={false}>
@@ -4082,12 +4200,21 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
                     Define rooms and checklist items (stoves, floors, etc.)
                   </Text>
                 </View>
-                <TouchableOpacity onPress={() => { setRecordTemplateOpen(false); setEditingTemplateId(null); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity onPress={() => {
+                  setRecordTemplateOpen(false);
+                  setEditingTemplateId(null);
+                  if (returnToInspectionModal) {
+                    setReturnToInspectionModal(false);
+                    setTimeout(() => {
+                      setStartInspectionModalOpen(true);
+                    }, 350);
+                  }
+                }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Ionicons name="close-circle-outline" size={24} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <ScrollView style={[styles.modalForm, { flex: 1 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 <Text style={styles.formLabel} allowFontScaling={false}>TEMPLATE NAME</Text>
                 <TextInput
                   style={styles.formInput}
@@ -4236,6 +4363,12 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
                   onPress={() => {
                     setRecordTemplateOpen(false);
                     setEditingTemplateId(null);
+                    if (returnToInspectionModal) {
+                      setReturnToInspectionModal(false);
+                      setTimeout(() => {
+                        setStartInspectionModalOpen(true);
+                      }, 350);
+                    }
                   }}
                 >
                   <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
@@ -4454,12 +4587,18 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
                               backgroundColor: '#38bdf8',
                               borderRadius: 8,
                               paddingVertical: 9,
+                              opacity: openingDoc ? 0.7 : 1,
                             }}
-                            onPress={() => Linking.openURL(selectedScreening.documentUrl)}
+                            disabled={openingDoc}
+                            onPress={() => handleViewScreeningDocument(selectedScreening.documentUrl, selectedScreening.documentName)}
                           >
-                            <Ionicons name="cloud-download-outline" size={15} color="#0f172a" style={{ marginRight: 6 }} />
+                            {openingDoc ? (
+                              <ActivityIndicator size="small" color="#0f172a" style={{ marginRight: 6 }} />
+                            ) : (
+                              <Ionicons name="cloud-download-outline" size={15} color="#0f172a" style={{ marginRight: 6 }} />
+                            )}
                             <Text style={{ fontSize: 12, fontWeight: '800', color: '#0f172a' }}>
-                              View & Download Document
+                              {openingDoc ? 'Opening Document...' : 'View & Download Document'}
                             </Text>
                           </TouchableOpacity>
                         </View>
@@ -4630,18 +4769,43 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
               </View>
 
               <View style={styles.modalForm}>
-                <Text style={styles.formLabel} allowFontScaling={false}>CHOOSE TEMPLATE *</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <Text style={[styles.formLabel, { marginBottom: 0, marginTop: 4 }]} allowFontScaling={false}>CHOOSE TEMPLATE *</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setReturnToInspectionModal(true);
+                      setStartInspectionModalOpen(false);
+                      setTimeout(() => {
+                        handleOpenCreateTemplate();
+                      }, 350);
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: 'rgba(56, 189, 248, 0.12)' }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="add" size={14} color="#38bdf8" />
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#38bdf8' }} allowFontScaling={false}>+ Create Template</Text>
+                  </TouchableOpacity>
+                </View>
+
                 {templatesList.length === 0 ? (
-                  <View style={{ alignItems: 'center', paddingVertical: 14 }}>
-                    <Text style={[styles.formPickerText, { color: '#ef4444', textAlign: 'center', marginBottom: 10 }]} allowFontScaling={false}>
-                      No templates available. Please create a template first under the "Checklist Templates" tab.
+                  <View style={{ alignItems: 'center', paddingVertical: 18, paddingHorizontal: 12 }}>
+                    <Ionicons name="document-text-outline" size={34} color={colors.textMuted} style={{ marginBottom: 8 }} />
+                    <Text style={[styles.formPickerText, { color: colors.textSecondary, textAlign: 'center', marginBottom: 14, fontSize: 12 }]} allowFontScaling={false}>
+                      No templates available yet. Create your first checklist template to begin this inspection.
                     </Text>
                     <TouchableOpacity
-                      onPress={() => fetchTemplates(false)}
-                      style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: 'rgba(56, 189, 248, 0.15)', borderRadius: 8, borderWidth: 1, borderColor: '#38bdf8' }}
-                      activeOpacity={0.7}
+                      onPress={() => {
+                        setReturnToInspectionModal(true);
+                        setStartInspectionModalOpen(false);
+                        setTimeout(() => {
+                          handleOpenCreateTemplate();
+                        }, 350);
+                      }}
+                      style={{ paddingHorizontal: 18, paddingVertical: 10, backgroundColor: '#38bdf8', borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                      activeOpacity={0.8}
                     >
-                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#38bdf8' }} allowFontScaling={false}>Reload Templates</Text>
+                      <Ionicons name="add-circle-outline" size={16} color="#0f172a" />
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#0f172a' }} allowFontScaling={false}>+ Create Inspection Template</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (

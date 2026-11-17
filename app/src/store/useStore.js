@@ -92,11 +92,35 @@ export const useAuthStore = create((set, get) => ({
         const parsed = JSON.parse(userStr);
         if (parsed?.token) apiClient.setAuthToken(parsed.token);
         set({ user: parsed, isAuthenticated: true, isLoaded: true });
+        // Automatically refresh fresh permissions in background for Co-Managers
+        if (parsed?.role === 'Co-Manager' || parsed?.isPrimary === false) {
+          get().fetchPermissions();
+        }
       } catch {
         set({ user: null, isAuthenticated: false, isLoaded: true });
       }
     } else {
       set({ user: null, isAuthenticated: false, isLoaded: true });
+    }
+  },
+  fetchPermissions: async () => {
+    const state = get();
+    if (!state.user?.email || state.user?.isPrimary === true) return;
+    try {
+      const res = await apiClient.get('/superadmin/company-users', () => state.logout(), () => state.refreshAccessToken()).catch(() => null);
+      const list = res?.data || [];
+      const myRecord = list.find((u) => u.email?.trim().toLowerCase() === state.user.email.trim().toLowerCase());
+      if (myRecord && Array.isArray(myRecord.permissions)) {
+        const updatedUser = {
+          ...state.user,
+          isPrimary: myRecord.isPrimary ?? false,
+          permissions: myRecord.permissions,
+        };
+        await safeStorage.setItem('user', JSON.stringify(updatedUser));
+        set({ user: updatedUser });
+      }
+    } catch (e) {
+      console.log('fetchPermissions error:', e.message);
     }
   },
   login: async (email, password) => {
@@ -120,6 +144,8 @@ export const useAuthStore = create((set, get) => ({
           name: `${apiUser.firstName || ''} ${apiUser.lastName || ''}`.trim() || 'User',
           email: apiUser.email,
           role: apiUser.roleName,
+          isPrimary: apiUser.isPrimary,
+          permissions: apiUser.permissions,
           companyName: apiUser.companyName || apiUser.company?.name || 'Divine Properties',
           token: token,
           refreshToken: refreshToken,

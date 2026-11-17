@@ -118,21 +118,57 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
 
   // Tab 5: Roles & Permissions States matching Web RolesPage.tsx
   const [managerName, setManagerName] = useState('');
-  const [managerEmail, setManagerEmail] = useState('admin@gmail.com');
+  const [managerEmail, setManagerEmail] = useState('');
   const [managerPassword, setManagerPassword] = useState('');
   const [managerPhone, setManagerPhone] = useState('');
   const [showManagerPassword, setShowManagerPassword] = useState(false);
   const [editingManagerId, setEditingManagerId] = useState(null);
   const [managerFormError, setManagerFormError] = useState(null);
   const [savingManager, setSavingManager] = useState(false);
+  const [savingPermissions, setSavingPermissions] = useState(false);
   const [selectedManagerId, setSelectedManagerId] = useState(null);
 
-  // Permission Scope Matrix for Property Manager matching Web
+  // Permission Scope Matrix for Managers matching Web
   const defaultModulesList = [
     'Dashboard', 'Properties', 'Leasing', 'Tenants', 'Documents',
     'Owners', 'Rent & Payments', 'Accounting', 'Maintenance',
-    'Reports', 'Communication', 'Company Settings', 'AI Assistant'
+    'Reports', 'Communication', 'AI Assistant', 'Company Settings'
   ];
+
+  const companyManagers = React.useMemo(() => {
+    return usersList.filter(
+      (u) => u.role === 'Property Manager' || u.role === 'Co-Manager' || u.isPrimary
+    );
+  }, [usersList]);
+
+  const primaryManager = React.useMemo(() => {
+    return companyManagers.find((m) => m.isPrimary) || companyManagers.find((m) => m.role === 'Property Manager') || companyManagers[0];
+  }, [companyManagers]);
+
+  const coManagers = React.useMemo(() => {
+    if (!primaryManager) return [];
+    return companyManagers.filter(
+      (m) =>
+        m.id !== primaryManager.id &&
+        !m.isPrimary &&
+        m.role !== 'Property Manager' &&
+        (m.role === 'Co-Manager' || m.role?.startsWith('Co-Manager'))
+    );
+  }, [companyManagers, primaryManager]);
+
+  const activeManager = React.useMemo(() => {
+    if (selectedManagerId) {
+      return companyManagers.find((m) => m.id === selectedManagerId) || primaryManager;
+    }
+    return coManagers[0] || primaryManager;
+  }, [companyManagers, selectedManagerId, coManagers, primaryManager]);
+
+  const isPrimaryActive = Boolean(
+    activeManager?.isPrimary ||
+    activeManager?.id === primaryManager?.id ||
+    activeManager?.role === 'Property Manager'
+  );
+
   const [permissionsMatrix, setPermissionsMatrix] = useState(
     defaultModulesList.map(mod => ({
       module: mod,
@@ -144,6 +180,49 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
       export: true,
     }))
   );
+
+  useEffect(() => {
+    if (activeManager) {
+      const isPrimary = isPrimaryActive;
+      const userPerms = activeManager.permissions || [];
+      const updated = defaultModulesList.map((mod) => {
+        const found = userPerms.find((p) => p.module?.toLowerCase() === mod.toLowerCase());
+        const isSettings = mod === 'Company Settings';
+        if (isPrimary) {
+          return {
+            module: mod,
+            view: true,
+            create: true,
+            edit: true,
+            delete: true,
+            approve: true,
+            export: true,
+          };
+        }
+        if (found) {
+          return {
+            module: mod,
+            view: isSettings ? false : Boolean(found.view ?? found.canView),
+            create: isSettings ? false : Boolean(found.create ?? found.canCreate),
+            edit: isSettings ? false : Boolean(found.edit ?? found.canEdit),
+            delete: isSettings ? false : Boolean(found.delete ?? found.canDelete),
+            approve: isSettings ? false : Boolean(found.approve ?? found.canApprove),
+            export: isSettings ? false : Boolean(found.export ?? found.canExport),
+          };
+        }
+        return {
+          module: mod,
+          view: !isSettings && mod !== 'Accounting',
+          create: !isSettings && mod !== 'Accounting' && mod !== 'Owners' && mod !== 'Reports' && mod !== 'Dashboard',
+          edit: !isSettings && mod !== 'Accounting' && mod !== 'Owners' && mod !== 'Reports' && mod !== 'Dashboard',
+          delete: false,
+          approve: false,
+          export: !isSettings && mod !== 'Accounting',
+        };
+      });
+      setPermissionsMatrix(updated);
+    }
+  }, [activeManager?.id, activeManager?.permissions]);
 
   const [rolesList, setRolesList] = useState([
     { name: 'Super Admin', desc: 'Full root platform access & system configuration', badge: 'Full Access' },
@@ -208,6 +287,18 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
       hasToken: false,
     },
     {
+      id: 'int-sendgrid',
+      name: 'Twilio SendGrid (Email)',
+      provider: 'SENDGRID',
+      category: 'Communications',
+      description: 'Connect Twilio SendGrid to dispatch automated emails for tenant registrations, leases, and invoices.',
+      logo: '📧',
+      status: 'Inactive',
+      accountSid: '',
+      senderId: '',
+      hasToken: false,
+    },
+    {
       id: 'int-stripe',
       name: 'Stripe Payments',
       provider: 'STRIPE',
@@ -251,6 +342,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
   const [intAuthToken, setIntAuthToken] = useState('');
   const [showIntAuthToken, setShowIntAuthToken] = useState(false);
   const [intEnableStatus, setIntEnableStatus] = useState('Inactive');
+  const [isEditingInt, setIsEditingInt] = useState(false);
   const [isTestingIntegration, setIsTestingIntegration] = useState(false);
   const [integrationTestResult, setIntegrationTestResult] = useState(null);
   const [isSavingIntegration, setIsSavingIntegration] = useState(false);
@@ -394,8 +486,24 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
       // 6. Fetch live integrations matching Web api.integrations.getAll() -> GET /integrations
       try {
         const intRes = await apiClient.get('/integrations', logout, refreshAccessToken).catch(() => null);
-        const intData = intRes?.data || intRes;
+        let intData = intRes?.data || intRes;
         if (Array.isArray(intData) && intData.length > 0) {
+          if (!intData.some(i => i.provider === 'SENDGRID')) {
+            const commIdx = intData.findIndex(i => i.provider === 'WHATSAPP');
+            const insertAt = commIdx !== -1 ? commIdx + 1 : 2;
+            intData.splice(insertAt, 0, {
+              id: 'int-sendgrid',
+              name: 'Twilio SendGrid (Email)',
+              provider: 'SENDGRID',
+              category: 'Communications',
+              description: 'Connect Twilio SendGrid to dispatch automated emails for tenant registrations, leases, and invoices.',
+              logo: '📧',
+              status: 'Inactive',
+              accountSid: '',
+              senderId: '',
+              hasToken: false,
+            });
+          }
           setIntegrationsList(intData);
         }
       } catch (err) {}
@@ -771,54 +879,60 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
       if (editingManagerId) {
         const payload = {
           name: managerName,
-          email: managerEmail,
           phone: managerPhone,
-          role: 'Property Manager',
-          status: 'Active',
+          password: managerPassword ? managerPassword : undefined,
         };
-        await apiClient.put(`/superadmin/company-users/${editingManagerId}/status`, payload, logout, refreshAccessToken).catch(async () => {
+        await apiClient.put(`/superadmin/company-users/${editingManagerId}`, payload, logout, refreshAccessToken).catch(async () => {
           await apiClient.put(`/users/${editingManagerId}`, payload, logout, refreshAccessToken);
         });
 
         setUsersList(prev => prev.map(u => u.id === editingManagerId ? { ...u, ...payload } : u));
         setEditingManagerId(null);
         setManagerName('');
+        setManagerEmail('');
         setManagerPassword('');
         setManagerPhone('');
-        setNotification('Property Manager updated successfully!');
+        setNotification('Co-Manager updated successfully!');
       } else {
         const payload = {
           name: managerName,
           email: managerEmail,
           phone: managerPhone,
           password: managerPassword,
-          role: 'Property Manager',
+          role: 'Co-Manager',
           status: 'Active',
           serviceType: 'Management',
         };
         const res = await apiClient.post('/superadmin/company-users', payload, logout, refreshAccessToken).catch(async () => {
           return apiClient.post('/users', payload, logout, refreshAccessToken);
         });
-        const createdManager = res?.data || { id: `pm-${Date.now()}`, ...payload };
+        const createdManager = res?.data || { id: `cm-${Date.now()}`, ...payload, isPrimary: false };
         setUsersList(prev => [createdManager, ...prev]);
+        setSelectedManagerId(createdManager.id);
         setManagerName('');
+        setManagerEmail('');
         setManagerPassword('');
         setManagerPhone('');
-        setNotification('Property Manager added successfully!');
+        setNotification('Co-Manager added successfully!');
       }
       setTimeout(() => setNotification(null), 4000);
     } catch (err) {
       console.log('Error saving manager:', err.message);
-      setManagerFormError(err.message || 'Failed to save Property Manager.');
+      setManagerFormError(err.message || 'Failed to save Co-Manager.');
     } finally {
       setSavingManager(false);
     }
   };
 
   const handleDeleteManager = (id, name) => {
+    if (primaryManager && id === primaryManager.id) {
+      Alert.alert('Action Blocked', 'Primary Manager cannot be deleted. The primary account owner is required for company operations.');
+      return;
+    }
+
     Alert.alert(
-      'Delete Property Manager',
-      `Are you sure you want to delete manager "${name}"? This action cannot be undone.`,
+      'Delete Co-Manager',
+      `Are you sure you want to delete Co-Manager "${name}"? This action cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -830,13 +944,13 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                 await apiClient.delete(`/users/${id}`, logout, refreshAccessToken);
               });
               setUsersList(prev => prev.filter(u => u.id !== id));
-              if (selectedManagerId === id) setSelectedManagerId(null);
-              setNotification('Manager deleted successfully.');
+              if (selectedManagerId === id) setSelectedManagerId(primaryManager?.id || null);
+              setNotification('Co-Manager deleted successfully.');
               setTimeout(() => setNotification(null), 4000);
             } catch (err) {
               console.log('Error deleting manager:', err.message);
               setUsersList(prev => prev.filter(u => u.id !== id));
-              setNotification('Manager deleted successfully.');
+              setNotification('Co-Manager deleted successfully.');
               setTimeout(() => setNotification(null), 4000);
             }
           },
@@ -845,24 +959,53 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
     );
   };
 
-  const handleTogglePermission = (moduleName, action) => {
-    setPermissionsMatrix(prev => {
-      const updated = prev.map(p => {
-        if (p.module === moduleName) {
-          return { ...p, [action]: !p[action] };
-        }
-        return p;
-      });
-      AsyncStorage.setItem('role_permissions_pm', JSON.stringify(updated)).catch(() => {});
-      return updated;
+  const handleTogglePermission = async (moduleName, action) => {
+    if (isPrimaryActive) return; // Primary Manager cannot be restricted
+    if (moduleName === 'Company Settings') return;
+
+    const updated = permissionsMatrix.map(p => {
+      if (p.module === moduleName) {
+        return { ...p, [action]: !p[action] };
+      }
+      return p;
     });
-    setNotification('Role permissions synchronized successfully!');
-    setTimeout(() => setNotification(null), 3000);
+
+    setPermissionsMatrix(updated);
+    if (activeManager?.id) {
+      apiClient.put(`/superadmin/company-users/${activeManager.id}/permissions`, { permissions: updated }, logout, refreshAccessToken).catch(() => {});
+    }
+  };
+
+  const handleSavePermissions = async () => {
+    if (!activeManager || isPrimaryActive) return;
+    try {
+      setSavingPermissions(true);
+      await apiClient.put(
+        `/superadmin/company-users/${activeManager.id}/permissions`,
+        { permissions: permissionsMatrix },
+        logout,
+        refreshAccessToken
+      );
+      setUsersList((prev) =>
+        prev.map((u) =>
+          u.id === activeManager.id ? { ...u, permissions: permissionsMatrix } : u
+        )
+      );
+      setNotification(`Permissions for ${activeManager.name} saved successfully!`);
+      setTimeout(() => setNotification(null), 4000);
+    } catch (err) {
+      console.log('Error saving permissions:', err.message);
+      setNotification('Failed to save permissions: ' + (err.message || 'Unknown error'));
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setSavingPermissions(false);
+    }
   };
 
 
   // Integrations Marketplace Handlers matching Web IntegrationsPage.tsx
   const handleOpenIntegrationConfig = (item) => {
+    const isConn = item.status === 'Active' || item.status === 'Connected';
     setSelectedIntegration(item);
     setIntAccountSid(item.accountSid || '');
     setIntSenderId(item.senderId || '');
@@ -870,12 +1013,18 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
     setIntEnableStatus(item.status || 'Inactive');
     setShowIntAuthToken(false);
     setIntegrationTestResult(null);
+    setIsEditingInt(!isConn);
   };
 
   const handleTestIntegrationConnection = async () => {
     if (!selectedIntegration?.provider) return;
     const isPayment = ['STRIPE', 'AUTHORIZE_NET', 'RAZORPAY'].includes(selectedIntegration.provider);
-    if (!intAccountSid.trim() || (!isPayment && !intSenderId.trim()) || !intAuthToken.trim()) {
+    if (selectedIntegration.provider === 'SENDGRID') {
+      if (!intSenderId.trim() || !intAuthToken.trim()) {
+        setIntegrationTestResult({ success: false, message: 'Please provide both Sender Email and SendGrid API Key.' });
+        return;
+      }
+    } else if (!intAccountSid.trim() || (!isPayment && !intSenderId.trim()) || !intAuthToken.trim()) {
       setIntegrationTestResult({ success: false, message: 'Please fill in all credentials before testing.' });
       return;
     }
@@ -885,7 +1034,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
     try {
       const res = await apiClient.post('/integrations/test', {
         provider: selectedIntegration.provider,
-        accountSid: intAccountSid.trim(),
+        accountSid: intAccountSid.trim() || 'Property Management',
         senderId: isPayment ? 'N/A' : intSenderId.trim(),
         authToken: intAuthToken.trim(),
       }, logout, refreshAccessToken);
@@ -908,18 +1057,44 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
   const handleSaveIntegrationSettings = async () => {
     if (!selectedIntegration?.provider) return;
     const isPayment = ['STRIPE', 'AUTHORIZE_NET', 'RAZORPAY'].includes(selectedIntegration.provider);
-    if (!intAccountSid.trim() || (!isPayment && !intSenderId.trim())) {
-      Alert.alert('Required', isPayment ? 'Key / ID is required.' : 'Account ID and Sender ID are required.');
+    if (selectedIntegration.provider === 'SENDGRID') {
+      if (!intSenderId.trim() || !intAuthToken.trim()) {
+        Alert.alert('Required', 'Verified Sender Email and SendGrid API Key are required.');
+        return;
+      }
+    } else if (!intAccountSid.trim() || (!isPayment && !intSenderId.trim()) || !intAuthToken.trim()) {
+      Alert.alert('Required', isPayment ? 'Key / ID and Secret are required.' : 'Account ID, Sender ID, and Token are required.');
       return;
     }
 
     setIsSavingIntegration(true);
+    setIntegrationTestResult(null);
+
     try {
+      // Step 1: Live verify with third-party API
+      const testRes = await apiClient.post('/integrations/test', {
+        provider: selectedIntegration.provider,
+        accountSid: intAccountSid.trim() || 'Property Management',
+        senderId: isPayment ? 'N/A' : intSenderId.trim(),
+        authToken: intAuthToken.trim(),
+      }, logout, refreshAccessToken);
+
+      const testData = testRes?.data || testRes || {};
+      if (testData.success === false) {
+        setIntegrationTestResult({
+          success: false,
+          message: testRes.message || 'Verification failed. Please check credentials.'
+        });
+        setIsSavingIntegration(false);
+        return;
+      }
+
+      // Step 2: Verification passed -> Save as Active
       const payload = {
         provider: selectedIntegration.provider,
-        accountSid: intAccountSid.trim(),
+        accountSid: intAccountSid.trim() || 'Property Management',
         senderId: isPayment ? 'N/A' : (intSenderId.trim() || 'N/A'),
-        status: intEnableStatus,
+        status: 'Active',
       };
 
       if (intAuthToken !== '******' && intAuthToken.trim()) {
@@ -934,18 +1109,48 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
             ...item,
             accountSid: intAccountSid.trim(),
             senderId: isPayment ? 'N/A' : (intSenderId.trim() || 'N/A'),
-            status: intEnableStatus,
+            status: 'Active',
             hasToken: true,
           };
         }
         return item;
       }));
 
-      setNotification(`${selectedIntegration.name} configurations saved successfully!`);
-      setTimeout(() => setNotification(null), 3000);
+      Alert.alert('Connected', `${selectedIntegration.name} verified and connected successfully!`);
       setSelectedIntegration(null);
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to save integration settings.');
+      setIntegrationTestResult({
+        success: false,
+        message: err.message || 'Connection test failed. Integration not activated.'
+      });
+    } finally {
+      setIsSavingIntegration(false);
+    }
+  };
+
+  const handleDisconnectIntegration = async () => {
+    if (!selectedIntegration?.provider) return;
+    setIsSavingIntegration(true);
+    try {
+      await apiClient.post('/integrations/update', {
+        provider: selectedIntegration.provider,
+        accountSid: intAccountSid.trim() || 'Property Management',
+        senderId: intSenderId.trim() || 'N/A',
+        status: 'Inactive',
+        authToken: '******',
+      }, logout, refreshAccessToken);
+
+      setIntegrationsList(prev => prev.map(item => {
+        if (item.provider === selectedIntegration.provider) {
+          return { ...item, status: 'Inactive' };
+        }
+        return item;
+      }));
+
+      Alert.alert('Disconnected', `${selectedIntegration.name} disconnected.`);
+      setSelectedIntegration(null);
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to disconnect.');
     } finally {
       setIsSavingIntegration(false);
     }
@@ -2309,13 +2514,13 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
         {/* ========================================================================= */}
         {activeTab === 'roles' && (
           <View style={{ gap: 16 }}>
-            {/* Top Card: ADD PROPERTY MANAGER */}
+            {/* Top Card: ADD CO-MANAGER */}
             <View style={styles.addManagerCard}>
               <View style={styles.addManagerHeaderRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Ionicons name="person-add-outline" size={16} color="#2563eb" />
                   <Text style={styles.addManagerHeading} allowFontScaling={false}>
-                    {editingManagerId ? 'EDIT PROPERTY MANAGER' : 'ADD PROPERTY MANAGER'}
+                    {editingManagerId ? 'EDIT CO-MANAGER' : '+ ADD CO-MANAGER (SUB-MANAGER)'}
                   </Text>
                 </View>
                 {editingManagerId && (
@@ -2323,6 +2528,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                     onPress={() => {
                       setEditingManagerId(null);
                       setManagerName('');
+                      setManagerEmail('');
                       setManagerPassword('');
                       setManagerPhone('');
                       setManagerFormError(null);
@@ -2332,6 +2538,10 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                   </TouchableOpacity>
                 )}
               </View>
+
+              <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2, marginBottom: 8 }} allowFontScaling={false}>
+                Co-Managers operate under your company context with strictly partitioned permissions.
+              </Text>
 
               {managerFormError && (
                 <View style={styles.managerErrorBox}>
@@ -2359,7 +2569,7 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                   <Text style={styles.managerFieldLabel} allowFontScaling={false}>EMAIL ADDRESS</Text>
                   <TextInput
                     style={styles.managerFieldInput}
-                    placeholder="admin@gmail.com"
+                    placeholder="e.g., manager@gmail.com"
                     placeholderTextColor={colors.textMuted}
                     value={managerEmail}
                     onChangeText={setManagerEmail}
@@ -2405,25 +2615,48 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                     keyboardType="phone-pad"
                   />
                 </View>
-
-                {/* Add / Update Manager Button */}
-                <View style={[styles.managerFieldCol, { justifyContent: 'flex-end' }]}>
-                  <TouchableOpacity
-                    style={styles.addManagerBtn}
-                    onPress={handleAddOrUpdateManager}
-                    disabled={savingManager}
-                    activeOpacity={0.85}
-                  >
-                    {savingManager ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <Text style={styles.addManagerBtnText} allowFontScaling={false}>
-                        {editingManagerId ? 'Update Manager' : 'Add Manager'}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
               </View>
+
+              {/* Full Width Add / Update Co-Manager Button */}
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#2563eb',
+                  borderRadius: 10,
+                  height: 44,
+                  width: '100%',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginTop: 6,
+                  flexDirection: 'row',
+                  gap: 8,
+                  shadowColor: '#2563eb',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 3,
+                  elevation: 3,
+                }}
+                onPress={handleAddOrUpdateManager}
+                disabled={savingManager}
+                activeOpacity={0.85}
+              >
+                {savingManager ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={editingManagerId ? 'checkmark-circle-outline' : 'person-add'}
+                      size={17}
+                      color="#ffffff"
+                    />
+                    <Text
+                      style={{ fontSize: 13, fontWeight: '800', color: '#ffffff', letterSpacing: 0.3 }}
+                      allowFontScaling={false}
+                    >
+                      {editingManagerId ? 'Update Co-Manager Profile' : 'Add Co-Manager'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
 
             {/* Bottom Row / Grid: Company Managers (Left) and Permission Scope Matrix (Right) */}
@@ -2431,79 +2664,168 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
               {/* Card 2: COMPANY MANAGERS */}
               <View style={styles.companyManagersCard}>
                 <View style={styles.companyManagersHeader}>
-                  <Ionicons name="settings-outline" size={14} color={colors.textSecondary} style={{ marginRight: 6 }} />
+                  <Ionicons name="people-outline" size={14} color={colors.textSecondary} style={{ marginRight: 6 }} />
                   <Text style={styles.companyManagersHeading} allowFontScaling={false}>COMPANY MANAGERS</Text>
                 </View>
 
-                {usersList.filter(u => u.role === 'Property Manager').length === 0 ? (
+                {companyManagers.length === 0 ? (
                   <View style={{ paddingVertical: 28, alignItems: 'center' }}>
                     <Text style={{ fontSize: 12, color: colors.textMuted, fontWeight: '600' }} allowFontScaling={false}>
                       Loading company managers...
                     </Text>
                   </View>
                 ) : (
-                  <View style={{ gap: 10 }}>
-                    {usersList
-                      .filter(u => u.role === 'Property Manager')
-                      .map((mgr) => {
-                        const isSelected = selectedManagerId === mgr.id;
-                        return (
-                          <TouchableOpacity
-                            key={mgr.id}
-                            style={[styles.managerItemCard, isSelected && styles.managerItemCardSelected]}
-                            onPress={() => setSelectedManagerId(mgr.id)}
-                            activeOpacity={0.8}
-                          >
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Text style={styles.managerItemName} allowFontScaling={false}>{mgr.name}</Text>
-                              <View style={styles.managerActiveBadge}>
-                                <Text style={styles.managerActiveBadgeText} allowFontScaling={false}>ACTIVE</Text>
-                              </View>
+                  <View style={{ gap: 14 }}>
+                    {/* 1. PRIMARY MANAGER (MASTER OWNER) */}
+                    {primaryManager && (
+                      <View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                          <Ionicons name="shield-checkmark" size={13} color="#2563eb" />
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#2563eb', textTransform: 'uppercase' }} allowFontScaling={false}>
+                            Primary Manager (Owner)
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[
+                            styles.managerItemCard,
+                            activeManager?.id === primaryManager.id && styles.managerItemCardSelected,
+                            { borderColor: activeManager?.id === primaryManager.id ? '#2563eb' : colors.cardBorder }
+                          ]}
+                          onPress={() => setSelectedManagerId(primaryManager.id)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={styles.managerItemName} allowFontScaling={false}>{primaryManager.name}</Text>
+                            <View style={[styles.managerActiveBadge, { backgroundColor: 'rgba(37, 99, 235, 0.15)', borderWidth: 1, borderColor: 'rgba(37, 99, 235, 0.3)' }]}>
+                              <Text style={[styles.managerActiveBadgeText, { color: '#2563eb', fontWeight: '900' }]} allowFontScaling={false}>
+                                PRIMARY
+                              </Text>
                             </View>
-                            <Text style={styles.managerItemEmail} allowFontScaling={false}>{mgr.email}</Text>
-                            {mgr.phone ? (
-                              <Text style={styles.managerItemPhone} allowFontScaling={false}>{mgr.phone}</Text>
-                            ) : null}
+                          </View>
+                          <Text style={styles.managerItemEmail} allowFontScaling={false}>{primaryManager.email}</Text>
+                          {primaryManager.phone ? (
+                            <Text style={styles.managerItemPhone} allowFontScaling={false}>{primaryManager.phone}</Text>
+                          ) : null}
 
-                            <View style={styles.managerItemActions}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.divider }}>
+                            <Ionicons name="lock-closed" size={11} color={colors.textMuted} />
+                            <Text style={{ fontSize: 9.5, color: colors.textMuted, fontWeight: '700' }} allowFontScaling={false}>
+                              Master Account Owner • Full Access (Protected)
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* 2. CO-MANAGERS (SUB-MANAGERS) */}
+                    <View>
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', marginBottom: 6 }} allowFontScaling={false}>
+                        Co-Managers ({coManagers.length})
+                      </Text>
+
+                      {coManagers.length === 0 ? (
+                        <View style={{ padding: 12, borderRadius: 8, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.cardBorder, alignItems: 'center' }}>
+                          <Text style={{ fontSize: 11, color: colors.textMuted, fontWeight: '600' }} allowFontScaling={false}>
+                            No Co-Managers added yet. Use the form above to add a sub-manager.
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={{ gap: 8 }}>
+                          {coManagers.map((mgr) => {
+                            const isSelected = activeManager?.id === mgr.id;
+                            return (
                               <TouchableOpacity
-                                onPress={() => {
-                                  setEditingManagerId(mgr.id);
-                                  setManagerName(mgr.name || '');
-                                  setManagerEmail(mgr.email || '');
-                                  setManagerPhone(mgr.phone || '');
-                                  setManagerPassword('');
-                                }}
+                                key={mgr.id}
+                                style={[styles.managerItemCard, isSelected && styles.managerItemCardSelected]}
+                                onPress={() => setSelectedManagerId(mgr.id)}
+                                activeOpacity={0.8}
                               >
-                                <Text style={styles.managerEditActionText} allowFontScaling={false}>Edit</Text>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Text style={styles.managerItemName} allowFontScaling={false}>{mgr.name}</Text>
+                                  <View style={[styles.managerActiveBadge, { backgroundColor: 'rgba(99, 102, 241, 0.15)' }]}>
+                                    <Text style={[styles.managerActiveBadgeText, { color: '#6366f1' }]} allowFontScaling={false}>
+                                      CO-MANAGER
+                                    </Text>
+                                  </View>
+                                </View>
+                                <Text style={styles.managerItemEmail} allowFontScaling={false}>{mgr.email}</Text>
+                                {mgr.phone ? (
+                                  <Text style={styles.managerItemPhone} allowFontScaling={false}>{mgr.phone}</Text>
+                                ) : null}
+
+                                <View style={styles.managerItemActions}>
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      setEditingManagerId(mgr.id);
+                                      setManagerName(mgr.name || '');
+                                      setManagerEmail(mgr.email || '');
+                                      setManagerPhone(mgr.phone || '');
+                                      setManagerPassword('');
+                                    }}
+                                  >
+                                    <Text style={styles.managerEditActionText} allowFontScaling={false}>Edit</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity onPress={() => handleDeleteManager(mgr.id, mgr.name)}>
+                                    <Text style={styles.managerDeleteActionText} allowFontScaling={false}>Delete</Text>
+                                  </TouchableOpacity>
+                                </View>
                               </TouchableOpacity>
-                              <TouchableOpacity onPress={() => handleDeleteManager(mgr.id, mgr.name)}>
-                                <Text style={styles.managerDeleteActionText} allowFontScaling={false}>Delete</Text>
-                              </TouchableOpacity>
-                            </View>
-                          </TouchableOpacity>
-                        );
-                      })}
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
                   </View>
                 )}
               </View>
 
-              {/* Card 3: PERMISSION SCOPE MATRIX: PROPERTY MANAGER */}
+              {/* Card 3: PERMISSION SCOPE MATRIX */}
               <View style={styles.permissionMatrixCard}>
-                <View style={styles.permissionMatrixHeader}>
-                  <Text style={styles.permissionMatrixHeading} allowFontScaling={false}>
-                    PERMISSION SCOPE MATRIX: PROPERTY MANAGER
-                  </Text>
-                  <Text style={styles.permissionMatrixSubtitle} allowFontScaling={false}>
-                    Configure module accessibility privileges and functional operation authorizations.
-                  </Text>
+                <View style={[styles.permissionMatrixHeader, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={styles.permissionMatrixHeading} allowFontScaling={false}>
+                      PERMISSION SCOPE MATRIX: {activeManager?.name?.toUpperCase() || 'MANAGER'} {isPrimaryActive ? '(PRIMARY MANAGER)' : '(CO-MANAGER)'}
+                    </Text>
+                    <Text style={styles.permissionMatrixSubtitle} allowFontScaling={false}>
+                      {isPrimaryActive
+                        ? 'Primary Manager holds master organizational authority. All privileges are permanently unlocked.'
+                        : 'Configure module accessibility privileges and functional operation authorizations.'}
+                    </Text>
+                  </View>
+
+                  {!isPrimaryActive && (
+                    <TouchableOpacity
+                      style={styles.savePermissionsHeaderBtn}
+                      onPress={handleSavePermissions}
+                      disabled={savingPermissions}
+                      activeOpacity={0.85}
+                    >
+                      {savingPermissions ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Ionicons name="save-outline" size={13} color="#ffffff" />
+                          <Text style={styles.savePermissionsHeaderBtnText} allowFontScaling={false}>Save</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  )}
                 </View>
+
+                {isPrimaryActive && (
+                  <View style={{ marginHorizontal: 12, marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: 'rgba(37, 99, 235, 0.1)', borderWidth: 1, borderColor: 'rgba(37, 99, 235, 0.25)', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="shield-checkmark" size={14} color="#2563eb" />
+                    <Text style={{ fontSize: 10, color: '#2563eb', fontWeight: '700', flex: 1 }} allowFontScaling={false}>
+                      Primary Manager holds unconstrained root authority across all properties, company billing, staff, and configuration settings.
+                    </Text>
+                  </View>
+                )}
 
                 <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                   <View>
                     {/* Header Row */}
                     <View style={styles.matrixTableHeaderRow}>
-                      <Text style={[styles.matrixTableColHeader, { width: 135, textAlign: 'left' }]} allowFontScaling={false}>
+                      <Text style={[styles.matrixTableColHeader, { width: 145, textAlign: 'left' }]} allowFontScaling={false}>
                         MODULE NAME
                       </Text>
                       {['view', 'create', 'edit', 'delete', 'approve', 'export'].map((act) => (
@@ -2514,32 +2836,70 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                     </View>
 
                     {/* Matrix Rows */}
-                    {permissionsMatrix.map((p) => (
-                      <View key={p.module} style={styles.matrixTableRow}>
-                        <Text style={[styles.matrixModuleNameText, { width: 135 }]} numberOfLines={1} allowFontScaling={false}>
-                          {getFriendlyModuleName(p.module)}
-                        </Text>
-                        {['view', 'create', 'edit', 'delete', 'approve', 'export'].map((act) => {
-                          const checked = Boolean(p[act]);
-                          return (
-                            <TouchableOpacity
-                              key={act}
-                              style={[styles.matrixCheckboxWrap, { width: 62 }]}
-                              onPress={() => handleTogglePermission(p.module, act)}
-                              activeOpacity={0.7}
-                            >
-                              <Ionicons
-                                name={checked ? 'checkbox' : 'square-outline'}
-                                size={18}
-                                color={checked ? '#2563eb' : colors.textMuted}
-                              />
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    ))}
+                    {permissionsMatrix.map((p) => {
+                      const isSettings = p.module === 'Company Settings';
+                      const isLocked = isPrimaryActive || isSettings;
+                      return (
+                        <View key={p.module} style={[styles.matrixTableRow, isSettings && !isPrimaryActive && { backgroundColor: 'rgba(244, 63, 94, 0.05)' }]}>
+                          <View style={{ width: 145, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            {isSettings && !isPrimaryActive && (
+                              <Ionicons name="lock-closed" size={11} color="#f43f5e" />
+                            )}
+                            <Text style={[styles.matrixModuleNameText, { flex: 1 }]} numberOfLines={1} allowFontScaling={false}>
+                              {getFriendlyModuleName(p.module)}
+                            </Text>
+                            {isSettings && !isPrimaryActive && (
+                              <View style={{ backgroundColor: 'rgba(244, 63, 94, 0.1)', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                                <Text style={{ fontSize: 8, fontWeight: '800', color: '#f43f5e' }} allowFontScaling={false}>OWNER</Text>
+                              </View>
+                            )}
+                          </View>
+                          {['view', 'create', 'edit', 'delete', 'approve', 'export'].map((act) => {
+                            const checked = isPrimaryActive ? true : isSettings ? false : Boolean(p[act]);
+                            return (
+                              <TouchableOpacity
+                                key={act}
+                                style={[styles.matrixCheckboxWrap, { width: 62 }]}
+                                onPress={() => handleTogglePermission(p.module, act)}
+                                disabled={isLocked}
+                                activeOpacity={isLocked ? 1 : 0.7}
+                              >
+                                <Ionicons
+                                  name={checked ? 'checkbox' : 'square-outline'}
+                                  size={18}
+                                  color={checked ? '#2563eb' : isLocked ? colors.textMuted : colors.textMuted}
+                                  style={{ opacity: isLocked ? 0.6 : 1 }}
+                                />
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      );
+                    })}
                   </View>
                 </ScrollView>
+
+                {!isPrimaryActive && (
+                  <View style={styles.matrixSaveFooter}>
+                    <TouchableOpacity
+                      style={styles.savePermissionsLargeBtn}
+                      onPress={handleSavePermissions}
+                      disabled={savingPermissions}
+                      activeOpacity={0.85}
+                    >
+                      {savingPermissions ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name="checkmark-circle-outline" size={16} color="#ffffff" />
+                          <Text style={styles.savePermissionsBtnText} allowFontScaling={false}>
+                            Save Permissions for {activeManager?.name || 'Co-Manager'}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             </View>
           </View>
@@ -3439,39 +3799,50 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
               keyboardShouldPersistTaps="handled"
               automaticallyAdjustKeyboardInsets={true}
             >
-              {/* Enable Integration Status Row */}
+              {/* Live Integration Status Row */}
               <View style={styles.intStatusToggleRow}>
-                <View>
-                  <Text style={styles.intStatusToggleLabel} allowFontScaling={false}>ENABLE INTEGRATION</Text>
+                <View style={{ flex: 1, marginRight: 10 }}>
+                  <Text style={styles.intStatusToggleLabel} allowFontScaling={false}>INTEGRATION STATUS</Text>
                   <Text style={{ fontSize: 10.5, color: colors.textMuted, marginTop: 2 }} allowFontScaling={false}>
-                    {intEnableStatus === 'Active' ? 'Service is connected and live' : 'Service is currently paused'}
+                    {selectedIntegration?.status === 'Active'
+                      ? 'Credentials are saved, verified and active.'
+                      : 'Inactive. Enter credentials and click Connect to verify.'}
                   </Text>
                 </View>
-                <TouchableOpacity
+                <View
                   style={[
                     styles.intStatusSelectBtn,
-                    intEnableStatus === 'Active' ? styles.intStatusSelectBtnActive : styles.intStatusSelectBtnInactive
+                    selectedIntegration?.status === 'Active' ? styles.intStatusSelectBtnActive : styles.intStatusSelectBtnInactive
                   ]}
-                  onPress={() => setIntEnableStatus(prev => prev === 'Active' ? 'Inactive' : 'Active')}
-                  activeOpacity={0.8}
                 >
                   <Ionicons
-                    name={intEnableStatus === 'Active' ? 'checkmark-circle' : 'pause-circle-outline'}
+                    name={selectedIntegration?.status === 'Active' ? 'checkmark-circle' : 'pause-circle-outline'}
                     size={14}
-                    color={intEnableStatus === 'Active' ? '#10b981' : colors.textSecondary}
+                    color={selectedIntegration?.status === 'Active' ? '#10b981' : colors.textSecondary}
                     style={{ marginRight: 4 }}
                   />
                   <Text
                     style={[
                       styles.intStatusSelectBtnText,
-                      intEnableStatus === 'Active' ? { color: '#10b981' } : { color: colors.textSecondary }
+                      selectedIntegration?.status === 'Active' ? { color: '#10b981' } : { color: colors.textSecondary }
                     ]}
                     allowFontScaling={false}
                   >
-                    {intEnableStatus === 'Active' ? 'Active (Connected)' : 'Inactive (Disabled)'}
+                    {selectedIntegration?.status === 'Active' ? 'Connected' : 'Inactive'}
                   </Text>
-                </TouchableOpacity>
+                </View>
               </View>
+
+              {selectedIntegration?.status === 'Active' && !isEditingInt && (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.background, padding: 10, borderRadius: 8, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 11, color: colors.textSecondary, flex: 1 }} allowFontScaling={false}>
+                    Inputs are locked to protect saved credentials.
+                  </Text>
+                  <TouchableOpacity onPress={() => setIsEditingInt(true)} style={{ paddingHorizontal: 10, paddingVertical: 5, backgroundColor: 'rgba(56, 189, 248, 0.15)', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#38bdf8' }} allowFontScaling={false}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {/* Dynamic Credential Inputs per Provider */}
               <View style={{ gap: 12 }}>
@@ -3480,40 +3851,44 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>TWILIO ACCOUNT SID</Text>
                       <TextInput
-                        style={styles.fieldInput}
+                        style={[styles.fieldInput, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                         placeholder="e.g. ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                         placeholderTextColor={colors.textMuted}
                         value={intAccountSid}
                         onChangeText={setIntAccountSid}
                         autoCapitalize="none"
+                        editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                       />
                     </View>
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>TWILIO SENDER NUMBER / SERVICE SID</Text>
                       <TextInput
-                        style={styles.fieldInput}
+                        style={[styles.fieldInput, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                         placeholder="e.g. +1415XXXXXXX or MGXXXXXXXXXXXXXXXX"
                         placeholderTextColor={colors.textMuted}
                         value={intSenderId}
                         onChangeText={setIntSenderId}
                         autoCapitalize="none"
+                        editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                       />
                     </View>
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>TWILIO AUTH TOKEN</Text>
                       <View style={{ position: 'relative' }}>
                         <TextInput
-                          style={[styles.fieldInput, { paddingRight: 40 }]}
+                          style={[styles.fieldInput, { paddingRight: 40 }, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                           placeholder="Twilio Auth Token Secret"
                           placeholderTextColor={colors.textMuted}
                           value={intAuthToken}
                           onChangeText={setIntAuthToken}
                           secureTextEntry={!showIntAuthToken}
                           autoCapitalize="none"
+                          editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                         />
                         <TouchableOpacity
                           style={{ position: 'absolute', right: 12, top: 11 }}
                           onPress={() => setShowIntAuthToken(!showIntAuthToken)}
+                          disabled={selectedIntegration?.status === 'Active' && !isEditingInt}
                         >
                           <Ionicons
                             name={showIntAuthToken ? 'eye-off-outline' : 'eye-outline'}
@@ -3531,40 +3906,44 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>WHATSAPP PHONE NUMBER ID</Text>
                       <TextInput
-                        style={styles.fieldInput}
+                        style={[styles.fieldInput, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                         placeholder="e.g. 104838592019485"
                         placeholderTextColor={colors.textMuted}
                         value={intAccountSid}
                         onChangeText={setIntAccountSid}
                         autoCapitalize="none"
+                        editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                       />
                     </View>
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>WHATSAPP BUSINESS ACCOUNT ID</Text>
                       <TextInput
-                        style={styles.fieldInput}
+                        style={[styles.fieldInput, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                         placeholder="e.g. 294829583028385"
                         placeholderTextColor={colors.textMuted}
                         value={intSenderId}
                         onChangeText={setIntSenderId}
                         autoCapitalize="none"
+                        editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                       />
                     </View>
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>SYSTEM USER ACCESS TOKEN</Text>
                       <View style={{ position: 'relative' }}>
                         <TextInput
-                          style={[styles.fieldInput, { paddingRight: 40 }]}
+                          style={[styles.fieldInput, { paddingRight: 40 }, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                           placeholder="EAABw..."
                           placeholderTextColor={colors.textMuted}
                           value={intAuthToken}
                           onChangeText={setIntAuthToken}
                           secureTextEntry={!showIntAuthToken}
                           autoCapitalize="none"
+                          editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                         />
                         <TouchableOpacity
                           style={{ position: 'absolute', right: 12, top: 11 }}
                           onPress={() => setShowIntAuthToken(!showIntAuthToken)}
+                          disabled={selectedIntegration?.status === 'Active' && !isEditingInt}
                         >
                           <Ionicons
                             name={showIntAuthToken ? 'eye-off-outline' : 'eye-outline'}
@@ -3582,29 +3961,32 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>STRIPE PUBLISHABLE KEY</Text>
                       <TextInput
-                        style={styles.fieldInput}
+                        style={[styles.fieldInput, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                         placeholder="e.g. pk_live_..."
                         placeholderTextColor={colors.textMuted}
                         value={intAccountSid}
                         onChangeText={setIntAccountSid}
                         autoCapitalize="none"
+                        editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                       />
                     </View>
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>STRIPE SECRET KEY</Text>
                       <View style={{ position: 'relative' }}>
                         <TextInput
-                          style={[styles.fieldInput, { paddingRight: 40 }]}
+                          style={[styles.fieldInput, { paddingRight: 40 }, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                           placeholder="e.g. sk_live_..."
                           placeholderTextColor={colors.textMuted}
                           value={intAuthToken}
                           onChangeText={setIntAuthToken}
                           secureTextEntry={!showIntAuthToken}
                           autoCapitalize="none"
+                          editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                         />
                         <TouchableOpacity
                           style={{ position: 'absolute', right: 12, top: 11 }}
                           onPress={() => setShowIntAuthToken(!showIntAuthToken)}
+                          disabled={selectedIntegration?.status === 'Active' && !isEditingInt}
                         >
                           <Ionicons
                             name={showIntAuthToken ? 'eye-off-outline' : 'eye-outline'}
@@ -3622,29 +4004,32 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>API LOGIN ID</Text>
                       <TextInput
-                        style={styles.fieldInput}
+                        style={[styles.fieldInput, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                         placeholder="e.g. 5Ad2G98f..."
                         placeholderTextColor={colors.textMuted}
                         value={intAccountSid}
                         onChangeText={setIntAccountSid}
                         autoCapitalize="none"
+                        editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                       />
                     </View>
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>TRANSACTION KEY</Text>
                       <View style={{ position: 'relative' }}>
                         <TextInput
-                          style={[styles.fieldInput, { paddingRight: 40 }]}
+                          style={[styles.fieldInput, { paddingRight: 40 }, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                           placeholder="Authorize.Net Transaction Key"
                           placeholderTextColor={colors.textMuted}
                           value={intAuthToken}
                           onChangeText={setIntAuthToken}
                           secureTextEntry={!showIntAuthToken}
                           autoCapitalize="none"
+                          editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                         />
                         <TouchableOpacity
                           style={{ position: 'absolute', right: 12, top: 11 }}
                           onPress={() => setShowIntAuthToken(!showIntAuthToken)}
+                          disabled={selectedIntegration?.status === 'Active' && !isEditingInt}
                         >
                           <Ionicons
                             name={showIntAuthToken ? 'eye-off-outline' : 'eye-outline'}
@@ -3662,29 +4047,32 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>RAZORPAY KEY ID</Text>
                       <TextInput
-                        style={styles.fieldInput}
+                        style={[styles.fieldInput, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                         placeholder="e.g. rzp_live_..."
                         placeholderTextColor={colors.textMuted}
                         value={intAccountSid}
                         onChangeText={setIntAccountSid}
                         autoCapitalize="none"
+                        editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                       />
                     </View>
                     <View>
                       <Text style={styles.fieldLabel} allowFontScaling={false}>RAZORPAY KEY SECRET</Text>
                       <View style={{ position: 'relative' }}>
                         <TextInput
-                          style={[styles.fieldInput, { paddingRight: 40 }]}
+                          style={[styles.fieldInput, { paddingRight: 40 }, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
                           placeholder="Razorpay Key Secret"
                           placeholderTextColor={colors.textMuted}
                           value={intAuthToken}
                           onChangeText={setIntAuthToken}
                           secureTextEntry={!showIntAuthToken}
                           autoCapitalize="none"
+                          editable={selectedIntegration?.status !== 'Active' || isEditingInt}
                         />
                         <TouchableOpacity
                           style={{ position: 'absolute', right: 12, top: 11 }}
                           onPress={() => setShowIntAuthToken(!showIntAuthToken)}
+                          disabled={selectedIntegration?.status === 'Active' && !isEditingInt}
                         >
                           <Ionicons
                             name={showIntAuthToken ? 'eye-off-outline' : 'eye-outline'}
@@ -3693,6 +4081,70 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                           />
                         </TouchableOpacity>
                       </View>
+                    </View>
+                  </>
+                )}
+
+                {selectedIntegration?.provider === 'SENDGRID' && (
+                  <>
+                    <View>
+                      <Text style={styles.fieldLabel} allowFontScaling={false}>SENDER FROM NAME</Text>
+                      <TextInput
+                        style={[styles.fieldInput, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
+                        placeholder="e.g. Property Management"
+                        placeholderTextColor={colors.textMuted}
+                        value={intAccountSid}
+                        onChangeText={setIntAccountSid}
+                        editable={selectedIntegration?.status !== 'Active' || isEditingInt}
+                      />
+                      <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 2 }}>
+                        Display name shown in tenant email inboxes.
+                      </Text>
+                    </View>
+                    <View>
+                      <Text style={styles.fieldLabel} allowFontScaling={false}>VERIFIED SENDER EMAIL *</Text>
+                      <TextInput
+                        style={[styles.fieldInput, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
+                        placeholder="e.g. notifications@yourdomain.com"
+                        placeholderTextColor={colors.textMuted}
+                        value={intSenderId}
+                        onChangeText={setIntSenderId}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                        editable={selectedIntegration?.status !== 'Active' || isEditingInt}
+                      />
+                      <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 2 }}>
+                        Must be a verified Sender Identity in SendGrid.
+                      </Text>
+                    </View>
+                    <View>
+                      <Text style={styles.fieldLabel} allowFontScaling={false}>SENDGRID API KEY *</Text>
+                      <View style={{ position: 'relative' }}>
+                        <TextInput
+                          style={[styles.fieldInput, { paddingRight: 40 }, (selectedIntegration?.status === 'Active' && !isEditingInt) && { opacity: 0.6, backgroundColor: colors.background }]}
+                          placeholder="e.g. SG.xxxxxxxxxxxxxxxxxxxx"
+                          placeholderTextColor={colors.textMuted}
+                          value={intAuthToken}
+                          onChangeText={setIntAuthToken}
+                          secureTextEntry={!showIntAuthToken}
+                          autoCapitalize="none"
+                          editable={selectedIntegration?.status !== 'Active' || isEditingInt}
+                        />
+                        <TouchableOpacity
+                          style={{ position: 'absolute', right: 12, top: 11 }}
+                          onPress={() => setShowIntAuthToken(!showIntAuthToken)}
+                          disabled={selectedIntegration?.status === 'Active' && !isEditingInt}
+                        >
+                          <Ionicons
+                            name={showIntAuthToken ? 'eye-off-outline' : 'eye-outline'}
+                            size={18}
+                            color={colors.textMuted}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 2 }}>
+                        SendGrid API key with 'Mail Send' permissions.
+                      </Text>
                     </View>
                   </>
                 )}
@@ -3737,48 +4189,69 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
 
             {/* Modal Actions with Modern Spacious Layout */}
             <View style={styles.intModalFooterWrap}>
-              <TouchableOpacity
-                style={styles.intTestConnectionBtn}
-                onPress={handleTestIntegrationConnection}
-                disabled={isTestingIntegration}
-                activeOpacity={0.8}
-              >
-                {isTestingIntegration ? (
-                  <ActivityIndicator size="small" color="#2563eb" />
-                ) : (
-                  <>
-                    <Ionicons name="sparkles" size={14} color="#2563eb" style={{ marginRight: 6 }} />
-                    <Text style={styles.intTestConnectionBtnText} allowFontScaling={false}>
-                      Test Connection
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
+              {selectedIntegration?.status === 'Active' && !isEditingInt ? (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                  <TouchableOpacity
+                    style={[styles.intCancelModalBtn, { borderColor: 'rgba(239, 68, 68, 0.4)', backgroundColor: 'rgba(239, 68, 68, 0.08)' }]}
+                    onPress={handleDisconnectIntegration}
+                    disabled={isSavingIntegration}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.intCancelModalBtnText, { color: '#ef4444', fontWeight: '800' }]} allowFontScaling={false}>Disconnect</Text>
+                  </TouchableOpacity>
 
-              <View style={styles.intFooterBtnRow}>
-                <TouchableOpacity
-                  style={styles.intCancelModalBtn}
-                  onPress={() => setSelectedIntegration(null)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={styles.intCancelModalBtnText} allowFontScaling={false}>Cancel</Text>
-                </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      style={styles.intCancelModalBtn}
+                      onPress={() => setSelectedIntegration(null)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.intCancelModalBtnText} allowFontScaling={false}>Close</Text>
+                    </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.intSaveModalBtn}
-                  onPress={handleSaveIntegrationSettings}
-                  disabled={isSavingIntegration}
-                  activeOpacity={0.85}
-                >
-                  {isSavingIntegration ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <Text style={styles.intSaveModalBtnText} allowFontScaling={false}>
-                      Save Credentials
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </View>
+                    <TouchableOpacity
+                      style={[styles.intSaveModalBtn, { backgroundColor: '#38bdf8' }]}
+                      onPress={() => setIsEditingInt(true)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.intSaveModalBtnText, { color: '#0f172a', fontWeight: '800' }]} allowFontScaling={false}>
+                        Edit Credentials
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={[styles.intFooterBtnRow, { width: '100%', justifyContent: 'flex-end', gap: 10 }]}>
+                  <TouchableOpacity
+                    style={styles.intCancelModalBtn}
+                    onPress={() => {
+                      if (selectedIntegration?.status === 'Active') {
+                        setIsEditingInt(false);
+                      } else {
+                        setSelectedIntegration(null);
+                      }
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.intCancelModalBtnText} allowFontScaling={false}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.intSaveModalBtn, { backgroundColor: '#38bdf8' }]}
+                    onPress={handleSaveIntegrationSettings}
+                    disabled={isSavingIntegration}
+                    activeOpacity={0.85}
+                  >
+                    {isSavingIntegration ? (
+                      <ActivityIndicator size="small" color="#0f172a" />
+                    ) : (
+                      <Text style={[styles.intSaveModalBtnText, { color: '#0f172a', fontWeight: '800' }]} allowFontScaling={false}>
+                        Save & Connect
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -5670,6 +6143,45 @@ const getStyles = (colors, isDarkMode) => StyleSheet.create({
   matrixCheckboxWrap: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  savePermissionsHeaderBtn: {
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  savePermissionsHeaderBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  matrixSaveFooter: {
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+    backgroundColor: isDarkMode ? '#1e293b40' : '#f8fafc',
+    alignItems: 'center',
+  },
+  savePermissionsLargeBtn: {
+    backgroundColor: '#2563eb',
+    borderRadius: 10,
+    height: 42,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  savePermissionsBtnText: {
+    color: '#ffffff',
+    fontSize: 12.5,
+    fontWeight: '800',
   },
 
   // Payment & Late Fee Settings Styles matching Web PaymentSettingsPage.tsx

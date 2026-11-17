@@ -15,6 +15,7 @@ import {
   TouchableWithoutFeedback,
   RefreshControl,
   Dimensions,
+  Linking,
 } from 'react-native';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import apiClient from '../api/client';
@@ -99,6 +100,27 @@ export const MaintenanceStaffDashboard = ({ activeSubTab, onNavigate }) => {
       Alert.alert('Error', e.message || 'Failed to update status');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleOpenTaskDetails = async (task) => {
+    setSelectedTask(task);
+    setDetailsModalVisible(true);
+    try {
+      const fullRes = await apiClient.get(`/work-orders/${task.id}`, logout, refreshAccessToken);
+      const fullData = fullRes?.data || fullRes;
+      if (fullData && (fullData.id || fullData.tenantName || fullData.tenantPhone || fullData.tenantEmail)) {
+        setSelectedTask((prev) => ({
+          ...prev,
+          ...fullData,
+          tenantName: fullData.tenantName || prev?.tenantName,
+          tenantPhone: fullData.tenantPhone || prev?.tenantPhone,
+          tenantEmail: fullData.tenantEmail || prev?.tenantEmail,
+          permissionToEnter: fullData.permissionToEnter ?? prev?.permissionToEnter ?? true,
+        }));
+      }
+    } catch (e) {
+      console.warn('Could not fetch work-order full details:', e);
     }
   };
 
@@ -254,15 +276,6 @@ export const MaintenanceStaffDashboard = ({ activeSubTab, onNavigate }) => {
                   </Text>
                 </View>
               )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.headerIconBtn}
-              onPress={() => onNavigate && onNavigate('messages')}
-              activeOpacity={0.7}
-              accessibilityLabel="Direct Messages"
-            >
-              <Ionicons name="chatbubbles-outline" size={20} color={isDarkMode ? '#38bdf8' : '#0284c7'} />
             </TouchableOpacity>
           </View>
         </View>
@@ -597,10 +610,7 @@ export const MaintenanceStaffDashboard = ({ activeSubTab, onNavigate }) => {
           <View style={{ marginTop: 12, alignItems: 'flex-end' }}>
             <TouchableOpacity
               style={styles.historyDetailsBtn}
-              onPress={() => {
-                setSelectedTask(task);
-                setDetailsModalVisible(true);
-              }}
+              onPress={() => handleOpenTaskDetails(task)}
               activeOpacity={0.8}
             >
               <Ionicons name="eye-outline" size={14} color={isDarkMode ? '#cbd5e1' : '#334155'} style={{ marginRight: 5 }} />
@@ -750,10 +760,7 @@ export const MaintenanceStaffDashboard = ({ activeSubTab, onNavigate }) => {
 
           <TouchableOpacity
             style={[styles.btnBase, styles.detailsBtn]}
-            onPress={() => {
-              setSelectedTask(task);
-              setDetailsModalVisible(true);
-            }}
+            onPress={() => handleOpenTaskDetails(task)}
             activeOpacity={0.8}
           >
             <Ionicons name="eye-outline" size={14} color={isDarkMode ? '#cbd5e1' : '#475569'} style={{ marginRight: 5 }} />
@@ -1035,37 +1042,100 @@ export const MaintenanceStaffDashboard = ({ activeSubTab, onNavigate }) => {
                   <View style={styles.infoCol}>
                     <Text style={styles.infoColLabel}>ESTIMATED COST</Text>
                     <Text style={[styles.infoColValText, { fontSize: 16, fontWeight: '800', color: '#0284c7' }]}>
-                      ${selectedTask.estimatedCost || selectedTask.estimatedBudget || 120}
+                      ${selectedTask.estimatedCost || selectedTask.estimatedBudget || '0.00'}
                     </Text>
                   </View>
 
-                  <View style={styles.infoCol}>
-                    <Text style={styles.infoColLabel}>ACTUAL / TOTAL COST</Text>
-                    <Text style={[styles.infoColValText, { fontSize: 16, fontWeight: '800', color: '#10b981' }]}>
-                      ${(parseFloat(selectedTask.labourCost || selectedTask.cost || selectedTask.actualCost) || 120) + (parseFloat(selectedTask.extraExpenses) || 0)}
-                    </Text>
+                  {['Completed', 'Closed'].includes(selectedTask.status) && (
+                    <View style={styles.infoCol}>
+                      <Text style={styles.infoColLabel}>ACTUAL / TOTAL COST</Text>
+                      <Text style={[styles.infoColValText, { fontSize: 16, fontWeight: '800', color: '#10b981' }]}>
+                        ${(parseFloat(selectedTask.labourCost || selectedTask.cost || selectedTask.actualCost) || 0) + (parseFloat(selectedTask.extraExpenses) || 0)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* RESIDENT / TENANT CONTACT CARD (Parity with Web Image 5 / Web StaffTaskDetailsPage) */}
+                <View style={styles.residentContactBox}>
+                  <View style={styles.residentContactHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name="person" size={14} color="#0284c7" style={{ marginRight: 6 }} />
+                      <Text style={styles.residentContactHeaderTitle}>RESIDENT CONTACT DETAILS</Text>
+                    </View>
+                    <View style={styles.permissionBadge}>
+                      <Ionicons name="shield-checkmark" size={12} color="#10b981" style={{ marginRight: 4 }} />
+                      <Text style={styles.permissionBadgeText}>Permission to Enter: Granted</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.residentCardsRow}>
+                    <View style={styles.residentCardItem}>
+                      <Text style={styles.residentCardLabel}>RESIDENT NAME</Text>
+                      <Text style={styles.residentCardValue}>
+                        {selectedTask.tenantName || 'Current Resident'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.residentCardItem}>
+                      <Text style={styles.residentCardLabel}>MOBILE PHONE</Text>
+                      {selectedTask.tenantPhone ? (
+                        <TouchableOpacity
+                          style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}
+                          onPress={() => Linking.openURL(`tel:${selectedTask.tenantPhone}`)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="call" size={13} color="#0284c7" style={{ marginRight: 6 }} />
+                          <Text style={[styles.residentCardValue, { color: '#0284c7', textDecorationLine: 'underline', marginTop: 0 }]}>
+                            {selectedTask.tenantPhone}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={[styles.residentCardValue, { color: '#94a3b8' }]}>Not Specified</Text>
+                      )}
+                    </View>
+
+                    <View style={styles.residentCardItem}>
+                      <Text style={styles.residentCardLabel}>EMAIL ADDRESS</Text>
+                      {selectedTask.tenantEmail ? (
+                        <TouchableOpacity
+                          style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}
+                          onPress={() => Linking.openURL(`mailto:${selectedTask.tenantEmail}`)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="mail" size={13} color="#0284c7" style={{ marginRight: 6 }} />
+                          <Text style={[styles.residentCardValue, { color: '#0284c7', textDecorationLine: 'underline', marginTop: 0 }]}>
+                            {selectedTask.tenantEmail}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={[styles.residentCardValue, { color: '#94a3b8' }]}>Not Specified</Text>
+                      )}
+                    </View>
                   </View>
                 </View>
 
                 {/* Green Cost Breakdown & Resolution Box matching Web Image 2 */}
-                <View style={styles.detailsResolutionBox}>
-                  <View style={styles.detailsResCol}>
-                    <Text style={styles.resBoxHeading}>COST BREAKDOWN</Text>
-                    <Text style={styles.resBreakdownText}>
-                      Base Labor: <Text style={{ fontWeight: '800', color: '#10b981' }}>${selectedTask.labourCost || selectedTask.cost || selectedTask.actualCost || 120}</Text>
-                    </Text>
-                    <Text style={styles.resBreakdownText}>
-                      Extra Expenses: <Text style={{ fontWeight: '800', color: '#10b981' }}>${selectedTask.extraExpenses || 0}</Text>
-                    </Text>
-                  </View>
+                {['Completed', 'Closed'].includes(selectedTask.status) && (
+                  <View style={styles.detailsResolutionBox}>
+                    <View style={styles.detailsResCol}>
+                      <Text style={styles.resBoxHeading}>COST BREAKDOWN</Text>
+                      <Text style={styles.resBreakdownText}>
+                        Base Labor: <Text style={{ fontWeight: '800', color: '#10b981' }}>${selectedTask.labourCost || selectedTask.cost || selectedTask.actualCost || 0}</Text>
+                      </Text>
+                      <Text style={styles.resBreakdownText}>
+                        Extra Expenses: <Text style={{ fontWeight: '800', color: '#10b981' }}>${selectedTask.extraExpenses || 0}</Text>
+                      </Text>
+                    </View>
 
-                  <View style={styles.detailsResCol}>
-                    <Text style={styles.resBoxHeading}>RESOLUTION SUMMARY</Text>
-                    <Text style={styles.resSummaryText}>
-                      "{selectedTask.resolutionNotes || selectedTask.notes || 'Repairs completed and inspected.'}"
-                    </Text>
+                    <View style={styles.detailsResCol}>
+                      <Text style={styles.resBoxHeading}>RESOLUTION SUMMARY</Text>
+                      <Text style={styles.resSummaryText}>
+                        "{selectedTask.resolutionNotes || selectedTask.notes || 'Repairs completed and inspected.'}"
+                      </Text>
+                    </View>
                   </View>
-                </View>
+                )}
               </View>
 
               {/* CARD 2: WORKFLOW PROGRESS STEPPER (Right Box in Web Image 2) */}
@@ -1945,6 +2015,72 @@ const getStyles = (isDarkMode) =>
       height: 7,
       borderRadius: 4,
       marginRight: 5,
+    },
+    residentContactBox: {
+      backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : '#f8fafc',
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#334155' : '#e2e8f0',
+      padding: 14,
+      marginTop: 14,
+    },
+    residentContactHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderBottomWidth: 1,
+      borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+      paddingBottom: 10,
+      marginBottom: 10,
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    residentContactHeaderTitle: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: isDarkMode ? '#f8fafc' : '#0f172a',
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+    },
+    permissionBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(16, 185, 129, 0.12)',
+      borderWidth: 1,
+      borderColor: 'rgba(16, 185, 129, 0.25)',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 20,
+    },
+    permissionBadgeText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: '#10b981',
+    },
+    residentCardsRow: {
+      flexDirection: 'column',
+      gap: 8,
+    },
+    residentCardItem: {
+      width: '100%',
+      backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+      borderWidth: 1,
+      borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0',
+      borderRadius: 10,
+      padding: 10,
+    },
+    residentCardLabel: {
+      fontSize: 9.5,
+      fontWeight: '800',
+      color: '#94a3b8',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    residentCardValue: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: isDarkMode ? '#f8fafc' : '#0f172a',
+      marginTop: 3,
     },
     detailsResolutionBox: {
       flexDirection: 'row',

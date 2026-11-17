@@ -21,6 +21,7 @@ import apiClient from '../api/client';
 import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
+import { softDeleteToBin } from '../utils/restoreBinHelper';
 
 // Shimmer Skeleton Loader for Owners
 const SkeletonItem = ({ width: w, height: h, borderRadius = 8, style, isDarkMode }) => {
@@ -317,6 +318,15 @@ export const OwnersScreen = ({ onNavigate, onBack }) => {
     if (!deleteOwner) return;
     try {
       setDeleting(true);
+      await softDeleteToBin({
+        entityType: 'Owner',
+        entityId: deleteOwner.id,
+        title: deleteOwner.name || 'Owner',
+        subtitle: deleteOwner.email || deleteOwner.phone || '',
+        data: deleteOwner,
+        logout,
+        refreshAccessToken,
+      });
       await apiClient.delete(`/owners/${deleteOwner.id}`, logout, refreshAccessToken);
       Alert.alert('Success', 'Owner deleted successfully.');
       setDeleteOwner(null);

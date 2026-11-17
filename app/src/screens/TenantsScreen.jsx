@@ -23,6 +23,7 @@ import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { tenantSchema } from '../validations/mobile.validation';
 import { CustomDatePicker } from '../components/CustomDatePicker';
+import { softDeleteToBin } from '../utils/restoreBinHelper';
 
 const normalizeGender = (g) => {
   if (!g) return 'Male';
@@ -176,6 +177,32 @@ export const TenantsScreen = ({
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTenant, setSelectedTenant] = useState(null);
+  const [tenantDetailTab, setTenantDetailTab] = useState('overview');
+  const [tenantDetailExtra, setTenantDetailExtra] = useState({ tenant: null, payments: [], workOrders: [], loading: false });
+
+  const handleOpenTenantView = async (item) => {
+    setSelectedTenant(item);
+    setTenantDetailTab('overview');
+    setTenantDetailExtra({ tenant: item, payments: [], workOrders: [], loading: true });
+    try {
+      const [tRes, payRes, woRes] = await Promise.all([
+        apiClient.get(`/tenants/${item.id}`, logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/payments', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/work-orders', logout, refreshAccessToken).catch(() => null),
+      ]);
+      const fullTenant = tRes?.data || tRes || item;
+      const allPayments = Array.isArray(payRes) ? payRes : (payRes?.data || []);
+      const allWOs = Array.isArray(woRes) ? woRes : (woRes?.data || []);
+      setTenantDetailExtra({
+        tenant: fullTenant,
+        payments: allPayments.filter((p) => p.tenantId === item.id || p.tenant?.id === item.id),
+        workOrders: allWOs.filter((w) => w.tenantId === item.id || (fullTenant.unitId && w.unitId === fullTenant.unitId)),
+        loading: false,
+      });
+    } catch {
+      setTenantDetailExtra((prev) => ({ ...prev, loading: false }));
+    }
+  };
 
   // Add Tenant Modal Forms Active States
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -290,6 +317,16 @@ export const TenantsScreen = ({
           onPress: async () => {
             try {
               setLoading(true);
+              const target = tenants.find((t) => t.id === id);
+              await softDeleteToBin({
+                entityType: 'Tenant',
+                entityId: id,
+                title: name || (target ? `${target.firstName || ''} ${target.lastName || ''}`.trim() : 'Tenant'),
+                subtitle: target?.email || target?.phone || '',
+                data: target || { id, firstName: name },
+                logout,
+                refreshAccessToken,
+              });
               await apiClient.delete(`/tenants/${id}`, logout, refreshAccessToken);
               Alert.alert('Success', 'Tenant deleted successfully');
               fetchLiveTenantsData();
@@ -509,7 +546,7 @@ export const TenantsScreen = ({
     if (targetTenantId && tenants.length > 0) {
       const found = tenants.find((t) => String(t.id) === String(targetTenantId));
       if (found) {
-        setSelectedTenant(found);
+        handleOpenTenantView(found);
       }
     }
   }, [targetTenantId, tenants]);
@@ -773,7 +810,7 @@ export const TenantsScreen = ({
                     <View style={styles.badgesRow}>
                       <TouchableOpacity
                         style={styles.eyeBtn}
-                        onPress={() => setSelectedTenant(item)}
+                        onPress={() => handleOpenTenantView(item)}
                         activeOpacity={0.7}
                       >
                         <Ionicons name="eye-outline" size={16} color="#38bdf8" />
@@ -1389,106 +1426,273 @@ export const TenantsScreen = ({
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* --- DETAIL SPECIFICATIONS MODAL (EYE RESIDENT DETAIL) --- */}
+      {/* --- DETAIL SPECIFICATIONS MODAL (Web 1:1 Responsive) --- */}
       <Modal visible={!!selectedTenant} animationType="slide" transparent>
         <View style={styles.modalBg}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeaderRow}>
-              <View style={styles.modalTitleRow}>
-                <Ionicons name="person-circle-outline" size={20} color="#38bdf8" style={{ marginRight: 8 }} />
-                <Text style={styles.modalTitle} allowFontScaling={false} numberOfLines={1}>
-                  {selectedTenant?.name || `${selectedTenant?.firstName || ''} ${selectedTenant?.lastName || ''}`.trim()} Details
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setSelectedTenant(null)}>
-                <Ionicons name="close" size={22} color="#94a3b8" />
-              </TouchableOpacity>
-            </View>
+          <View style={[styles.modalCard, { maxHeight: '90%' }]}>
+            {(() => {
+              const tObj = tenantDetailExtra.tenant?.id === selectedTenant?.id ? tenantDetailExtra.tenant : selectedTenant;
+              if (!tObj) return null;
+              const fullName = tObj.name || `${tObj.firstName || ''} ${tObj.lastName || ''}`.trim() || 'Resident';
+              const propName = tObj.unit?.property?.name || tObj.propertyName || 'Unassigned';
+              const unitNum = formatUnitDisplay(tObj.unit?.unitNumber || tObj.unitNumber) || 'Unassigned';
+              const leasesList = Array.isArray(tObj.leases) ? tObj.leases : [];
+              const activeLease = leasesList.find((l) => l.status === 'Active') || leasesList[0] || null;
+              const invoicesList = Array.isArray(tObj.invoices) ? tObj.invoices : [];
+              const currentBalance = invoicesList.reduce((sum, inv) => {
+                const st = String(inv.status || '').toLowerCase();
+                if (st === 'paid' || st === 'void' || st === 'cancelled') return sum;
+                const bal = inv.balance !== undefined && inv.balance !== null ? Number(inv.balance) : Math.max(0, Number(inv.amount || 0) - Number(inv.paidAmount || 0));
+                return sum + Math.max(0, bal);
+              }, 0);
+              const monthlyRent = Number(activeLease?.rentAmount ?? tObj.unit?.rentAmount ?? 0);
+              const securityDeposit = Number(activeLease?.securityDeposit ?? tObj.unit?.securityDeposit ?? 0);
+              const openRequestsCount = (tenantDetailExtra.workOrders || []).filter((w) => !['Completed', 'Closed', 'Resolved'].includes(w.status)).length;
 
-            {selectedTenant && (
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-                {/* 1. Personal & Contact */}
-                <View style={styles.detailContainer}>
-                  <Text style={[styles.modalSubHeader, { marginTop: 0, marginBottom: 8, color: '#38bdf8', fontSize: 10, fontWeight: '850' }]} allowFontScaling={false}>
-                    PERSONAL & CONTACT SPECIFICATIONS
-                  </Text>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Email Address</Text>
-                    <Text style={styles.detailVal} allowFontScaling={false}>{selectedTenant.email}</Text>
+              return (
+                <>
+                  <View style={[styles.modalHeaderRow, { gap: 10 }]}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <Ionicons name="person-circle-outline" size={20} color="#38bdf8" />
+                        <Text style={[styles.modalTitle, { flexShrink: 1 }]} allowFontScaling={false}>
+                          {fullName}
+                        </Text>
+                        <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 }}>
+                          <Text style={{ fontSize: 10.5, fontWeight: '700', color: '#15803d' }} allowFontScaling={false}>{tObj.status || 'Active'}</Text>
+                        </View>
+                      </View>
+                      <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }} allowFontScaling={false}>
+                        {propName} · {unitNum}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setSelectedTenant(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                      <Ionicons name="close" size={22} color="#94a3b8" />
+                    </TouchableOpacity>
                   </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Phone Contact</Text>
-                    <Text style={styles.detailVal} allowFontScaling={false}>{selectedTenant.phone || 'N/A'}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Preferred Name</Text>
-                    <Text style={styles.detailVal} allowFontScaling={false}>{selectedTenant.preferredName || selectedTenant.firstName || 'N/A'}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Birth Date / Gender</Text>
-                    <Text style={styles.detailVal} allowFontScaling={false}>
-                      {selectedTenant.dob ? String(selectedTenant.dob).split('T')[0] : 'N/A'} · {selectedTenant.gender || 'N/A'}
-                    </Text>
-                  </View>
-                  <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Nationality</Text>
-                    <Text style={styles.detailVal} allowFontScaling={false}>{selectedTenant.nationality || 'N/A'}</Text>
-                  </View>
-                </View>
 
-                {/* 2. Employment & Income */}
-                <View style={styles.detailContainer}>
-                  <Text style={[styles.modalSubHeader, { marginTop: 0, marginBottom: 8, color: '#38bdf8', fontSize: 10, fontWeight: '850' }]} allowFontScaling={false}>
-                    EMPLOYMENT PARAMETERS
-                  </Text>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Employer / Position</Text>
-                    <Text style={styles.detailVal} allowFontScaling={false}>
-                      {(selectedTenant.employer || selectedTenant.employerName) ? `${selectedTenant.employer || selectedTenant.employerName}${selectedTenant.position ? ` · ${selectedTenant.position}` : ''}` : 'N/A'}
-                    </Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Monthly Income</Text>
-                    <Text style={[styles.detailVal, { color: '#10b981' }]} allowFontScaling={false}>
-                      ${(Number(selectedTenant.monthlyIncome) || 0).toLocaleString()}/mo
-                    </Text>
-                  </View>
-                  <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Employment Status</Text>
-                    <Text style={styles.detailVal} allowFontScaling={false}>{selectedTenant.employmentStatus || 'N/A'}</Text>
-                  </View>
-                </View>
+                  {/* Scrollable Tabs */}
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={{ flexGrow: 0, flexShrink: 0, minHeight: 46, height: 46, marginTop: 8, marginBottom: 8 }}
+                    contentContainerStyle={{ gap: 8, alignItems: 'center', paddingHorizontal: 2, paddingVertical: 4 }}
+                  >
+                    {[
+                      { id: 'overview', label: 'Overview' },
+                      { id: 'lease', label: 'Lease' },
+                      { id: 'payments', label: `Payments (${(tenantDetailExtra.payments || []).length})` },
+                      { id: 'maintenance', label: `Maintenance (${(tenantDetailExtra.workOrders || []).length})` },
+                    ].map((tab) => {
+                      const active = tenantDetailTab === tab.id;
+                      return (
+                        <TouchableOpacity
+                          key={tab.id}
+                          onPress={() => setTenantDetailTab(tab.id)}
+                          style={{
+                            paddingHorizontal: 14,
+                            height: 36,
+                            borderRadius: 18,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            backgroundColor: active ? '#0284c7' : (isDarkMode ? 'rgba(30, 41, 59, 0.7)' : '#f1f5f9'),
+                            borderWidth: 1,
+                            borderColor: active ? '#0284c7' : colors.cardBorder,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              fontWeight: '700',
+                              color: active ? '#ffffff' : (isDarkMode ? '#cbd5e1' : '#475569'),
+                              includeFontPadding: false,
+                            }}
+                            allowFontScaling={false}
+                          >
+                            {tab.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
 
-                {/* 3. Assigned Lease unit */}
-                <View style={styles.detailContainer}>
-                  <Text style={[styles.modalSubHeader, { marginTop: 0, marginBottom: 8, color: '#38bdf8', fontSize: 10, fontWeight: '850' }]} allowFontScaling={false}>
-                    LEASE UNIT PATHS
-                  </Text>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Property Name</Text>
-                    <Text style={styles.detailVal} allowFontScaling={false}>
-                      {selectedTenant.unit?.property?.name || selectedTenant.propertyName || 'Unassigned'}
-                    </Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Unit number</Text>
-                    <Text style={styles.detailVal} allowFontScaling={false}>
-                      {formatUnitDisplay(selectedTenant.unit?.unitNumber || selectedTenant.unitNumber) || 'Unassigned'}
-                    </Text>
-                  </View>
-                  <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
-                    <Text style={styles.detailLabel} allowFontScaling={false}>Account Status</Text>
-                    <Text style={[styles.detailVal, { color: '#10b981', fontWeight: '800' }]} allowFontScaling={false}>
-                      {selectedTenant.status || 'Active'}
-                    </Text>
-                  </View>
-                </View>
-              </ScrollView>
-            )}
+                  <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                    {tenantDetailTab === 'overview' && (
+                      <View style={{ gap: 10, paddingBottom: 8 }}>
+                        {/* 5 KPI Cards */}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          {[
+                            { label: 'CURRENT BALANCE', val: `$${currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: currentBalance > 0 ? '#ef4444' : '#10b981' },
+                            { label: 'LEASE STATUS', val: activeLease?.status || tObj.status || 'Active', color: '#10b981' },
+                            { label: 'MONTHLY RENT', val: `$${monthlyRent.toLocaleString('en-US')}`, color: colors.textPrimary },
+                            { label: 'SECURITY DEPOSIT', val: `$${securityDeposit.toLocaleString('en-US')}`, color: colors.textPrimary },
+                            { label: 'OPEN REQUESTS', val: String(openRequestsCount), color: '#f59e0b' },
+                          ].map((kpi) => (
+                            <View
+                              key={kpi.label}
+                              style={{
+                                minWidth: '45%',
+                                flexGrow: 1,
+                                backgroundColor: colors.background,
+                                borderRadius: 10,
+                                padding: 10,
+                                borderWidth: 1,
+                                borderColor: colors.cardBorder,
+                              }}
+                            >
+                              <Text style={{ fontSize: 9.5, fontWeight: '700', color: colors.textMuted }} allowFontScaling={false}>{kpi.label}</Text>
+                              <Text style={{ fontSize: 15, fontWeight: '800', color: kpi.color, marginTop: 2 }} allowFontScaling={false}>{kpi.val}</Text>
+                            </View>
+                          ))}
+                        </View>
 
-            <TouchableOpacity style={styles.closeModalBtn} onPress={() => setSelectedTenant(null)}>
-              <Text style={styles.closeModalBtnText} allowFontScaling={false}>Close details</Text>
-            </TouchableOpacity>
+                        {/* 1. PERSONAL COORDINATES */}
+                        <View style={styles.detailContainer}>
+                          <Text style={[styles.modalSubHeader, { marginTop: 0, marginBottom: 8, color: '#38bdf8', fontSize: 10, fontWeight: '800' }]} allowFontScaling={false}>
+                            PERSONAL COORDINATES
+                          </Text>
+                          {[
+                            ['Email Channels', tObj.email || '—'],
+                            ['Mobile Phone', tObj.phone || '—'],
+                            ['Alternate Phone', tObj.altPhone || '—'],
+                            ['Preferred Name', tObj.preferredName || tObj.firstName || '—'],
+                            ['Gender', tObj.gender || '—'],
+                            ['Birthdate', tObj.dob ? String(tObj.dob).split('T')[0] : '—'],
+                            ['Nationality', tObj.nationality || '—'],
+                            ['Government ID', tObj.idNumber ? `${tObj.idType || 'ID'}: ${tObj.idNumber}` : `${tObj.idType || 'Driver License'}: —`],
+                            ['Current Address', tObj.currentAddress || '—'],
+                            ['Previous Address', tObj.previousAddress || '—'],
+                          ].map(([k, v], idx, arr) => (
+                            <View key={k} style={[styles.detailRow, { gap: 10, alignItems: 'flex-start' }, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
+                              <Text style={styles.detailLabel} allowFontScaling={false}>{k}</Text>
+                              <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>{v}</Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        {/* 2. EMERGENCY CONTACT */}
+                        <View style={styles.detailContainer}>
+                          <Text style={[styles.modalSubHeader, { marginTop: 0, marginBottom: 8, color: '#38bdf8', fontSize: 10, fontWeight: '800' }]} allowFontScaling={false}>
+                            EMERGENCY CONTACT
+                          </Text>
+                          {[
+                            ['Contact Name', tObj.emergencyName || '—'],
+                            ['Relationship', tObj.emergencyRelationship || '—'],
+                            ['Emergency Phone', tObj.emergencyPhone || '—'],
+                          ].map(([k, v], idx, arr) => (
+                            <View key={k} style={[styles.detailRow, { gap: 10, alignItems: 'flex-start' }, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
+                              <Text style={styles.detailLabel} allowFontScaling={false}>{k}</Text>
+                              <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>{v}</Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        {/* 3. EMPLOYMENT STATUS */}
+                        <View style={styles.detailContainer}>
+                          <Text style={[styles.modalSubHeader, { marginTop: 0, marginBottom: 8, color: '#38bdf8', fontSize: 10, fontWeight: '800' }]} allowFontScaling={false}>
+                            EMPLOYMENT STATUS
+                          </Text>
+                          {[
+                            ['Employer / Org', tObj.employer || tObj.employerName || '—'],
+                            ['Job Position / Role', tObj.position || '—'],
+                            ['Employment Status', tObj.employmentStatus || '—'],
+                            ['Monthly Income', tObj.monthlyIncome ? `$${Number(tObj.monthlyIncome).toLocaleString('en-US')}/mo` : '—'],
+                          ].map(([k, v], idx, arr) => (
+                            <View key={k} style={[styles.detailRow, { gap: 10, alignItems: 'flex-start' }, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
+                              <Text style={styles.detailLabel} allowFontScaling={false}>{k}</Text>
+                              <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>{v}</Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        {/* 4. LEASE & MOVE-IN COORDINATES */}
+                        <View style={styles.detailContainer}>
+                          <Text style={[styles.modalSubHeader, { marginTop: 0, marginBottom: 8, color: '#38bdf8', fontSize: 10, fontWeight: '800' }]} allowFontScaling={false}>
+                            LEASE & MOVE-IN COORDINATES
+                          </Text>
+                          {[
+                            ['Move-in Date', tObj.moveInDate ? String(tObj.moveInDate).split('T')[0] : (activeLease?.startDate ? String(activeLease.startDate).split('T')[0] : '—')],
+                            ['Invoice Start Date', tObj.invoiceStartDate ? String(tObj.invoiceStartDate).split('T')[0] : '—'],
+                            ['Assigned Property', propName],
+                            ['Assigned Unit', unitNum],
+                          ].map(([k, v], idx, arr) => (
+                            <View key={k} style={[styles.detailRow, { gap: 10, alignItems: 'flex-start' }, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
+                              <Text style={styles.detailLabel} allowFontScaling={false}>{k}</Text>
+                              <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>{v}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+
+                    {tenantDetailTab === 'lease' && (
+                      <View style={{ gap: 10, paddingBottom: 8 }}>
+                        {leasesList.length === 0 ? (
+                          <Text style={{ textAlign: 'center', color: colors.textMuted, paddingVertical: 20 }} allowFontScaling={false}>No lease agreements found.</Text>
+                        ) : leasesList.map((l) => (
+                          <View key={l.id} style={styles.detailContainer}>
+                            <View style={[styles.detailRow, { gap: 10 }]}>
+                              <Text style={styles.detailLabel} allowFontScaling={false}>Lease Status</Text>
+                              <Text style={[styles.detailVal, { color: '#10b981' }]} allowFontScaling={false}>{l.status}</Text>
+                            </View>
+                            <View style={[styles.detailRow, { gap: 10 }]}>
+                              <Text style={styles.detailLabel} allowFontScaling={false}>Lease Term</Text>
+                              <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>
+                                {String(l.startDate || '').split('T')[0]} to {String(l.endDate || '').split('T')[0]}
+                              </Text>
+                            </View>
+                            <View style={[styles.detailRow, { gap: 10 }]}>
+                              <Text style={styles.detailLabel} allowFontScaling={false}>Monthly Rent</Text>
+                              <Text style={styles.detailVal} allowFontScaling={false}>${Number(l.rentAmount || 0).toLocaleString('en-US')}/mo</Text>
+                            </View>
+                            <View style={[styles.detailRow, { gap: 10, borderBottomWidth: 0 }]}>
+                              <Text style={styles.detailLabel} allowFontScaling={false}>Security Deposit</Text>
+                              <Text style={styles.detailVal} allowFontScaling={false}>${Number(l.securityDeposit || 0).toLocaleString('en-US')}</Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {tenantDetailTab === 'payments' && (
+                      <View style={{ gap: 8, paddingBottom: 8 }}>
+                        {(tenantDetailExtra.payments || []).length === 0 ? (
+                          <Text style={{ textAlign: 'center', color: colors.textMuted, paddingVertical: 20 }} allowFontScaling={false}>No payment records found.</Text>
+                        ) : tenantDetailExtra.payments.map((p) => (
+                          <View key={p.id} style={[styles.detailContainer, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }]}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>{p.paymentMethod || 'Rent Payment'}</Text>
+                              <Text style={{ fontSize: 11.5, color: colors.textMuted }} allowFontScaling={false}>{String(p.paidDate || p.dueDate || '').split('T')[0]} · {p.status}</Text>
+                            </View>
+                            <Text style={{ fontSize: 14, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>${Number(p.amount || 0).toLocaleString('en-US')}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {tenantDetailTab === 'maintenance' && (
+                      <View style={{ gap: 8, paddingBottom: 8 }}>
+                        {(tenantDetailExtra.workOrders || []).length === 0 ? (
+                          <Text style={{ textAlign: 'center', color: colors.textMuted, paddingVertical: 20 }} allowFontScaling={false}>No maintenance requests found.</Text>
+                        ) : tenantDetailExtra.workOrders.map((w) => (
+                          <View key={w.id} style={styles.detailContainer}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                              <Text style={{ fontSize: 13.5, fontWeight: '700', color: colors.textPrimary, flex: 1 }} allowFontScaling={false}>{w.title || w.issue || 'Work Order'}</Text>
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: '#38bdf8' }} allowFontScaling={false}>{w.status}</Text>
+                            </View>
+                            {w.description ? <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 4 }} allowFontScaling={false}>{w.description}</Text> : null}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </ScrollView>
+
+                  <TouchableOpacity style={styles.closeModalBtn} onPress={() => setSelectedTenant(null)}>
+                    <Text style={styles.closeModalBtnText} allowFontScaling={false}>Close details</Text>
+                  </TouchableOpacity>
+                </>
+              );
+            })()}
           </View>
         </View>
       </Modal>

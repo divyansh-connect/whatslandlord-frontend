@@ -74,7 +74,7 @@ export const OwnerReportsScreen = ({ onNavigate }) => {
         setReportsData({
           revenue: payload.revenue !== undefined ? Number(payload.revenue) : 1000,
           expenses: payload.expenses !== undefined ? Number(payload.expenses) : 100,
-          occupancy: payload.occupancy !== undefined ? Number(payload.occupancy) : 95,
+          occupancy: payload.occupancy !== undefined ? Math.min(100, Math.max(0, Number(payload.occupancy))) : 95,
           distribution: payload.distribution !== undefined ? Number(payload.distribution) : 900,
         });
       }
@@ -280,7 +280,7 @@ export const OwnerReportsScreen = ({ onNavigate }) => {
           <View style={styles.statRow}>
             <Text style={styles.statLabel} allowFontScaling={false}>Operating Income:</Text>
             <Text style={[styles.statValue, { color: '#10b981' }]} allowFontScaling={false}>
-              ${Number(reportsData.revenue || 0).toLocaleString()}
+              ${Number(reportsData.revenue || 0).toLocaleString('en-US')}
             </Text>
           </View>
           <View style={styles.statDivider} />
@@ -289,7 +289,7 @@ export const OwnerReportsScreen = ({ onNavigate }) => {
           <View style={styles.statRow}>
             <Text style={[styles.statLabel, { color: '#f43f5e' }]} allowFontScaling={false}>Operating Expenses:</Text>
             <Text style={[styles.statValue, { color: '#f43f5e' }]} allowFontScaling={false}>
-              -${Number(reportsData.expenses || 0).toLocaleString()}
+              -${Number(reportsData.expenses || 0).toLocaleString('en-US')}
             </Text>
           </View>
           <View style={styles.statDivider} />
@@ -298,7 +298,7 @@ export const OwnerReportsScreen = ({ onNavigate }) => {
           <View style={styles.statRow}>
             <Text style={styles.statLabel} allowFontScaling={false}>Portfolio Occupancy:</Text>
             <Text style={[styles.statValue, { color: colors.textPrimary }]} allowFontScaling={false}>
-              {reportsData.occupancy || 95}%
+              {Math.min(100, Math.max(0, reportsData.occupancy !== undefined ? reportsData.occupancy : 95))}%
             </Text>
           </View>
           <View style={styles.statDivider} />
@@ -307,7 +307,7 @@ export const OwnerReportsScreen = ({ onNavigate }) => {
           <View style={[styles.statRow, { paddingTop: 6 }]}>
             <Text style={styles.totalPayoutsLabel} allowFontScaling={false}>TOTAL PAYOUTS DISTRIBUTED:</Text>
             <Text style={styles.totalPayoutsValue} allowFontScaling={false}>
-              ${Number(reportsData.distribution || 0).toLocaleString()}
+              ${Number(reportsData.distribution || 0).toLocaleString('en-US')}
             </Text>
           </View>
         </View>

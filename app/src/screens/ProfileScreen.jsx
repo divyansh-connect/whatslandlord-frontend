@@ -144,14 +144,7 @@ export const ProfileScreen = ({ onNavigate, onBack }) => {
       if (usersRes?.data || usersRes) {
         setCompanyUsers(usersRes.data || usersRes || []);
       } else {
-        setCompanyUsers([
-          { id: '1', name: 'Diya Jain', email: 'collection@apexpm.com', role: 'COLLECTION MANAGER', status: 'ACTIVE' },
-          { id: '2', name: 'Diya Jain', email: 'collection@apexpm.com', role: 'COLLECTION MANAGER', status: 'ACTIVE' },
-          { id: '3', name: 'test', email: 'manager@apexpm.com', role: 'PROPERTY MANAGER', status: 'ACTIVE' },
-          { id: '4', name: 'vendor 2', email: 'staff@apexpm.com', role: 'MAINTENANCE STAFF', status: 'ACTIVE' },
-          { id: '5', name: 'vendor 1', email: 'staff@apexpm.com', role: 'MAINTENANCE STAFF', status: 'ACTIVE' },
-          { id: '6', name: 'person B', email: 'manager@apexpm.com', role: 'PROPERTY MANAGER', status: 'ACTIVE' }
-        ]);
+        setCompanyUsers([]);
       }
 
       // Load Properties, Buildings, and Units for Password-Protected Deletion
@@ -228,13 +221,13 @@ export const ProfileScreen = ({ onNavigate, onBack }) => {
       if (data && (data.firstName || data.name || data.email)) {
         setProfileData(data);
         const nameParts = (data.name || '').split(' ');
-        setFirstName(data.firstName || nameParts[0] || user?.firstName || 'Diya');
-        setLastName(data.lastName || nameParts.slice(1).join(' ') || user?.lastName || 'Jain');
-        setPhone(data.phone || '07224956313');
-        setUserEmail(data.email || user?.email || 'manager@apexpm.com');
-        setUnitNumber(data.unitNumber || 'Unit room 1b');
-        setEmergencyContact(data.emergencyContact || 'manager@apexpm.com');
-        setStreetAddress(data.streetAddress || '100 Pine Street');
+        setFirstName(data.firstName || nameParts[0] || user?.firstName || '');
+        setLastName(data.lastName || nameParts.slice(1).join(' ') || user?.lastName || '');
+        setPhone(data.phone || user?.phone || '');
+        setUserEmail(data.email || user?.email || '');
+        setUnitNumber(data.unitNumber || '');
+        setEmergencyContact(data.emergencyContact || '');
+        setStreetAddress(data.streetAddress || '');
         if (data.vehicles) setVehicles(data.vehicles);
         if (data.pets) setPets(data.pets);
         if (data.preferredLanguage) {
@@ -246,17 +239,16 @@ export const ProfileScreen = ({ onNavigate, onBack }) => {
           }
         }
       } else {
-        // Mock fallback matching DB
-        setFirstName(user?.firstName || 'Diya');
-        setLastName(user?.lastName || 'Jain');
-        setUserEmail(user?.email || 'manager@apexpm.com');
-        setPhone('07224956313');
+        setFirstName(user?.firstName || '');
+        setLastName(user?.lastName || '');
+        setUserEmail(user?.email || '');
+        setPhone(user?.phone || '');
       }
     } catch (e) {
-      setFirstName(user?.firstName || 'Diya');
-      setLastName(user?.lastName || 'Jain');
-      setUserEmail(user?.email || 'manager@apexpm.com');
-      setPhone('07224956313');
+      setFirstName(user?.firstName || '');
+      setLastName(user?.lastName || '');
+      setUserEmail(user?.email || '');
+      setPhone(user?.phone || '');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -492,27 +484,15 @@ export const ProfileScreen = ({ onNavigate, onBack }) => {
 
     try {
       setSaving(true);
-      await apiClient.post('/auth/change-password', { currentPassword, newPassword });
+      await apiClient.post('/auth/change-password', { currentPassword, newPassword }, logout, refreshAccessToken);
       Alert.alert('Success', 'Your password has been changed successfully.');
       setIsPasswordModalOpen(false);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (e) {
-      try {
-        await apiClient.post('/portal/change-password', { currentPassword, newPassword });
-        Alert.alert('Success', 'Your password has been changed successfully.');
-        setIsPasswordModalOpen(false);
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-      } catch (err) {
-        Alert.alert('Success', 'Your password update request has been saved.');
-        setIsPasswordModalOpen(false);
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-      }
+      const msg = e?.response?.data?.message || e?.message || 'Incorrect current password. Please try again.';
+      Alert.alert('Password Change Failed', msg);
     } finally {
       setSaving(false);
     }
@@ -1014,7 +994,7 @@ export const ProfileScreen = ({ onNavigate, onBack }) => {
             <View style={[styles.formGridInputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
               <Ionicons name="lock-closed" size={10} color="#94a3b8" />
               <Text style={[styles.formGridInputText, { color: colors.textPrimary, flex: 1 }]} numberOfLines={1} allowFontScaling={false}>
-                {userEmail || 'tenant@apexpm.com'}
+                {userEmail || user?.email || ''}
               </Text>
             </View>
           </View>

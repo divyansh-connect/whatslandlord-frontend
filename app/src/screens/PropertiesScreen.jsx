@@ -21,6 +21,7 @@ import { useAuthStore, useThemeStore, safeStorage } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { propertySchema, propertyDraftSchema, unitSchema } from '../validations/mobile.validation';
 import { CustomDatePicker } from '../components/CustomDatePicker';
+import { softDeleteToBin } from '../utils/restoreBinHelper';
 
 const PROPERTY_TYPES = [
   'Apartment',
@@ -302,7 +303,59 @@ export const PropertiesScreen = ({
 
   // Selected for Details
   const [selectedProperty, setSelectedProperty] = useState(null);
+  const [propDetailTab, setPropDetailTab] = useState('overview');
+  const [propDetailExtra, setPropDetailExtra] = useState({ property: null, leases: [], expenses: [], workOrders: [], loading: false });
   const [selectedUnit, setSelectedUnit] = useState(null);
+  const [unitDetailTab, setUnitDetailTab] = useState('lease');
+  const [unitDetailExtra, setUnitDetailExtra] = useState({ unit: null, workOrders: [], loading: false });
+
+  const handleOpenPropertyView = async (p) => {
+    setSelectedProperty(p);
+    setPropDetailTab('overview');
+    setPropDetailExtra({ property: p, leases: [], expenses: [], workOrders: [], loading: true });
+    try {
+      const [propRes, leasesRes, expRes, woRes] = await Promise.all([
+        apiClient.get(`/properties/${p.id}`, logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/leases', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/portal/expenses', logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/work-orders', logout, refreshAccessToken).catch(() => null),
+      ]);
+      const fullProp = propRes?.data || propRes || p;
+      const allLeases = Array.isArray(leasesRes) ? leasesRes : (leasesRes?.data || []);
+      const allExpenses = Array.isArray(expRes) ? expRes : (expRes?.data || []);
+      const allWOs = Array.isArray(woRes) ? woRes : (woRes?.data || []);
+      setPropDetailExtra({
+        property: fullProp,
+        leases: allLeases,
+        expenses: allExpenses,
+        workOrders: allWOs,
+        loading: false,
+      });
+    } catch {
+      setPropDetailExtra((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleOpenUnitView = async (u) => {
+    setSelectedUnit(u);
+    setUnitDetailTab('lease');
+    setUnitDetailExtra({ unit: u, workOrders: [], loading: true });
+    try {
+      const [unitRes, woRes] = await Promise.all([
+        apiClient.get(`/units/${u.id}`, logout, refreshAccessToken).catch(() => null),
+        apiClient.get('/work-orders', logout, refreshAccessToken).catch(() => null),
+      ]);
+      const fullUnit = unitRes?.data || unitRes || u;
+      const allWOs = Array.isArray(woRes) ? woRes : (woRes?.data || []);
+      setUnitDetailExtra({
+        unit: fullUnit,
+        workOrders: allWOs,
+        loading: false,
+      });
+    } catch {
+      setUnitDetailExtra((prev) => ({ ...prev, loading: false }));
+    }
+  };
 
   // Quick Action Modals
   const [assignTenantUnit, setAssignTenantUnit] = useState(null);
@@ -546,7 +599,7 @@ export const PropertiesScreen = ({
     if (targetUnitId && units.length > 0) {
       const found = units.find((u) => String(u.id) === String(targetUnitId));
       if (found) {
-        setSelectedUnit(found);
+        handleOpenUnitView(found);
       }
     }
   }, [targetUnitId, units]);
@@ -555,7 +608,7 @@ export const PropertiesScreen = ({
     if (!targetUnitId && targetPropertyId && properties.length > 0) {
       const found = properties.find((p) => String(p.id) === String(targetPropertyId));
       if (found) {
-        setSelectedProperty(found);
+        handleOpenPropertyView(found);
       }
     }
   }, [targetPropertyId, targetUnitId, properties]);
@@ -580,19 +633,22 @@ export const PropertiesScreen = ({
 
   // Recalculate Outstanding Balance
   useEffect(() => {
+    if (!pastMonths || pastMonths.length === 0) return;
     const rentVal = Number(uRent) || 1500;
     const lateFeeVal = includeMonthlyLateFee ? 50 : 0;
     let totalUnpaid = 0;
 
     pastMonths.forEach((m) => {
       const d = monthPaymentDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
+      const hasLate = d.applyLateFee !== undefined ? Boolean(d.applyLateFee) : (d.status !== 'Paid' && includeMonthlyLateFee);
+      const mFee = hasLate ? lateFeeVal : 0;
       if (d.status === 'Paid') {
         // paid
       } else if (d.status === 'Partial') {
         const p = Math.min(rentVal, Number(d.paidAmount || 0));
-        totalUnpaid += Math.max(0, rentVal + lateFeeVal - p);
+        totalUnpaid += Math.max(0, rentVal + mFee - p);
       } else {
-        totalUnpaid += (rentVal + lateFeeVal);
+        totalUnpaid += (rentVal + mFee);
       }
     });
 
@@ -611,6 +667,8 @@ export const PropertiesScreen = ({
 
     pastMonths.forEach((m) => {
       const d = monthPaymentDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
+      const hasLate = d.applyLateFee !== undefined ? Boolean(d.applyLateFee) : (d.status !== 'Paid' && includeMonthlyLateFee);
+      const mFee = hasLate ? lateFeeVal : 0;
       if (d.status === 'Paid') {
         pCount++;
         pTotal += rentVal;
@@ -619,10 +677,10 @@ export const PropertiesScreen = ({
         const p = Math.min(rentVal, Number(d.paidAmount || 0));
         pTotal += p;
         uCount++;
-        uTotal += Math.max(0, rentVal + lateFeeVal - p);
+        uTotal += Math.max(0, rentVal + mFee - p);
       } else {
         uCount++;
-        uTotal += (rentVal + lateFeeVal);
+        uTotal += (rentVal + mFee);
       }
     });
 
@@ -931,6 +989,16 @@ export const PropertiesScreen = ({
         onPress: async () => {
           try {
             setLoading(true);
+            const target = properties.find((p) => p.id === id);
+            await softDeleteToBin({
+              entityType: 'Property',
+              entityId: id,
+              title: name || target?.name || 'Property',
+              subtitle: target?.address || '',
+              data: target || { id, name },
+              logout,
+              refreshAccessToken,
+            });
             await apiClient.delete(`/properties/${id}`, logout, refreshAccessToken);
             fetchAllData();
           } catch (err) {
@@ -1021,6 +1089,7 @@ export const PropertiesScreen = ({
     setUBeds(unit.bedrooms !== undefined && unit.bedrooms !== null ? String(unit.bedrooms) : '');
     setUBaths(unit.bathrooms !== undefined && unit.bathrooms !== null ? String(unit.bathrooms) : '');
     setUSqft(unit.squareFootage !== undefined && unit.squareFootage !== null ? String(unit.squareFootage) : '');
+    const baseRent = Number(unit.rentAmount !== undefined && unit.rentAmount !== null ? unit.rentAmount : 0);
     setURent(unit.rentAmount !== undefined && unit.rentAmount !== null ? String(unit.rentAmount) : '');
     setUDeposit(unit.securityDeposit !== undefined && unit.securityDeposit !== null ? String(unit.securityDeposit) : '');
     setUStatus(unit.status || 'Vacant');
@@ -1047,6 +1116,15 @@ export const PropertiesScreen = ({
     const tId = existingT?.id || liveUnit.tenantId || (liveUnit.tenants && liveUnit.tenants[0]?.id) || null;
     setEditingTenantId(tId);
 
+    const unitLease = (liveUnit.leases && liveUnit.leases[0]) || (existingT?.leases && existingT.leases[0]);
+    const leaseStartDate = unitLease?.startDate ? String(unitLease.startDate).split('T')[0] : '';
+
+    const rawMoveIn = existingT?.moveInDate || leaseStartDate;
+    const moveInDateStr = rawMoveIn ? String(rawMoveIn).split('T')[0] : '';
+
+    const rawInvStart = existingT?.invoiceStartDate || existingT?.moveInDate || leaseStartDate;
+    const invStartDateStr = rawInvStart ? String(rawInvStart).split('T')[0] : moveInDateStr;
+
     if (existingT) {
       setTFirstName(existingT.firstName || '');
       setTLastName(existingT.lastName || '');
@@ -1061,10 +1139,9 @@ export const PropertiesScreen = ({
       setTEmail(existingT.email || '');
       setTPhone(existingT.phone || '');
       setTAltPhone(existingT.altPhone || '');
-      setTPassword('');
-      setTMoveInDate(existingT.moveInDate ? String(existingT.moveInDate).split('T')[0] : '');
-      setTInvoiceStartDate(existingT.invoiceStartDate ? String(existingT.invoiceStartDate).split('T')[0] : (existingT.moveInDate ? String(existingT.moveInDate).split('T')[0] : ''));
-      setTOutstandingBalance(String(existingT.openingBalance ?? existingT.previousBalance ?? '0'));
+      setTPassword(existingT.password || '123456');
+      setTMoveInDate(moveInDateStr);
+      setTInvoiceStartDate(invStartDateStr);
       setTSsn(existingT.ssn || '');
       setTIdType(existingT.idType || 'Driver License');
       setTIdNumber(existingT.idNumber || '');
@@ -1106,8 +1183,163 @@ export const PropertiesScreen = ({
       setTPreviousAddress('');
     }
 
-    setIncludeMonthlyLateFee(false);
-    setMonthPaymentDetails({});
+    // -------------------------------------------------------------
+    // Reconcile Tenant Monthly Billing & Invoices (100% Web Parity)
+    // -------------------------------------------------------------
+    let reconciledDetails = {};
+    let globalLateFee = false;
+    let initialBalance = String(existingT?.openingBalance ?? existingT?.previousBalance ?? '0');
+
+    if (existingT) {
+      let tInvoices = Array.isArray(existingT.invoices) ? [...existingT.invoices] : [];
+      let tPayments = Array.isArray(existingT.payments) ? [...existingT.payments] : [];
+
+      try {
+        const [invRes, payRes] = await Promise.all([
+          apiClient.get('/invoices', logout, refreshAccessToken).catch(() => []),
+          apiClient.get('/payments', logout, refreshAccessToken).catch(() => []),
+        ]);
+        const allInvs = Array.isArray(invRes) ? invRes : (invRes?.data || []);
+        const allPays = Array.isArray(payRes) ? payRes : (payRes?.data || []);
+
+        const cleanUnitNum = String(liveUnit.unitNumber || unit.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
+        const matchedInvs = allInvs.filter((i) => {
+          if (tId && i.tenantId === tId) return true;
+          if (i.unitId && i.unitId === liveUnit.id) return true;
+          const iUnitClean = String(i.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
+          return iUnitClean && iUnitClean === cleanUnitNum;
+        });
+        const matchedPays = allPays.filter((p) => {
+          if (tId && p.tenantId === tId) return true;
+          if (p.unitId && p.unitId === liveUnit.id) return true;
+          const pUnitClean = String(p.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
+          return pUnitClean && pUnitClean === cleanUnitNum;
+        });
+
+        if (matchedInvs.length > 0) tInvoices = matchedInvs;
+        if (matchedPays.length > 0) tPayments = matchedPays;
+      } catch (err) {
+        console.debug('Failed fetching fresh tenant invoices/payments:', err.message);
+      }
+
+      const paymentsByMonth = {};
+      tPayments.forEach((pay) => {
+        const payDate = String(pay.dueDate || pay.paidDate || pay.date || '');
+        if (!payDate || payDate.length < 7) return;
+        const monthKey = payDate.slice(0, 7);
+        if (!paymentsByMonth[monthKey]) paymentsByMonth[monthKey] = [];
+        paymentsByMonth[monthKey].push(pay);
+      });
+
+      const invoicesByMonth = {};
+      tInvoices.forEach((inv) => {
+        if (!inv.dueDate) return;
+        const monthKey = String(inv.dueDate).slice(0, 7);
+        invoicesByMonth[monthKey] = inv;
+      });
+
+      const allMonthKeys = Array.from(
+        new Set([...Object.keys(invoicesByMonth), ...Object.keys(paymentsByMonth)])
+      );
+
+      const effectiveRent = baseRent > 0 ? baseRent : Number(unit.rentAmount || 1500);
+
+      allMonthKeys.forEach((monthKey) => {
+        const inv = invoicesByMonth[monthKey];
+        const monthPays = paymentsByMonth[monthKey] || [];
+        const invAmount = Number(inv?.amount || effectiveRent);
+
+        const hasLateFeeOnInvoice = Boolean(
+          inv &&
+          (
+            (Array.isArray(inv.lineItems) &&
+              inv.lineItems.some((li) =>
+                String(li?.description || '').toLowerCase().includes('late fee')
+              )) ||
+            (effectiveRent > 0 && invAmount > effectiveRent)
+          )
+        );
+
+        if (monthPays.length > 0) {
+          const paidSum = monthPays.reduce((sum, p) => {
+            const st = String(p.status || '').toLowerCase();
+            if (st === 'paid' || st === 'partiallypaid' || st === 'partial' || st === 'completed' || !st) {
+              return sum + Number(p.amount || 0);
+            }
+            return sum;
+          }, 0);
+
+          const hasPartialFlag = monthPays.some((p) => {
+            const st = String(p.status || '').toLowerCase();
+            const method = String(p.paymentMethod || p.method || '').toLowerCase();
+            return st.includes('partial') || method.includes('partial');
+          });
+
+          if (paidSum <= 0) {
+            reconciledDetails[monthKey] = {
+              status: 'Unpaid',
+              paidAmount: 0,
+              applyLateFee: hasLateFeeOnInvoice,
+            };
+            if (hasLateFeeOnInvoice) globalLateFee = true;
+          } else if (paidSum < effectiveRent || (hasPartialFlag && paidSum < invAmount)) {
+            reconciledDetails[monthKey] = {
+              status: 'Partial',
+              paidAmount: paidSum,
+              applyLateFee: hasLateFeeOnInvoice,
+            };
+            if (hasLateFeeOnInvoice) globalLateFee = true;
+          } else {
+            reconciledDetails[monthKey] = {
+              status: 'Paid',
+              paidAmount: effectiveRent || paidSum,
+              applyLateFee: false,
+            };
+          }
+        } else if (inv) {
+          const isPaid =
+            inv.status === 'Paid' ||
+            (Number(inv.balance ?? 0) <= 0 && Number(inv.amount || 0) > 0 && Number(inv.paidAmount || 0) >= effectiveRent);
+          const isPartial =
+            !isPaid &&
+            (inv.status === 'Partially Paid' ||
+              inv.status === 'PartiallyPaid' ||
+              (Number(inv.paidAmount || 0) > 0 && Number(inv.balance || 0) > 0));
+
+          const resolvedStatus = isPaid ? 'Paid' : (isPartial ? 'Partial' : 'Unpaid');
+          if (resolvedStatus !== 'Paid' && hasLateFeeOnInvoice) {
+            globalLateFee = true;
+          }
+
+          reconciledDetails[monthKey] = {
+            status: resolvedStatus,
+            paidAmount: isPaid ? effectiveRent : (isPartial ? Number(inv.paidAmount || 0) : 0),
+            applyLateFee: resolvedStatus === 'Paid' ? false : hasLateFeeOnInvoice,
+          };
+        }
+      });
+
+      // Compute initial past months balance
+      const startStr = invStartDateStr || moveInDateStr;
+      const computedMonths = generateMonthListFromMoveIn(startStr);
+      if (computedMonths.length > 0) {
+        let computedTotal = 0;
+        computedMonths.forEach((m) => {
+          const d = reconciledDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
+          const pAmt = d.status === 'Paid' ? effectiveRent : (d.status === 'Partial' ? Math.min(effectiveRent, Number(d.paidAmount || 0)) : 0);
+          const mLateFee = (d.applyLateFee !== undefined ? d.applyLateFee : globalLateFee) ? 50 : 0;
+          const due = Math.max(0, effectiveRent + mLateFee - pAmt);
+          computedTotal += due;
+        });
+        if (computedTotal > 0) {
+          initialBalance = String(computedTotal);
+        }
+      }
+    }
+
+    setIncludeMonthlyLateFee(globalLateFee);
+    setMonthPaymentDetails(reconciledDetails);
+    setTOutstandingBalance(initialBalance);
     setActiveMonthPopover(null);
     setShowTenantExtra(false);
     setFormErrors({});
@@ -1447,6 +1679,16 @@ export const PropertiesScreen = ({
         onPress: async () => {
           try {
             setLoading(true);
+            const target = units.find((u) => u.id === id);
+            await softDeleteToBin({
+              entityType: 'Unit',
+              entityId: id,
+              title: `Unit ${number || target?.unitNumber || ''}`.trim(),
+              subtitle: target?.propertyName || '',
+              data: target || { id, unitNumber: number },
+              logout,
+              refreshAccessToken,
+            });
             await apiClient.delete(`/units/${id}`, logout, refreshAccessToken);
             fetchAllData();
           } catch (err) {
@@ -1683,7 +1925,7 @@ export const PropertiesScreen = ({
                       </View>
 
                       <View style={styles.cardActions}>
-                        <TouchableOpacity style={styles.btnSmall} onPress={() => setSelectedProperty(p)}>
+                        <TouchableOpacity style={styles.btnSmall} onPress={() => handleOpenPropertyView(p)}>
                           <Ionicons name="eye-outline" size={14} color={colors.primary} />
                           <Text style={[styles.btnSmallText, { color: colors.primary }]} allowFontScaling={false}>View</Text>
                         </TouchableOpacity>
@@ -1779,7 +2021,7 @@ export const PropertiesScreen = ({
                       </View>
 
                       <View style={styles.cardActions}>
-                        <TouchableOpacity style={styles.btnSmall} onPress={() => setSelectedUnit(u)}>
+                        <TouchableOpacity style={styles.btnSmall} onPress={() => handleOpenUnitView(u)}>
                           <Ionicons name="eye-outline" size={14} color={colors.primary} />
                           <Text style={[styles.btnSmallText, { color: colors.primary }]} allowFontScaling={false}>View</Text>
                         </TouchableOpacity>
@@ -2008,129 +2250,460 @@ export const PropertiesScreen = ({
         </Modal>
 
         {/* -------------------------------------------------------------------------- */}
-        {/* VIEW PROPERTY DETAILS MODAL */}
+        {/* VIEW PROPERTY DETAILS MODAL (Web 1:1 Responsive) */}
         {/* -------------------------------------------------------------------------- */}
         <Modal visible={!!selectedProperty} animationType="slide" transparent>
           <View style={styles.modalBackdrop}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle} allowFontScaling={false}>{selectedProperty?.name}</Text>
-                  <Text style={styles.cardAddress} allowFontScaling={false}>{selectedProperty?.address}</Text>
-                </View>
-                <TouchableOpacity onPress={() => setSelectedProperty(null)}>
-                  <Ionicons name="close" size={24} color={colors.textMuted} />
-                </TouchableOpacity>
-              </View>
+            <View style={[styles.modalCard, { maxHeight: '90%', padding: 16 }]}>
+              {(() => {
+                const propObj = propDetailExtra.property?.id === selectedProperty?.id ? propDetailExtra.property : selectedProperty;
+                if (!propObj) return null;
+                const propUnits = units.filter((u) => u.propertyId === propObj.id);
+                const propTenants = tenants.filter((t) => {
+                  if (t.status === 'Deleted') return false;
+                  return propUnits.some((u) => u.id === t.unitId) || t.propertyId === propObj.id || t.unit?.propertyId === propObj.id;
+                });
+                const propLeases = (propDetailExtra.leases || []).filter((l) => l.propertyId === propObj.id || propUnits.some((u) => u.id === l.unitId));
+                const occupiedUnitsList = propUnits.filter((u) => {
+                  const st = String(u.status || '').toLowerCase();
+                  const hasActiveLease = propLeases.some((l) => l.unitId === u.id && l.status === 'Active');
+                  return st === 'occupied' || hasActiveLease;
+                });
+                const occupiedCount = occupiedUnitsList.length;
+                const vacantCount = Math.max(0, propUnits.length - occupiedCount);
+                const propRevenue = occupiedUnitsList.reduce((sum, u) => {
+                  const activeL = propLeases.find((l) => l.unitId === u.id && l.status === 'Active');
+                  return sum + Number(activeL ? (activeL.rentAmount ?? u.rentAmount ?? 0) : (u.rentAmount ?? 0));
+                }, 0);
+                const propExpenses = (propDetailExtra.expenses || []).filter((e) => {
+                  if (e.propertyId === propObj.id) return true;
+                  try {
+                    const parsed = JSON.parse(e.description || '{}');
+                    return parsed.propertyId === propObj.id;
+                  } catch { return false; }
+                });
+                const propExpensesTotal = propExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+                const propWOs = (propDetailExtra.workOrders || []).filter((w) => w.propertyId === propObj.id || propUnits.some((u) => u.id === w.unitId));
+                const ownerObj = owners.find((o) => o.id === propObj.ownerId);
+                const ownerName = propObj.owner
+                  ? (typeof propObj.owner === 'object' ? (propObj.owner.name || `${propObj.owner.firstName || ''} ${propObj.owner.lastName || ''}`.trim()) : propObj.owner)
+                  : (ownerObj?.name || 'Owner');
+                const cityStateZip = [propObj.city, propObj.state, propObj.zipCode || propObj.zip].filter(Boolean).join(', ');
+                const floorsVal = propObj.totalFloors || propObj.floors || propObj.buildings?.[0]?.floors;
 
-              <ScrollView style={{ maxHeight: 380, marginVertical: 10 }}>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Type</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{selectedProperty?.type || 'Apartment'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Status</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{selectedProperty?.status || 'Active'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Total Units</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>
-                    {selectedProperty?.totalUnits || selectedProperty?.unitsCount || selectedProperty?.buildings?.[0]?.unitsCount || selectedProperty?.units?.length || 0}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Occupancy</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{selectedProperty?.occupancyRate || 0}%</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Monthly Revenue</Text>
-                  <Text style={[styles.detailVal, { color: colors.success }]} allowFontScaling={false}>
-                    ${Number(selectedProperty?.monthlyRevenue || 0).toLocaleString()}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>NYC BIN #</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{selectedProperty?.nycBin || selectedProperty?.bin || 'N/A'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Owner</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>
-                    {selectedProperty?.owner ? (typeof selectedProperty.owner === 'object' ? selectedProperty.owner.name : selectedProperty.owner) : 'Owner'}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Year Built</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{selectedProperty?.yearBuilt || 2020}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Square Footage</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{Number(selectedProperty?.squareFootage || 8500).toLocaleString()} sqft</Text>
-                </View>
-              </ScrollView>
+                return (
+                  <>
+                    <View style={[styles.modalHeader, { gap: 10 }]}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                          <Text style={[styles.modalTitle, { flexShrink: 1 }]} allowFontScaling={false}>{propObj.name}</Text>
+                          <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#15803d' }} allowFontScaling={false}>{propObj.status || 'Active'}</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.cardAddress, { marginTop: 3 }]} allowFontScaling={false}>{propObj.address || 'No address'}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setSelectedProperty(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <Ionicons name="close" size={24} color={colors.textMuted} />
+                      </TouchableOpacity>
+                    </View>
 
-              <TouchableOpacity style={styles.closeBtn} onPress={() => setSelectedProperty(null)}>
-                <Text style={styles.closeBtnText} allowFontScaling={false}>Close</Text>
-              </TouchableOpacity>
+                    {/* Scrollable Tabs */}
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={{ flexGrow: 0, flexShrink: 0, minHeight: 46, height: 46, marginTop: 8, marginBottom: 8 }}
+                      contentContainerStyle={{ gap: 8, alignItems: 'center', paddingHorizontal: 2, paddingVertical: 4 }}
+                    >
+                      {[
+                        { id: 'overview', label: 'Overview' },
+                        { id: 'units', label: `Units (${propUnits.length})` },
+                        { id: 'tenants', label: `Tenants (${propTenants.length})` },
+                        { id: 'financials', label: 'Financials' },
+                        { id: 'maintenance', label: `Maintenance (${propWOs.length})` },
+                      ].map((tab) => {
+                        const active = propDetailTab === tab.id;
+                        return (
+                          <TouchableOpacity
+                            key={tab.id}
+                            onPress={() => setPropDetailTab(tab.id)}
+                            style={{
+                              paddingHorizontal: 14,
+                              height: 36,
+                              borderRadius: 18,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              backgroundColor: active ? colors.primary : (isDarkMode ? 'rgba(30, 41, 59, 0.7)' : '#f1f5f9'),
+                              borderWidth: 1,
+                              borderColor: active ? colors.primary : colors.cardBorder,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                fontWeight: '700',
+                                color: active ? '#ffffff' : (isDarkMode ? '#cbd5e1' : '#475569'),
+                                includeFontPadding: false,
+                              }}
+                              allowFontScaling={false}
+                            >
+                              {tab.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+
+                    <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 430 }}>
+                      {propDetailTab === 'overview' && (
+                        <View style={{ gap: 12, paddingBottom: 8 }}>
+                          {/* 5 KPI Summary Cards */}
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {[
+                              { label: 'TOTAL UNITS', val: String(propUnits.length), color: colors.textPrimary },
+                              { label: 'OCCUPIED', val: String(occupiedCount), color: '#10b981' },
+                              { label: 'VACANT', val: String(vacantCount), color: '#f59e0b' },
+                              { label: 'REVENUE', val: `$${propRevenue.toLocaleString('en-US')}`, color: '#10b981' },
+                              { label: 'EXPENSES', val: `$${propExpensesTotal.toLocaleString('en-US')}`, color: '#ef4444' },
+                            ].map((kpi) => (
+                              <View
+                                key={kpi.label}
+                                style={{
+                                  minWidth: '30%',
+                                  flexGrow: 1,
+                                  backgroundColor: colors.background,
+                                  borderRadius: 10,
+                                  padding: 10,
+                                  borderWidth: 1,
+                                  borderColor: colors.cardBorder,
+                                }}
+                              >
+                                <Text style={{ fontSize: 9.5, fontWeight: '700', color: colors.textMuted }} allowFontScaling={false}>{kpi.label}</Text>
+                                <Text style={{ fontSize: 16, fontWeight: '800', color: kpi.color, marginTop: 2 }} allowFontScaling={false}>{kpi.val}</Text>
+                              </View>
+                            ))}
+                          </View>
+
+                          {/* ASSET PARAMETERS */}
+                          <View style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, marginBottom: 6 }} allowFontScaling={false}>ASSET PARAMETERS</Text>
+                            {[
+                              ['Property Type', propObj.type || 'Apartment'],
+                              ['Total Floors', floorsVal ? `${floorsVal} Floors` : 'Not Specified'],
+                              ['Total Units', `${propUnits.length} Units`],
+                              ['Management Co.', propObj.managementCompany || propObj.company?.name || 'Not Specified'],
+                              ['NYC BIN #', propObj.nycBin || propObj.bin || 'Not Specified'],
+                              ['City, State & Zip', cityStateZip || 'Not Specified'],
+                            ].map(([k, v], idx, arr) => (
+                              <View key={k} style={[styles.detailRow, { gap: 10, alignItems: 'flex-start' }, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
+                                <Text style={styles.detailKey} allowFontScaling={false}>{k}</Text>
+                                <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>{v}</Text>
+                              </View>
+                            ))}
+                          </View>
+
+                          {/* OWNERSHIP & VALUATION */}
+                          <View style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, marginBottom: 6 }} allowFontScaling={false}>OWNERSHIP & VALUATION</Text>
+                            {[
+                              ['Owner Account', ownerName],
+                              ['Share Percentage', `${propObj.ownershipShare ?? propObj.sharePercentage ?? 100}%`],
+                              ['Purchase Price', propObj.purchasePrice ? `$${Number(propObj.purchasePrice).toLocaleString('en-US')}` : 'Not Specified'],
+                              ['Current Valuation', (propObj.currentValuation || propObj.valuation) ? `$${Number(propObj.currentValuation || propObj.valuation).toLocaleString('en-US')}` : 'Not Specified'],
+                              ['Est. Monthly Expenses', propObj.estimatedMonthlyExpenses ? `$${Number(propObj.estimatedMonthlyExpenses).toLocaleString('en-US')}` : 'Not Specified'],
+                              ['Status', propObj.status || 'Active'],
+                            ].map(([k, v], idx, arr) => (
+                              <View key={k} style={[styles.detailRow, { gap: 10, alignItems: 'flex-start' }, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
+                                <Text style={styles.detailKey} allowFontScaling={false}>{k}</Text>
+                                <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>{v}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      )}
+
+                      {propDetailTab === 'units' && (
+                        <View style={{ gap: 8, paddingBottom: 8 }}>
+                          {propUnits.length === 0 ? (
+                            <Text style={{ textAlign: 'center', color: colors.textMuted, paddingVertical: 20 }} allowFontScaling={false}>No units found for this property.</Text>
+                          ) : propUnits.map((u) => (
+                            <TouchableOpacity
+                              key={u.id}
+                              onPress={() => { setSelectedProperty(null); handleOpenUnitView(u); }}
+                              style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}
+                            >
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary, flexShrink: 1 }} allowFontScaling={false}>Unit {u.unitNumber}</Text>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: u.status === 'Occupied' ? '#10b981' : '#f59e0b' }} allowFontScaling={false}>{u.status || 'Vacant'}</Text>
+                              </View>
+                              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 4 }} allowFontScaling={false}>
+                                {u.bedrooms || 0}B / {u.bathrooms || 0}B · {u.squareFootage || 0} sqft · ${Number(u.rentAmount || 0).toLocaleString('en-US')}/mo
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+
+                      {propDetailTab === 'tenants' && (
+                        <View style={{ gap: 8, paddingBottom: 8 }}>
+                          {propTenants.length === 0 ? (
+                            <Text style={{ textAlign: 'center', color: colors.textMuted, paddingVertical: 20 }} allowFontScaling={false}>No tenants assigned to this property.</Text>
+                          ) : propTenants.map((t) => (
+                            <View key={t.id} style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary, flexShrink: 1 }} allowFontScaling={false}>
+                                  {t.name || `${t.firstName || ''} ${t.lastName || ''}`.trim()}
+                                </Text>
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: '#10b981' }} allowFontScaling={false}>{t.status || 'Active'}</Text>
+                              </View>
+                              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 3 }} allowFontScaling={false}>
+                                {t.email || 'No email'} · {t.phone || 'No phone'}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+
+                      {propDetailTab === 'financials' && (
+                        <View style={{ gap: 10, paddingBottom: 8 }}>
+                          <View style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                            <View style={[styles.detailRow, { gap: 10 }]}>
+                              <Text style={styles.detailKey} allowFontScaling={false}>Contracted Monthly Revenue</Text>
+                              <Text style={[styles.detailVal, { color: '#10b981' }]} allowFontScaling={false}>${propRevenue.toLocaleString('en-US')}</Text>
+                            </View>
+                            <View style={[styles.detailRow, { gap: 10 }]}>
+                              <Text style={styles.detailKey} allowFontScaling={false}>Recorded Expenses</Text>
+                              <Text style={[styles.detailVal, { color: '#ef4444' }]} allowFontScaling={false}>${propExpensesTotal.toLocaleString('en-US')}</Text>
+                            </View>
+                            <View style={[styles.detailRow, { gap: 10, borderBottomWidth: 0 }]}>
+                              <Text style={styles.detailKey} allowFontScaling={false}>Net Operating Income</Text>
+                              <Text style={[styles.detailVal, { color: colors.primary }]} allowFontScaling={false}>${(propRevenue - propExpensesTotal).toLocaleString('en-US')}</Text>
+                            </View>
+                          </View>
+                          {propExpenses.map((e) => (
+                            <View key={e.id} style={{ backgroundColor: colors.background, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: colors.cardBorder, flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+                              <Text style={{ fontSize: 12.5, fontWeight: '600', color: colors.textPrimary, flex: 1 }} allowFontScaling={false}>{e.category || 'Expense'}</Text>
+                              <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#ef4444' }} allowFontScaling={false}>-${Number(e.amount || 0).toLocaleString('en-US')}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+
+                      {propDetailTab === 'maintenance' && (
+                        <View style={{ gap: 8, paddingBottom: 8 }}>
+                          {propWOs.length === 0 ? (
+                            <Text style={{ textAlign: 'center', color: colors.textMuted, paddingVertical: 20 }} allowFontScaling={false}>No maintenance requests for this property.</Text>
+                          ) : propWOs.map((w) => (
+                            <View key={w.id} style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                                <Text style={{ fontSize: 13.5, fontWeight: '700', color: colors.textPrimary, flex: 1 }} allowFontScaling={false}>{w.title || w.issue || 'Work Order'}</Text>
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.primary }} allowFontScaling={false}>{w.status}</Text>
+                              </View>
+                              {w.description ? <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 4 }} allowFontScaling={false}>{w.description}</Text> : null}
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </ScrollView>
+
+                    <TouchableOpacity style={styles.closeBtn} onPress={() => setSelectedProperty(null)}>
+                      <Text style={styles.closeBtnText} allowFontScaling={false}>Close</Text>
+                    </TouchableOpacity>
+                  </>
+                );
+              })()}
             </View>
           </View>
         </Modal>
 
         {/* -------------------------------------------------------------------------- */}
-        {/* VIEW UNIT DETAILS MODAL */}
+        {/* VIEW UNIT DETAILS MODAL (Web 1:1 Responsive) */}
         {/* -------------------------------------------------------------------------- */}
         <Modal visible={!!selectedUnit} animationType="slide" transparent>
           <View style={styles.modalBackdrop}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle} allowFontScaling={false}>Unit {selectedUnit?.unitNumber}</Text>
-                  <Text style={styles.cardAddress} allowFontScaling={false}>{selectedUnit?.propertyName || 'Property'}</Text>
-                </View>
-                <TouchableOpacity onPress={() => setSelectedUnit(null)}>
-                  <Ionicons name="close" size={24} color={colors.textMuted} />
-                </TouchableOpacity>
-              </View>
+            <View style={[styles.modalCard, { maxHeight: '90%', padding: 16 }]}>
+              {(() => {
+                const unitObj = unitDetailExtra.unit?.id === selectedUnit?.id ? unitDetailExtra.unit : selectedUnit;
+                if (!unitObj) return null;
+                const parentProp = unitObj.property || properties.find((p) => p.id === unitObj.propertyId);
+                const resolvedPropName = parentProp?.name || unitObj.propertyName || 'N/A';
+                const unitTenants = Array.isArray(unitObj.tenants) && unitObj.tenants.length > 0
+                  ? unitObj.tenants
+                  : tenants.filter((t) => t.unitId === unitObj.id && t.status !== 'Deleted');
+                const resident = unitTenants[0] || null;
+                const residentName = resident
+                  ? (`${resident.firstName || ''} ${resident.lastName || ''}`.trim() || resident.name)
+                  : (unitObj.tenantName || 'Vacant');
+                const activeLease = (unitObj.leases && unitObj.leases[0]) || null;
+                const unitPayments = resident?.payments || [];
+                const unitWOs = (unitDetailExtra.workOrders || []).filter((w) => w.unitId === unitObj.id);
+                const lateFeeLabel = unitObj.lateFeeEnabled
+                  ? (unitObj.lateFeeType === 'PERCENTAGE' ? `${unitObj.lateFeeAmount || 0}%` : `$${Number(unitObj.lateFeeAmount || 0).toLocaleString('en-US')} Flat`)
+                  : 'DISABLED';
 
-              <ScrollView style={{ maxHeight: 380, marginVertical: 10 }}>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Status</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{selectedUnit?.status || 'Vacant'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Monthly Rent</Text>
-                  <Text style={[styles.detailVal, { color: colors.success }]} allowFontScaling={false}>
-                    ${(Number(selectedUnit?.rentAmount) || 0).toLocaleString()}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Security Deposit</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>
-                    ${(Number(selectedUnit?.securityDeposit) || 0).toLocaleString()}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Bedrooms / Bathrooms</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{selectedUnit?.bedrooms || 0} Beds / {selectedUnit?.bathrooms || 0} Baths</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Square Footage</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>{selectedUnit?.squareFootage || 0} sqft</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Floor</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>Floor {selectedUnit?.floor || 1}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailKey} allowFontScaling={false}>Resident</Text>
-                  <Text style={styles.detailVal} allowFontScaling={false}>
-                    {selectedUnit?.tenantName || (selectedUnit?.tenants?.length ? `${selectedUnit.tenants[0].firstName} ${selectedUnit.tenants[0].lastName}` : 'Vacant')}
-                  </Text>
-                </View>
-              </ScrollView>
+                return (
+                  <>
+                    <View style={[styles.modalHeader, { gap: 10 }]}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                          <Text style={[styles.modalTitle, { flexShrink: 1 }]} allowFontScaling={false}>Unit {unitObj.unitNumber}</Text>
+                          <View style={{ backgroundColor: unitObj.status === 'Occupied' ? '#dcfce7' : '#fef3c7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: unitObj.status === 'Occupied' ? '#15803d' : '#b45309' }} allowFontScaling={false}>
+                              {unitObj.status || 'Vacant'}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.cardAddress, { marginTop: 3 }]} allowFontScaling={false}>{resolvedPropName}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setSelectedUnit(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <Ionicons name="close" size={24} color={colors.textMuted} />
+                      </TouchableOpacity>
+                    </View>
 
-              <TouchableOpacity style={styles.closeBtn} onPress={() => setSelectedUnit(null)}>
-                <Text style={styles.closeBtnText} allowFontScaling={false}>Close</Text>
-              </TouchableOpacity>
+                    {/* Scrollable Tabs */}
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={{ flexGrow: 0, flexShrink: 0, minHeight: 46, height: 46, marginTop: 8, marginBottom: 8 }}
+                      contentContainerStyle={{ gap: 8, alignItems: 'center', paddingHorizontal: 2, paddingVertical: 4 }}
+                    >
+                      {[
+                        { id: 'lease', label: 'Details & Lease' },
+                        { id: 'payments', label: `Payments (${unitPayments.length})` },
+                        { id: 'maintenance', label: `Maintenance (${unitWOs.length})` },
+                      ].map((tab) => {
+                        const active = unitDetailTab === tab.id;
+                        return (
+                          <TouchableOpacity
+                            key={tab.id}
+                            onPress={() => setUnitDetailTab(tab.id)}
+                            style={{
+                              paddingHorizontal: 14,
+                              height: 36,
+                              borderRadius: 18,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              backgroundColor: active ? colors.primary : (isDarkMode ? 'rgba(30, 41, 59, 0.7)' : '#f1f5f9'),
+                              borderWidth: 1,
+                              borderColor: active ? colors.primary : colors.cardBorder,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                fontWeight: '700',
+                                color: active ? '#ffffff' : (isDarkMode ? '#cbd5e1' : '#475569'),
+                                includeFontPadding: false,
+                              }}
+                              allowFontScaling={false}
+                            >
+                              {tab.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+
+                    <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 430 }}>
+                      {unitDetailTab === 'lease' && (
+                        <View style={{ gap: 12, paddingBottom: 8 }}>
+                          {/* UNIT DETAILS */}
+                          <View style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, marginBottom: 6 }} allowFontScaling={false}>UNIT DETAILS</Text>
+                            {[
+                              ['Bedrooms', `${unitObj.bedrooms ?? 0} Beds`],
+                              ['Bathrooms', `${unitObj.bathrooms ?? 0} Baths`],
+                              ['Layout Size', `${unitObj.squareFootage ?? 0} sqft`],
+                              ['Rent Amount', `$${Number(unitObj.rentAmount || 0).toLocaleString('en-US')}/mo`],
+                              ['Security Deposit', `$${Number(unitObj.securityDeposit || 0).toLocaleString('en-US')}`],
+                              ['Availability Date', unitObj.availableDate ? String(unitObj.availableDate).split('T')[0] : 'N/A'],
+                              ['Floor', `Floor ${unitObj.floor || 1}`],
+                              ['Late Fee Policy', lateFeeLabel],
+                            ].map(([k, v], idx, arr) => (
+                              <View key={k} style={[styles.detailRow, { gap: 10, alignItems: 'flex-start' }, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
+                                <Text style={styles.detailKey} allowFontScaling={false}>{k}</Text>
+                                <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>{v}</Text>
+                              </View>
+                            ))}
+                          </View>
+
+                          {/* CURRENT RESIDENT */}
+                          <View style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, marginBottom: 6 }} allowFontScaling={false}>CURRENT RESIDENT</Text>
+                            {[
+                              ['Resident', residentName],
+                              ['Email', resident?.email || 'N/A'],
+                              ['Phone', resident?.phone || 'N/A'],
+                              ['Status', resident?.status || (resident ? 'Active' : 'Vacant')],
+                            ].map(([k, v], idx, arr) => (
+                              <View key={k} style={[styles.detailRow, { gap: 10, alignItems: 'flex-start' }, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
+                                <Text style={styles.detailKey} allowFontScaling={false}>{k}</Text>
+                                <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>{v}</Text>
+                              </View>
+                            ))}
+                          </View>
+
+                          {/* ACTIVE LEASE LOG */}
+                          <View style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: colors.primary, marginBottom: 6 }} allowFontScaling={false}>ACTIVE LEASE LOG</Text>
+                            {activeLease ? (
+                              [
+                                ['Lease Agreement ID', activeLease.id],
+                                ['Lease Term', `${String(activeLease.startDate || '').split('T')[0]} to ${String(activeLease.endDate || '').split('T')[0]}`],
+                                ['Monthly Rent Amount', `$${Number(activeLease.rentAmount || 0).toLocaleString('en-US')}/mo`],
+                                ['Security Deposit Held', `$${Number(activeLease.securityDeposit || unitObj.securityDeposit || 0).toLocaleString('en-US')}`],
+                              ].map(([k, v], idx, arr) => (
+                                <View key={k} style={[styles.detailRow, { gap: 10, alignItems: 'flex-start' }, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
+                                  <Text style={styles.detailKey} allowFontScaling={false}>{k}</Text>
+                                  <Text style={[styles.detailVal, { flex: 1, textAlign: 'right', flexShrink: 1 }]} allowFontScaling={false}>{v}</Text>
+                                </View>
+                              ))
+                            ) : (
+                              <Text style={{ fontSize: 12, color: colors.textMuted, paddingVertical: 6 }} allowFontScaling={false}>No active lease found for this unit.</Text>
+                            )}
+                          </View>
+                        </View>
+                      )}
+
+                      {unitDetailTab === 'payments' && (
+                        <View style={{ gap: 8, paddingBottom: 8 }}>
+                          {unitPayments.length === 0 ? (
+                            <Text style={{ textAlign: 'center', color: colors.textMuted, paddingVertical: 20 }} allowFontScaling={false}>No payment records found.</Text>
+                          ) : unitPayments.map((p) => (
+                            <View key={p.id} style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>{p.paymentMethod || 'Rent Payment'}</Text>
+                                <Text style={{ fontSize: 11.5, color: colors.textMuted }} allowFontScaling={false}>{String(p.paidDate || p.dueDate || '').split('T')[0]} · {p.status}</Text>
+                              </View>
+                              <Text style={{ fontSize: 14, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>${Number(p.amount || 0).toLocaleString('en-US')}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+
+                      {unitDetailTab === 'maintenance' && (
+                        <View style={{ gap: 8, paddingBottom: 8 }}>
+                          {unitWOs.length === 0 ? (
+                            <Text style={{ textAlign: 'center', color: colors.textMuted, paddingVertical: 20 }} allowFontScaling={false}>No maintenance requests for this unit.</Text>
+                          ) : unitWOs.map((w) => (
+                            <View key={w.id} style={{ backgroundColor: colors.background, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                                <Text style={{ fontSize: 13.5, fontWeight: '700', color: colors.textPrimary, flex: 1 }} allowFontScaling={false}>{w.title || w.issue || 'Work Order'}</Text>
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.primary }} allowFontScaling={false}>{w.status}</Text>
+                              </View>
+                              {w.description ? <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 4 }} allowFontScaling={false}>{w.description}</Text> : null}
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </ScrollView>
+
+                    <TouchableOpacity style={styles.closeBtn} onPress={() => setSelectedUnit(null)}>
+                      <Text style={styles.closeBtnText} allowFontScaling={false}>Close</Text>
+                    </TouchableOpacity>
+                  </>
+                );
+              })()}
             </View>
           </View>
         </Modal>
@@ -4147,7 +4720,7 @@ export const PropertiesScreen = ({
                                     allowFontScaling={false}
                                     numberOfLines={1}
                                   >
-                                    {isPaid ? 'Paid' : isPartial ? `$${due} Due` : `$${due} Due`}
+                                    {isPaid ? 'Paid' : isPartial ? `Partial ($${d.paidAmount || 0} Paid / $${due} Due)` : `Unpaid ($${due})`}
                                   </Text>
                                 </View>
                               </TouchableOpacity>
