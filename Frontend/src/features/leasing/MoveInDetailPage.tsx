@@ -7,8 +7,9 @@ import { Button } from '../../components/ui/Button';
 import { StatusBadge } from '../../components/StatusBadge';
 import { 
   Calendar, User, Home, Key, ClipboardList, CheckCircle2, 
-  Play, AlertCircle, Ban, ArrowRight, ShieldCheck, Check, Clock, FileText, Image, Eye
+  Play, AlertCircle, Ban, ArrowRight, ShieldCheck, Check, Clock, FileText, Image, Eye, Plus
 } from 'lucide-react';
+import { CreateInspectionTemplateModal } from './CreateInspectionTemplateModal';
 import { useTranslation } from 'react-i18next';
 
 interface MoveInDetailPageProps {
@@ -22,6 +23,7 @@ export const MoveInDetailPage: React.FC<MoveInDetailPageProps> = ({ id }) => {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [cancelReason, setCancelReason] = useState('');
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [isCreateTemplateModalOpen, setIsCreateTemplateModalOpen] = useState(false);
 
   // Fetch Move In details
   const { data: moveIn, isLoading, refetch } = useQuery({
@@ -231,17 +233,25 @@ export const MoveInDetailPage: React.FC<MoveInDetailPageProps> = ({ id }) => {
                   <span>No inspection has been started for this move-in. Select a template below to start.</span>
                 </div>
 
-                <div className="flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-3">
+                <div className="flex flex-col sm:flex-row sm:items-center flex-wrap gap-2.5">
                   <select
                     value={selectedTemplateId}
                     onChange={(e) => setSelectedTemplateId(e.target.value)}
-                    className="flex-1 p-2.5 rounded border bg-secondary text-xs font-semibold focus:outline-none"
+                    className="flex-1 min-w-[200px] p-2.5 rounded border bg-secondary text-xs font-semibold focus:outline-none"
                   >
                     <option value="">Select Checklist Template...</option>
                     {templates.map((tpl: any) => (
                       <option key={tpl.id} value={tpl.id}>{tpl.name} ({tpl.type.replace('_', ' ')})</option>
                     ))}
                   </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsCreateTemplateModalOpen(true)}
+                    className="flex-shrink-0"
+                  >
+                    <Plus className="w-4 h-4 mr-1.5" /> Create Template
+                  </Button>
                   <Button
                     onClick={handleStartInspection}
                     disabled={!selectedTemplateId || startInspectionMutation.isPending}
@@ -435,6 +445,13 @@ export const MoveInDetailPage: React.FC<MoveInDetailPageProps> = ({ id }) => {
           </div>
         </div>
       )}
+      {/* Create Inspection Template Modal */}
+      <CreateInspectionTemplateModal
+        open={isCreateTemplateModalOpen}
+        onOpenChange={setIsCreateTemplateModalOpen}
+        onSuccess={(newId) => setSelectedTemplateId(newId)}
+        defaultType="MOVE_IN"
+      />
     </div>
   );
 };

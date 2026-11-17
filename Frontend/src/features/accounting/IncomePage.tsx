@@ -12,7 +12,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CurrencyInput } from '../../components/Phase4Components';
-import { Plus, Loader2, Building, Home, User } from 'lucide-react';
+import { Plus, Loader2, Building, Home, User, Trash2 } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 
 export const IncomePage: React.FC = () => {
@@ -115,6 +115,14 @@ export const IncomePage: React.FC = () => {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.income.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['income-list'] });
+      queryClient.invalidateQueries({ queryKey: ['coa-accounts-list'] });
+    },
+  });
+
   const filteredIncome = income.filter((item: any) => {
     if (!item) return false;
     const q = (searchQuery || '').toLowerCase().trim();
@@ -156,6 +164,26 @@ export const IncomePage: React.FC = () => {
       header: t('pmIncome.status'),
       id: 'status',
       cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
+    {
+      id: 'actions',
+      header: t('pmCoa.actions') || 'Actions',
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            if (window.confirm('Are you sure you want to delete this income record?')) {
+              deleteMutation.mutate(row.original.id);
+            }
+          }}
+          disabled={deleteMutation.isPending}
+          className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8 w-8"
+          title="Delete Income"
+        >
+          <Trash2 className="w-4 h-4 text-rose-500" />
+        </Button>
+      ),
     },
   ];
 

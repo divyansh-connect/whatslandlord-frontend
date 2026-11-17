@@ -46,11 +46,11 @@ export const UserProfilePage: React.FC = () => {
   useEffect(() => {
     const profile = profileResponse?.data || profileResponse;
     if (profile) {
-      setName(profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || user?.name || 'Diya Jain');
+      setName(profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || user?.name || '');
       setEmail(profile.email || user?.email || '');
-      setPhone(profile.phone || '');
-      setDepartment(profile.department || 'Property Management');
-      const storedCompany = localStorage.getItem('company_name') || '';
+      setPhone(profile.phone || (user as any)?.phone || '');
+      setDepartment(profile.department || 'Collections');
+      const storedCompany = localStorage.getItem('company_name') || user?.companyName || '';
       setCompany(profile.company && profile.company !== 'Apex Property Management' ? profile.company : (storedCompany || ''));
     }
   }, [profileResponse, user]);
@@ -93,7 +93,7 @@ export const UserProfilePage: React.FC = () => {
       }, 2500);
     },
     onError: (err: any) => {
-      setPasswordMsg({ text: err?.response?.data?.message || 'Failed to update password in database.', isError: true });
+      setPasswordMsg({ text: err?.response?.data?.message || err?.message || 'Failed to update password in database.', isError: true });
     },
   });
 
@@ -245,17 +245,17 @@ export const UserProfilePage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
               <div className="space-y-1">
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Full Name</p>
-                <p className="font-bold text-foreground">{activeProfile.name || name}</p>
+                <p className="font-bold text-foreground">{activeProfile.name || name || '—'}</p>
               </div>
 
               <div className="space-y-1">
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Email Address</p>
-                <p className="font-bold text-foreground">{activeProfile.email || email}</p>
+                <p className="font-bold text-foreground">{activeProfile.email || email || '—'}</p>
               </div>
 
               <div className="space-y-1">
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Phone Number</p>
-                <p className="font-bold text-foreground">{activeProfile.phone || phone}</p>
+                <p className="font-bold text-foreground">{activeProfile.phone || phone || '—'}</p>
               </div>
 
               <div className="space-y-1">
@@ -265,12 +265,12 @@ export const UserProfilePage: React.FC = () => {
 
               <div className="space-y-1">
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Department</p>
-                <p className="font-bold text-foreground">{activeProfile.department || department}</p>
+                <p className="font-bold text-foreground">{activeProfile.department || department || '—'}</p>
               </div>
 
               <div className="space-y-1">
                 <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground/70">Company / Entity</p>
-                <p className="font-bold text-foreground">{activeProfile.company || company}</p>
+                <p className="font-bold text-foreground">{activeProfile.company || company || '—'}</p>
               </div>
             </div>
           </Card>
@@ -352,7 +352,7 @@ export const UserProfilePage: React.FC = () => {
                 <Input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="(512) 555-0188"
+                  placeholder="Enter contact phone number"
                 />
               </div>
 
@@ -361,7 +361,7 @@ export const UserProfilePage: React.FC = () => {
                 <Input
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
-                  placeholder="Collections & Revenue"
+                  placeholder="Enter department name"
                 />
               </div>
             </div>

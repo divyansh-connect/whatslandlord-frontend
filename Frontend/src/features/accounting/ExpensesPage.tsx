@@ -12,7 +12,7 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CurrencyInput } from '../../components/Phase4Components';
-import { Plus, Check, X, Loader2, Building, Home, User, Sparkles, TrendingUp, DollarSign } from 'lucide-react';
+import { Plus, Check, X, Loader2, Building, Home, User, Sparkles, TrendingUp, DollarSign, Trash2 } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 
 export const ExpensesPage: React.FC = () => {
@@ -190,6 +190,15 @@ export const ExpensesPage: React.FC = () => {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.expenses.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses-list'] });
+      queryClient.invalidateQueries({ queryKey: ['accounting-expenses-list'] });
+      queryClient.invalidateQueries({ queryKey: ['coa-accounts-list'] });
+    },
+  });
+
   const filteredExpenses = expenses.filter((exp: any) => {
     if (!exp) return false;
     const q = (searchQuery || '').toLowerCase().trim();
@@ -236,31 +245,48 @@ export const ExpensesPage: React.FC = () => {
       id: 'actions',
       header: t('pmExpenses.approvalAction'),
       cell: ({ row }) => {
-        if (row.original.status === 'Pending Approval') {
-          return (
-            <div className="flex space-x-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => approveMutation.mutate(row.original.id)}
-                className="text-emerald-500 hover:bg-emerald-500/10 h-8 w-8"
-                title="Approve Expense"
-              >
-                <Check className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => rejectMutation.mutate(row.original.id)}
-                className="text-rose-500 hover:bg-rose-500/10 h-8 w-8"
-                title="Reject Expense"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          );
-        }
-        return <span className="text-xs text-muted-foreground font-semibold">Audited</span>;
+        return (
+          <div className="flex items-center space-x-2">
+            {row.original.status === 'Pending Approval' ? (
+              <div className="flex space-x-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => approveMutation.mutate(row.original.id)}
+                  className="text-emerald-500 hover:bg-emerald-500/10 h-8 w-8"
+                  title="Approve Expense"
+                >
+                  <Check className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => rejectMutation.mutate(row.original.id)}
+                  className="text-rose-500 hover:bg-rose-500/10 h-8 w-8"
+                  title="Reject Expense"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            ) : (
+              <span className="text-xs text-muted-foreground font-semibold">Audited</span>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (window.confirm('Are you sure you want to delete this expense record?')) {
+                  deleteMutation.mutate(row.original.id);
+                }
+              }}
+              disabled={deleteMutation.isPending}
+              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8 w-8"
+              title="Delete Expense"
+            >
+              <Trash2 className="w-4 h-4 text-rose-500" />
+            </Button>
+          </div>
+        );
       },
     },
   ];

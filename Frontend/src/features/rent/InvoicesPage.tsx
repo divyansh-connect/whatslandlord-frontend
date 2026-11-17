@@ -13,11 +13,14 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { Plus, Eye, Trash2, Download, Mail, MessageSquare, Sparkles, Copy, Check, Send, AlertTriangle } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '../../store/useStore';
 
 export const InvoicesPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const { user } = useAuthStore();
+  const isCollectionManager = user?.role === 'Collection Manager';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState(() => {
@@ -195,15 +198,17 @@ export const InvoicesPage: React.FC = () => {
           <Button variant="ghost" size="icon" onClick={() => setSelectedInvoice(row.original)} title={t('invoicesPage.viewDetails')}>
             <Eye className="w-4 h-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setDeleteId(row.original.id)}
-            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-            title={t('invoicesPage.deleteInvoice')}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          {!isCollectionManager && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setDeleteId(row.original.id)}
+              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              title={t('invoicesPage.deleteInvoice')}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       ),
     },
@@ -219,11 +224,15 @@ export const InvoicesPage: React.FC = () => {
           { label: t('rentPaymentsPage.rentCollection'), href: '/rent' },
           { label: t('invoicesPage.invoices') },
         ]}
-        action={{
-          label: t('invoicesPage.createInvoice'),
-          onClick: () => navigate({ to: '/invoices/new' }),
-          icon: <Plus className="w-4.5 h-4.5" />,
-        }}
+        action={
+          isCollectionManager
+            ? undefined
+            : {
+                label: t('invoicesPage.createInvoice'),
+                onClick: () => navigate({ to: '/invoices/new' }),
+                icon: <Plus className="w-4.5 h-4.5" />,
+              }
+        }
       />
 
       <FilterBar
@@ -295,46 +304,50 @@ export const InvoicesPage: React.FC = () => {
               <span className="text-lg text-rose-500">${(selectedInvoice.balance || 0).toLocaleString()}</span>
             </div>
 
-            {/* Share / Send Invoice options */}
-            <div className="border-t pt-4 space-y-2">
-              <p className="text-[10px] uppercase text-muted-foreground tracking-wide font-black">{t('invoicesPage.directDelivery')}</p>
-              <div className="flex gap-2 font-bold text-xs">
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={() => alert(`Invoice ${getInvoiceNumber(selectedInvoice.id)} sent to ${selectedInvoice.tenantName}'s registered email!`)}
-                  className="flex-1 flex items-center justify-center gap-1.5 h-9"
-                >
-                  <Mail className="w-3.5 h-3.5 text-primary" />
-                  <span>{t('invoicesPage.sendEmail')}</span>
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={() => alert(`Invoice alert text message dispatched for ${getInvoiceNumber(selectedInvoice.id)} to ${selectedInvoice.tenantName}'s phone number!`)}
-                  className="flex-1 flex items-center justify-center gap-1.5 h-9"
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-primary" />
-                  <span>{t('invoicesPage.sendSms')}</span>
-                </Button>
-                <a 
-                  href={`https://wa.me/${((selectedInvoice as any).tenantPhone || (selectedInvoice as any).phone || '').replace(/\D/g, '') || '15550199'}?text=${encodeURIComponent(`Hi ${selectedInvoice.tenantName}, here is your outstanding statement balance details for invoice ${getInvoiceNumber(selectedInvoice.id)} (${selectedInvoice.propertyName} Unit ${selectedInvoice.unitNumber}). Total amount due: $${selectedInvoice.balance.toLocaleString()}. Please view details and complete payment: http://localhost:5173/tenant/payments`)}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="flex-1 flex items-center justify-center gap-1.5 p-2 bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/10 rounded-xl transition text-foreground"
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>{t('invoicesPage.whatsApp')}</span>
-                </a>
+            {/* Share / Send Invoice options - hidden for Collection Manager */}
+            {!isCollectionManager && (
+              <div className="border-t pt-4 space-y-2">
+                <p className="text-[10px] uppercase text-muted-foreground tracking-wide font-black">{t('invoicesPage.directDelivery')}</p>
+                <div className="flex gap-2 font-bold text-xs">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => alert(`Invoice ${getInvoiceNumber(selectedInvoice.id)} sent to ${selectedInvoice.tenantName}'s registered email!`)}
+                    className="flex-1 flex items-center justify-center gap-1.5 h-9"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-primary" />
+                    <span>{t('invoicesPage.sendEmail')}</span>
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => alert(`Invoice alert text message dispatched for ${getInvoiceNumber(selectedInvoice.id)} to ${selectedInvoice.tenantName}'s phone number!`)}
+                    className="flex-1 flex items-center justify-center gap-1.5 h-9"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-primary" />
+                    <span>{t('invoicesPage.sendSms')}</span>
+                  </Button>
+                  <a 
+                    href={`https://wa.me/${((selectedInvoice as any).tenantPhone || (selectedInvoice as any).phone || '').replace(/\D/g, '') || '15550199'}?text=${encodeURIComponent(`Hi ${selectedInvoice.tenantName}, here is your outstanding statement balance details for invoice ${getInvoiceNumber(selectedInvoice.id)} (${selectedInvoice.propertyName} Unit ${selectedInvoice.unitNumber}). Total amount due: $${selectedInvoice.balance.toLocaleString()}. Please view details and complete payment: http://localhost:5173/tenant/payments`)}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="flex-1 flex items-center justify-center gap-1.5 p-2 bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/10 rounded-xl transition text-foreground"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>{t('invoicesPage.whatsApp')}</span>
+                  </a>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex justify-end space-x-2 pt-4 border-t">
               <Button variant="outline" onClick={() => setSelectedInvoice(null)}>{t('invoicesPage.close')}</Button>
-              <Button onClick={() => {
-                setSelectedInvoice(null);
-                navigate({ to: '/payments/new' });
-              }}>{t('invoicesPage.recordPayment')}</Button>
+              {!isCollectionManager && (
+                <Button onClick={() => {
+                  setSelectedInvoice(null);
+                  navigate({ to: '/payments/new' });
+                }}>{t('invoicesPage.recordPayment')}</Button>
+              )}
             </div>
           </div>
         )}

@@ -40,16 +40,16 @@ export const ChartOfAccountsPage: React.FC = () => {
 
   const isLoading = isCoaLoading || isExpLoading || isIncLoading || isInvLoading;
 
-  // Synthesize Live Chart of Accounts combining DB ledger accounts with real GET income and expense data
+  // Synthesize Live Chart of Accounts strictly from real GET income (Photo 2) and GET expense (Photo 3) data
   const accounts: CoAAccount[] = React.useMemo(() => {
-    const list: CoAAccount[] = [...dbAccounts];
-    const existingNumbers = new Set(list.map((a: any) => String(a.accountNumber)));
+    const list: CoAAccount[] = [];
+    const existingNumbers = new Set<string>();
 
-    // 1. Process Income from api.income.getAll()
+    // 1. Process Income strictly from api.income.getAll()
     const incomeByCategory: { [cat: string]: number } = {};
     (income || []).forEach((inc: any) => {
-      const rawCat = (inc.category || 'Rental Income').trim();
-      const cat = rawCat.charAt(0).toUpperCase() + rawCat.slice(1);
+      const rawCat = (inc.category || 'Rent').trim();
+      const cat = rawCat.charAt(0).toUpperCase() + rawCat.slice(1).toLowerCase();
       const amt = Number(inc.amount) || 0;
       incomeByCategory[cat] = (incomeByCategory[cat] || 0) + amt;
     });
@@ -58,7 +58,7 @@ export const ChartOfAccountsPage: React.FC = () => {
     if (Object.keys(incomeByCategory).length === 0 && (invoices || []).length > 0) {
       const invTotal = (invoices || []).reduce((sum: number, inv: any) => sum + (Number(inv.amount) || 0), 0);
       if (invTotal > 0) {
-        incomeByCategory['Rental Income'] = invTotal;
+        incomeByCategory['Rent'] = invTotal;
       }
     }
 
@@ -80,11 +80,11 @@ export const ChartOfAccountsPage: React.FC = () => {
       }
     });
 
-    // 2. Process Expenses from api.expenses.getAll()
+    // 2. Process Expenses strictly from api.expenses.getAll()
     const expenseByCategory: { [cat: string]: number } = {};
     (expenses || []).forEach((exp: any) => {
       const rawCat = (exp.category || 'Maintenance').trim();
-      const cat = rawCat.charAt(0).toUpperCase() + rawCat.slice(1);
+      const cat = rawCat.charAt(0).toUpperCase() + rawCat.slice(1).toLowerCase();
       const amt = Number(exp.amount) || 0;
       expenseByCategory[cat] = (expenseByCategory[cat] || 0) + amt;
     });
@@ -108,7 +108,7 @@ export const ChartOfAccountsPage: React.FC = () => {
     });
 
     return list;
-  }, [dbAccounts, expenses, income, invoices]);
+  }, [expenses, income, invoices]);
 
   const createMutation = useMutation({
     mutationFn: () => {

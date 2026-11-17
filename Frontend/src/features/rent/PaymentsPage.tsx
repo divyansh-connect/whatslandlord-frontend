@@ -13,12 +13,15 @@ import { PaymentMethodBadge } from '../../components/Phase4Components';
 import { Plus, Eye, Pencil, Trash2, Download } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '../../store/useStore';
 import { EditPaymentModal } from './EditPaymentModal';
 
 export const PaymentsPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const { user } = useAuthStore();
+  const isCollectionManager = user?.role === 'Collection Manager';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [propertyFilter, setPropertyFilter] = useState('');
@@ -166,7 +169,7 @@ export const PaymentsPage: React.FC = () => {
             <Button variant="ghost" size="icon" onClick={() => navigate({ to: `/payments/${row.original.id}` })} title={t('rentPaymentsPage.viewReceipt')}>
               <Eye className="w-4 h-4" />
             </Button>
-            {!isTenantOnline && (
+            {!isCollectionManager && !isTenantOnline && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -177,7 +180,7 @@ export const PaymentsPage: React.FC = () => {
                 <Pencil className="w-4 h-4" />
               </Button>
             )}
-            {!isTenantOnline && (
+            {!isCollectionManager && !isTenantOnline && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -204,11 +207,15 @@ export const PaymentsPage: React.FC = () => {
           { label: t('rentPaymentsPage.rentCollection'), href: '/rent' },
           { label: t('rentPaymentsPage.payments') },
         ]}
-        action={{
-          label: t('rentPaymentsPage.recordPayment'),
-          onClick: () => navigate({ to: '/payments/new' }),
-          icon: <Plus className="w-4.5 h-4.5" />,
-        }}
+        action={
+          isCollectionManager
+            ? undefined
+            : {
+                label: t('rentPaymentsPage.recordPayment'),
+                onClick: () => navigate({ to: '/payments/new' }),
+                icon: <Plus className="w-4.5 h-4.5" />,
+              }
+        }
       />
 
       <div className="flex justify-between items-center mb-3">

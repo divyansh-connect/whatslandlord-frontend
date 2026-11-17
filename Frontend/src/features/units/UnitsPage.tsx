@@ -159,29 +159,62 @@ export const UnitsPage: React.FC = () => {
   const handleExport = (format: 'xlsx' | 'csv' = 'xlsx') => {
     if (filteredUnits.length === 0) return;
 
-    const exportData = filteredUnits.map((u: any) => ({
-      'Property Name': u.propertyName || '',
-      'Unit Number': u.unitNumber || '',
-      'Status': u.status || 'Vacant',
-      'Tenant Name': u.tenantName || 'Vacant',
-      'Monthly Rent ($)': u.rentAmount ?? 0,
-      'Security Deposit ($)': u.securityDeposit ?? 0,
-      'Floor': u.floor ?? 1,
-      'Bedrooms': u.bedrooms ?? 1,
-      'Bathrooms': u.bathrooms ?? 1,
-      'Square Footage': u.squareFootage ?? 0,
-      'Availability Date': u.availabilityDate || '',
-    }));
+    const exportData = filteredUnits.map((u: any) => {
+      // Find matching tenant for this unit
+      let tenantObj = (u.tenants && u.tenants.length > 0) ? u.tenants[0] : null;
+      if (!tenantObj && u.leases && u.leases.length > 0 && u.leases[0].tenant) {
+        tenantObj = u.leases[0].tenant;
+      }
+      if (!tenantObj && tenants && tenants.length > 0) {
+        tenantObj = tenants.find((t: any) =>
+          t.unitId === u.id ||
+          (t.id && u.tenantId === t.id) ||
+          (u.tenantName && u.tenantName !== 'Vacant' && `${t.firstName || ''} ${t.lastName || ''}`.trim().toLowerCase() === String(u.tenantName).trim().toLowerCase())
+        );
+      }
+
+      const isOccupied = String(u.status || '').toLowerCase() === 'occupied' || Boolean(tenantObj) || (u.tenantName && u.tenantName !== 'Vacant');
+      const activeLease = (u.leases && u.leases.length > 0) ? u.leases[0] : null;
+
+      const tenantName = tenantObj
+        ? `${tenantObj.firstName || ''} ${tenantObj.lastName || ''}`.trim() || tenantObj.name || u.tenantName || 'Occupied'
+        : (isOccupied ? (u.tenantName && u.tenantName !== 'Vacant' ? u.tenantName : 'Occupied') : 'Vacant');
+
+      const tenantEmail = isOccupied ? (tenantObj?.email || '') : '';
+      const tenantPhone = isOccupied ? (tenantObj?.phone || '') : '';
+      const moveInDate = isOccupied ? (tenantObj?.moveInDate || activeLease?.startDate || u.availabilityDate || '') : '';
+      const leaseEndDate = isOccupied ? (activeLease?.endDate || '') : '';
+
+      return {
+        'Property Name': u.propertyName || (u.property ? u.property.name : ''),
+        'Unit Number': u.unitNumber || '',
+        'Status': isOccupied ? 'Occupied' : 'Vacant',
+        'Tenant Name': tenantName,
+        'Tenant Email': tenantEmail || (isOccupied ? 'N/A' : ''),
+        'Tenant Phone': tenantPhone || (isOccupied ? 'N/A' : ''),
+        'Move-In Date': moveInDate ? String(moveInDate).split('T')[0] : (isOccupied ? 'N/A' : ''),
+        'Monthly Rent ($)': u.rentAmount ?? 0,
+        'Security Deposit ($)': u.securityDeposit ?? 0,
+        'Floor': u.floor ?? 1,
+        'Bedrooms': u.bedrooms ?? 1,
+        'Bathrooms': u.bathrooms ?? 1,
+        'Square Footage': u.squareFootage ?? 0,
+        'Availability Date': u.availabilityDate ? String(u.availabilityDate).split('T')[0] : '',
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     worksheet['!cols'] = [
       { wch: 28 }, // Property Name
       { wch: 16 }, // Unit Number
       { wch: 16 }, // Status
-      { wch: 22 }, // Tenant Name
+      { wch: 24 }, // Tenant Name
+      { wch: 28 }, // Tenant Email
+      { wch: 18 }, // Tenant Phone
+      { wch: 16 }, // Move-In Date
       { wch: 18 }, // Monthly Rent
       { wch: 20 }, // Security Deposit
-      { wch: 12 }, // Floor
+      { wch: 10 }, // Floor
       { wch: 12 }, // Bedrooms
       { wch: 12 }, // Bathrooms
       { wch: 16 }, // Square Footage

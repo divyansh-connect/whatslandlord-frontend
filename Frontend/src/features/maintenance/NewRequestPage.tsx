@@ -17,6 +17,7 @@ const newRequestFormSchema = zod.object({
   propertyId: zod.string().min(1, 'Property is required'),
   buildingId: zod.string().min(1, 'Building is required'),
   unitId: zod.string().min(1, 'Unit is required'),
+  tenantId: zod.string().optional().or(zod.literal('')),
   tenantName: zod.string().min(1, 'Resident name is required'),
   category: zod.string().min(1, 'Category is required'),
   priority: zod.enum(['Low', 'Medium', 'High', 'Urgent']),
@@ -47,6 +48,7 @@ export const NewRequestPage: React.FC = () => {
       propertyId: '',
       buildingId: '',
       unitId: '',
+      tenantId: '',
       tenantName: '',
       preferredTime: '',
       notes: '',
@@ -63,22 +65,25 @@ export const NewRequestPage: React.FC = () => {
     const matchingBuilding = buildings.find((b) => b.propertyId === selectedPropertyId);
     setValue('buildingId', matchingBuilding ? matchingBuilding.id : '');
     setValue('unitId', '');
+    setValue('tenantId', '');
     setValue('tenantName', '');
   }, [selectedPropertyId, buildings, setValue]);
 
-  // Auto-populate resident name when unit is selected
+  // Auto-populate resident name and tenantId when unit is selected
   React.useEffect(() => {
     if (!selectedUnitId) {
       setValue('tenantName', '');
+      setValue('tenantId', '');
       return;
     }
 
     // 1. Check tenant by unitId
     const tenant = tenants.find((t: any) => t.unitId === selectedUnitId);
     if (tenant) {
-      const name = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim();
+      const name = `${tenant.firstName || ''} ${tenant.lastName || ''}`.trim() || tenant.name;
       if (name) {
         setValue('tenantName', name, { shouldValidate: true });
+        setValue('tenantId', tenant.id || tenant.tenantId || '', { shouldValidate: true });
         return;
       }
     }
@@ -87,15 +92,20 @@ export const NewRequestPage: React.FC = () => {
     const unit = units.find((u: any) => u.id === selectedUnitId);
     if (unit?.tenants && Array.isArray(unit.tenants) && unit.tenants.length > 0) {
       const t0 = unit.tenants[0];
-      const name = `${t0.firstName || ''} ${t0.lastName || ''}`.trim();
+      const name = `${t0.firstName || ''} ${t0.lastName || ''}`.trim() || t0.name;
       if (name) {
         setValue('tenantName', name, { shouldValidate: true });
+        setValue('tenantId', t0.id || t0.tenantId || '', { shouldValidate: true });
         return;
       }
     }
 
     if (unit?.tenantName && unit.tenantName !== 'Vacant' && unit.tenantName !== 'Unassigned') {
       setValue('tenantName', unit.tenantName, { shouldValidate: true });
+      const matched = tenants.find((t: any) => `${t.firstName || ''} ${t.lastName || ''}`.trim().toLowerCase() === unit.tenantName.toLowerCase());
+      if (matched) {
+        setValue('tenantId', matched.id || matched.tenantId || '', { shouldValidate: true });
+      }
       return;
     }
 
@@ -103,10 +113,14 @@ export const NewRequestPage: React.FC = () => {
     const lease = leases.find((l: any) => l.unitId === selectedUnitId);
     if (lease?.tenantName && lease.tenantName !== 'Resident') {
       setValue('tenantName', lease.tenantName, { shouldValidate: true });
+      if (lease.tenantId) {
+        setValue('tenantId', lease.tenantId, { shouldValidate: true });
+      }
       return;
     }
 
     setValue('tenantName', '');
+    setValue('tenantId', '');
   }, [selectedUnitId, units, tenants, leases, setValue]);
 
   const filteredUnits = selectedPropertyId

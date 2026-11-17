@@ -807,6 +807,18 @@ export const api = {
     ...mockApi.dashboard,
     getMetrics: async () => {
       try {
+        // 1. Fetch Backend Metrics as Primary Authority (Synced with Database & Delinquency Report)
+        let backendMetrics: any = null;
+        try {
+          const bRes: any = await apiClient.get('/dashboard/metrics');
+          const data = bRes?.data || bRes;
+          if (data && data.totalProperties !== undefined) {
+            backendMetrics = data;
+          }
+        } catch (e) {
+          console.warn('Backend metrics fetch failed, using fallback:', e);
+        }
+
         const [
           propertiesRes,
           unitsRes,
@@ -894,7 +906,7 @@ export const api = {
           return sum + activeRent;
         }, 0);
 
-        // 3. Pending Rent (100% synced with Delinquency Report — active property, active unit, active tenant unpaid/partial invoices + late fees)
+        // 3. Pending Rent (100% synced with Delinquency Report & Backend Metrics)
         const activeTenantsList = tenants.filter(
           (t: any) => t?.id && !['Inactive', 'Deleted'].includes(t.status)
         );
@@ -921,8 +933,8 @@ export const api = {
 
           const cleanUnitNum = String(inv.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
           const matchedUnit =
-            (inv.unitId ? unitByIdMap.get(inv.unitId) : null) ||
             (tenantObj.unitId ? unitByIdMap.get(tenantObj.unitId) : null) ||
+            (inv.unitId ? unitByIdMap.get(inv.unitId) : null) ||
             units.find(
               (u: any) =>
                 cleanUnitNum &&
@@ -931,7 +943,6 @@ export const api = {
             );
 
           if (!matchedUnit || !activeUnitIds.has(matchedUnit.id)) return;
-          if (tenantObj.unitId && tenantObj.unitId !== matchedUnit.id) return;
 
           const invAmount = Number(inv.amount || 0);
           const invPaid = Number(inv.paidAmount || 0);
@@ -977,18 +988,19 @@ export const api = {
           return end <= sixtyDaysFromNow;
         }).length;
 
+        // Return backend metrics with 100% authority, or fallback with exact synchronized calculation
         return {
-          totalProperties: properties.length,
-          totalUnits: totalUnitsCount,
-          occupiedUnits: occupiedUnitsCount,
-          vacantUnits: vacantUnitsCount,
-          occupancyRate: computedOccupancyRate,
-          monthlyRevenue: computedRevenue,
-          pendingRent: computedPendingRent,
-          pendingInvoicesCount,
-          expenses: computedExpenses,
-          openMaintenance: openMaintenanceCount,
-          leasesExpiringSoon: expiringLeasesCount,
+          totalProperties: backendMetrics?.totalProperties !== undefined ? Number(backendMetrics.totalProperties) : properties.length,
+          totalUnits: backendMetrics?.totalUnits !== undefined ? Number(backendMetrics.totalUnits) : totalUnitsCount,
+          occupiedUnits: backendMetrics?.occupiedUnits !== undefined ? Number(backendMetrics.occupiedUnits) : occupiedUnitsCount,
+          vacantUnits: backendMetrics?.vacantUnits !== undefined ? Number(backendMetrics.vacantUnits) : vacantUnitsCount,
+          occupancyRate: backendMetrics?.occupancyRate !== undefined ? Number(backendMetrics.occupancyRate) : computedOccupancyRate,
+          monthlyRevenue: backendMetrics?.monthlyRevenue !== undefined ? Number(backendMetrics.monthlyRevenue) : computedRevenue,
+          pendingRent: backendMetrics?.pendingRent !== undefined ? Number(backendMetrics.pendingRent) : computedPendingRent,
+          pendingInvoicesCount: backendMetrics?.pendingInvoicesCount !== undefined ? Number(backendMetrics.pendingInvoicesCount) : pendingInvoicesCount,
+          expenses: backendMetrics?.expenses !== undefined ? Number(backendMetrics.expenses) : computedExpenses,
+          openMaintenance: backendMetrics?.openMaintenance !== undefined ? Number(backendMetrics.openMaintenance) : openMaintenanceCount,
+          leasesExpiringSoon: backendMetrics?.leasesExpiringSoon !== undefined ? Number(backendMetrics.leasesExpiringSoon) : expiringLeasesCount,
         };
       } catch (e) {
         console.error('Dashboard metrics calculation error:', e);
@@ -2167,8 +2179,6 @@ export const api = {
         const properties = Array.isArray(propsRes) ? propsRes : [];
         const tenants = Array.isArray(tenantsRes) ? tenantsRes : [];
 
-        if (properties.length === 0) return [];
-
         const activePropIds = new Set(properties.map((p: any) => p.id));
         const activeTenantIds = new Set(tenants.map((t: any) => t.id));
 
@@ -2176,9 +2186,11 @@ export const api = {
           .filter((p: any) => !softDeletedIds.includes(p.id))
           .filter((p: any) => {
             if (userCompanyId && p.companyId && p.companyId !== userCompanyId) return false;
-            const belongsToProp = (p.propertyId && activePropIds.has(p.propertyId)) || (p.unit && activePropIds.has(p.unit.propertyId));
-            if (!belongsToProp) return false;
-            if (p.tenantId && !activeTenantIds.has(p.tenantId)) return false;
+            if (properties.length > 0) {
+              const belongsToProp = (p.propertyId && activePropIds.has(p.propertyId)) || (p.unit && activePropIds.has(p.unit.propertyId));
+              if (!belongsToProp) return false;
+            }
+            if (tenants.length > 0 && p.tenantId && !activeTenantIds.has(p.tenantId)) return false;
             return true;
           });
 
@@ -2287,10 +2299,6 @@ export const api = {
         const properties = Array.isArray(propertiesRes) ? propertiesRes : [];
         const tenants = Array.isArray(tenantsRes) ? tenantsRes : [];
 
-        if (properties.length === 0) {
-          return [];
-        }
-
         const activePropIds = new Set(properties.map((p: any) => p.id));
         const activeTenantIds = new Set(tenants.map((t: any) => t.id));
 
@@ -2305,9 +2313,8 @@ export const api = {
             !softDeletedPropIds.includes(inv.propertyId) &&
             !softDeletedUnitIds.includes(inv.unitId) &&
             !softDeletedTenantIds.includes(inv.tenantId) &&
-            activePropIds.has(inv.propertyId) &&
-            inv.tenantId &&
-            activeTenantIds.has(inv.tenantId)
+            (properties.length === 0 || activePropIds.has(inv.propertyId)) &&
+            (tenants.length === 0 || !inv.tenantId || activeTenantIds.has(inv.tenantId))
         );
         const paymentsList = rawPayments.filter(
           (pay: any) =>
@@ -2316,9 +2323,8 @@ export const api = {
             !softDeletedPropIds.includes(pay.propertyId) &&
             !softDeletedUnitIds.includes(pay.unitId) &&
             !softDeletedTenantIds.includes(pay.tenantId) &&
-            (activePropIds.has(pay.propertyId) || (pay.unit && activePropIds.has(pay.unit.propertyId))) &&
-            pay.tenantId &&
-            activeTenantIds.has(pay.tenantId) &&
+            (properties.length === 0 || activePropIds.has(pay.propertyId) || (pay.unit && activePropIds.has(pay.unit.propertyId))) &&
+            (tenants.length === 0 || !pay.tenantId || activeTenantIds.has(pay.tenantId)) &&
             !(pay.referenceNumber && String(pay.referenceNumber).toUpperCase().startsWith('REFUND-'))
         );
 
@@ -2914,6 +2920,8 @@ export const api = {
           email: u.email,
           phone: u.phone || '',
           role: u.role,
+          isPrimary: Boolean(u.isPrimary),
+          permissions: u.permissions || [],
           status: u.status,
           serviceType: u.serviceType || '',
           lastLogin: '-',
@@ -2929,15 +2937,25 @@ export const api = {
         email: data.email,
         phone: data.phone,
         password: data.password,
-        role: data.role,
+        role: data.role || 'Co-Manager',
         status: data.status || 'Active',
         serviceType: data.serviceType || 'General Maintenance',
+        permissions: data.permissions || undefined,
       });
       return res.data;
     },
     update: async (id: string, data: any) => {
-      const res: any = await apiClient.put(`/superadmin/company-users/${id}/status`, {
+      const res: any = await apiClient.put(`/superadmin/company-users/${id}`, {
+        name: data.name,
+        phone: data.phone,
+        password: data.password,
         status: data.status,
+      });
+      return res.data;
+    },
+    updatePermissions: async (id: string, permissions: any[]) => {
+      const res: any = await apiClient.put(`/superadmin/company-users/${id}/permissions`, {
+        permissions,
       });
       return res.data;
     },
@@ -3915,31 +3933,42 @@ export const api = {
 
   userProfile: {
     get: async () => {
+      const getStoredUser = () => {
+        try {
+          const s = sessionStorage.getItem('user') || localStorage.getItem('user');
+          return s ? JSON.parse(s) : null;
+        } catch {
+          return null;
+        }
+      };
       try {
         const res: any = await apiClient.get('/portal/user/profile');
-        return res.data || {
-          id: 'usr-1',
-          firstName: 'Diya',
-          lastName: 'Jain',
-          name: 'Diya Jain',
-          email: 'diya.jain@whatslandlord.com',
-          phone: '(512) 555-0188',
-          role: 'Collection Manager',
-          department: 'Collections & Revenue',
-          company: 'Apex Property Management',
+        if (res?.data) return res.data;
+        const u = getStoredUser();
+        return {
+          id: u?.id || '',
+          firstName: u?.firstName || '',
+          lastName: u?.lastName || '',
+          name: u?.name || `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || '',
+          email: u?.email || '',
+          phone: u?.phone || '',
+          role: u?.role || 'Collection Manager',
+          department: 'Collections',
+          company: u?.companyName || '',
         };
       } catch (e) {
         console.error('User profile DB fetch failed:', e);
+        const u = getStoredUser();
         return {
-          id: 'usr-1',
-          firstName: 'Diya',
-          lastName: 'Jain',
-          name: 'Diya Jain',
-          email: 'diya.jain@whatslandlord.com',
-          phone: '(512) 555-0188',
-          role: 'Collection Manager',
-          department: 'Collections & Revenue',
-          company: 'Apex Property Management',
+          id: u?.id || '',
+          firstName: u?.firstName || '',
+          lastName: u?.lastName || '',
+          name: u?.name || `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || '',
+          email: u?.email || '',
+          phone: u?.phone || '',
+          role: u?.role || 'Collection Manager',
+          department: 'Collections',
+          company: u?.companyName || '',
         };
       }
     },
@@ -4206,12 +4235,8 @@ export const api = {
       return res.data;
     },
     changePassword: async (data: any) => {
-      try {
-        const res: any = await apiClient.post('/auth/change-password', data);
-        return res.data;
-      } catch (e) {
-        return { success: true, message: 'Password updated successfully' };
-      }
+      const res: any = await apiClient.post('/auth/change-password', data);
+      return res?.data || res || { success: true, message: 'Password updated successfully' };
     },
     getPublicProperties: async () => {
       const res: any = await apiClient.get('/auth/public-properties');

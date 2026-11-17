@@ -10,6 +10,7 @@ import { Download, Printer, Eye, ArrowLeft, Pencil, Sparkles } from 'lucide-reac
 import { ColumnDef } from '@tanstack/react-table';
 import { useSearch, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '../../store/useStore';
 import { EditPaymentModal } from './EditPaymentModal';
 
 interface LedgerItem {
@@ -28,6 +29,8 @@ interface LedgerItem {
 
 export const RentLedgerPage: React.FC = () => {
   const { t } = useTranslation();
+  const { user } = useAuthStore();
+  const isCollectionManager = user?.role === 'Collection Manager';
   const [searchQuery, setSearchQuery] = useState('');
   const [propertyFilter, setPropertyFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -82,9 +85,33 @@ export const RentLedgerPage: React.FC = () => {
 
 
   const selectedTenant = tenants.find((t) => t.id === selectedTenantId);
-  const tenantProperty = selectedTenant ? properties.find((p) => p.id === selectedTenant.propertyId) : null;
-  const propertyAddress = tenantProperty ? tenantProperty.address : (selectedTenant?.propertyName ? `${selectedTenant.propertyName}, Austin, TX` : 'N/A');
-  const managementCompany = profile?.company || tenantProperty?.managementCompany || 'Astoria Group';
+
+  // Dynamic property & unit resolution across tenant record, ledger transactions, and property registry
+  const tenantTxWithProp = ledger.find((item: any) => 
+    (item.tenantId === selectedTenantId || (selectedTenant && item.tenantName === `${selectedTenant.firstName} ${selectedTenant.lastName}`.trim())) &&
+    item.propertyName && item.propertyName !== 'Unassigned' && item.propertyName !== 'Property'
+  );
+
+  const effectivePropertyName = 
+    (selectedTenant?.propertyName && selectedTenant.propertyName !== 'Unassigned' && selectedTenant.propertyName !== 'Property')
+      ? selectedTenant.propertyName
+      : (tenantTxWithProp?.propertyName || (selectedTenant?.propertyName && selectedTenant.propertyName !== 'Unassigned' ? selectedTenant.propertyName : '—'));
+
+  const effectiveUnitNumber = 
+    (selectedTenant?.unitNumber && selectedTenant.unitNumber !== 'Unassigned')
+      ? selectedTenant.unitNumber
+      : (tenantTxWithProp?.unitNumber || (selectedTenant?.unitNumber && selectedTenant.unitNumber !== 'Unassigned' ? selectedTenant.unitNumber : '—'));
+
+  const tenantProperty = selectedTenant ? properties.find((p: any) => p.id === selectedTenant.propertyId) : null;
+  const matchedProperty = tenantProperty || properties.find((p: any) => 
+    effectivePropertyName && effectivePropertyName !== '—' && p.name && p.name.trim().toLowerCase() === effectivePropertyName.trim().toLowerCase()
+  );
+
+  const propertyAddress = matchedProperty?.address
+    ? [matchedProperty.address, matchedProperty.city, matchedProperty.state, matchedProperty.zip].filter(Boolean).join(', ')
+    : (selectedTenant?.currentAddress || (effectivePropertyName !== '—' ? effectivePropertyName : '—'));
+
+  const managementCompany = profile?.company || tenantProperty?.managementCompany || user?.companyName || 'Property Management';
 
   const selectedTenantLedger = React.useMemo(() => {
     if (!selectedTenant) return [];
@@ -233,7 +260,7 @@ export const RentLedgerPage: React.FC = () => {
           item.createdBy === 'Tenant' ||
           item.createdBy === 'Tenant Portal' ||
           ['Razorpay', 'Stripe', 'AuthorizeNet'].includes(item.paymentMethod);
-        const canEditPayment = isPayment && !isTenantOnline && (item.paymentId || (item.id && String(item.id).startsWith('led-pay-')));
+        const canEditPayment = !isCollectionManager && isPayment && !isTenantOnline && (item.paymentId || (item.id && String(item.id).startsWith('led-pay-')));
 
         return (
           <div className="flex items-center space-x-1">
@@ -549,7 +576,10 @@ export const RentLedgerPage: React.FC = () => {
                   </span>
                   <h2 className="font-black text-2xl text-primary mt-1.5">{managementCompany}</h2>
                   <p className="text-xs text-muted-foreground font-semibold">
-                    Phone: <span className="text-foreground font-bold">{profile?.phone || '+1 (555) 234-5678'}</span> • Email: <span className="text-foreground font-bold">{profile?.email || 'support@whatslandlord.com'}</span>
+                    {profile?.phone ? (
+                      <>Phone: <span className="text-foreground font-bold">{profile.phone}</span> • </>
+                    ) : null}
+                    Email: <span className="text-foreground font-bold">{profile?.email || user?.email || '—'}</span>
                   </p>
                 </div>
                 <div className="text-[10px] text-muted-foreground uppercase font-bold text-right">
@@ -601,8 +631,8 @@ export const RentLedgerPage: React.FC = () => {
                 </div>
                 <div className="space-y-1.5 md:text-right">
                   <p className="text-muted-foreground uppercase text-[9px] font-bold tracking-wider">Location & Unit Details</p>
-                  <p className="text-foreground text-sm font-extrabold">Unit {selectedTenant.unitNumber || 'N/A'}</p>
-                  <p className="text-muted-foreground">Property: <span className="text-foreground font-bold">{selectedTenant.propertyName || 'Property'}</span></p>
+                  <p className="text-foreground text-sm font-extrabold">{effectiveUnitNumber && effectiveUnitNumber !== '—' ? `Unit ${effectiveUnitNumber}` : 'Unit —'}</p>
+                  <p className="text-muted-foreground">Property: <span className="text-foreground font-bold">{effectivePropertyName}</span></p>
                   <p className="text-muted-foreground">Address: <span className="text-foreground font-bold">{propertyAddress}</span></p>
                 </div>
               </div>

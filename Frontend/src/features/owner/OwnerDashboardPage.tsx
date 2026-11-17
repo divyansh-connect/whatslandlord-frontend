@@ -28,7 +28,8 @@ export const OwnerDashboardPage: React.FC = () => {
   const monthlyExpenses = metrics?.monthlyExpenses || 3200;
   const netIncome = metrics?.netIncome ?? (metrics as any)?.netDistribution ?? (monthlyIncome - monthlyExpenses);
   const totalProperties = metrics?.totalProperties || 0;
-  const occupancyRate = metrics?.occupancyRate || 94.5;
+  const rawOcc = metrics?.occupancyRate !== undefined ? metrics.occupancyRate : 94.5;
+  const occupancyRate = typeof rawOcc === 'number' ? Math.min(100, Math.max(0, rawOcc)) : Math.min(100, Math.max(0, parseFloat(String(rawOcc).replace(/%/g, '')) || 0));
   const totalUnits = metrics?.totalUnits || totalProperties * 4;
   const pendingMaintenance = metrics?.pendingMaintenance || 0;
 

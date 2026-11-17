@@ -323,14 +323,68 @@ const ProtectedWrapper: React.FC<{ children: React.ReactNode }> = ({ children })
   // Role Access Guard
   let hasAccess = true;
   if (!isIntegrationsPath) {
+    const isPrimary = (user as any)?.isPrimary;
+    const isCoManager = user?.role === 'Co-Manager' || (user?.role === 'Property Manager' && isPrimary === false);
+
     if (user?.role === 'Owner' && !isOwnerPath) {
       hasAccess = false;
     } else if (user?.role === 'Tenant' && !isTenantPath) {
       hasAccess = false;
     } else if (user?.role === 'Maintenance Staff' && !isStaffPath) {
       hasAccess = false;
-    } else if (user?.role && user.role !== 'Super Admin' && user.role !== 'Property Manager') {
+    } else if (isCoManager) {
       // Map pathname to module permissions
+      const getRequiredModule = (path: string): string => {
+        if (path.startsWith('/properties') || path.startsWith('/buildings') || path.startsWith('/units')) return 'Properties';
+        if (path.startsWith('/leasing')) return 'Leasing';
+        if (path.startsWith('/tenants')) return 'Tenants';
+        if (path.startsWith('/owners')) return 'Owners';
+        if (path.startsWith('/rent') || path.startsWith('/payments') || path.startsWith('/invoices') || path.startsWith('/rent-ledger')) return 'Rent & Payments';
+        if (path.startsWith('/accounting')) return 'Accounting';
+        if (path.startsWith('/maintenance') || path.startsWith('/inspections') || path.startsWith('/vendors')) return 'Maintenance';
+        if (path.startsWith('/documents')) return 'Documents';
+        if (path.startsWith('/reports')) return 'Reports';
+        if (path.startsWith('/communication')) return 'Communication';
+        if (path.startsWith('/ai')) return 'AI Assistant';
+        if (path.startsWith('/admin') || path.startsWith('/platform-integrations') || path.startsWith('/company-settings')) return 'Company Settings';
+        return '';
+      };
+
+      const reqModule = getRequiredModule(location.pathname);
+      if (reqModule === 'Company Settings') {
+        hasAccess = false;
+      } else if (reqModule) {
+        const userPermissions = (user as any)?.permissions;
+        let found = false;
+        if (Array.isArray(userPermissions) && userPermissions.length > 0) {
+          const permRule = userPermissions.find(
+            (p: any) => p.module?.toLowerCase() === reqModule.toLowerCase()
+          );
+          if (permRule) {
+            found = true;
+            if (!permRule.view && !permRule.canView) {
+              hasAccess = false;
+            }
+          }
+        }
+        if (!found) {
+          const matchingRole = roles.find(
+            (r: any) =>
+              r.name.toLowerCase() === user.role.toLowerCase() ||
+              (user.email && r.name.toLowerCase().includes(user.email.toLowerCase()))
+          );
+          if (matchingRole) {
+            const permRule = matchingRole.permissions.find(
+              (p: any) => p.module?.toLowerCase() === reqModule.toLowerCase()
+            );
+            if (permRule && !permRule.view && !(permRule as any).canView) {
+              hasAccess = false;
+            }
+          }
+        }
+      }
+    } else if (user?.role && user.role !== 'Super Admin' && user.role !== 'Property Manager') {
+      // Map pathname to module permissions for other custom roles
       const getRequiredModule = (path: string): string => {
         if (path.startsWith('/properties') || path.startsWith('/buildings') || path.startsWith('/units')) return 'Properties';
         if (path.startsWith('/leasing')) return 'Leasing';

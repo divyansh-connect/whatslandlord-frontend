@@ -295,7 +295,7 @@ export const TenantDashboardPage: React.FC = () => {
       )}
 
       {/* METRIC GRID */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card className="p-5 border bg-card flex flex-col justify-between">
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('tenant.dashboard.currentRentDue')}</p>
@@ -309,23 +309,9 @@ export const TenantDashboardPage: React.FC = () => {
             <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('tenant.dashboard.outstandingBalance')}</p>
             <p className="text-2xl font-black mt-1 text-emerald-500">${metrics.outstandingBalance.toLocaleString()}</p>
           </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('tenant.dashboard.accountStatus')}</span>
-        </Card>
-
-        <Card className="p-5 border bg-card flex flex-col justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('tenant.dashboard.activeVisitorPasses')}</p>
-            <p className="text-2xl font-black mt-1 text-indigo-500">{metrics.activeVisitors}</p>
-          </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('tenant.dashboard.registeredGuests')}</span>
-        </Card>
-
-        <Card className="p-5 border bg-card flex flex-col justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('tenant.dashboard.waitingPackages')}</p>
-            <p className="text-2xl font-black mt-1 text-amber-500">{metrics.packagesWaiting}</p>
-          </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('tenant.dashboard.awaitingPickup')}</span>
+          <span className="text-[10px] text-muted-foreground font-semibold mt-4">
+            {metrics.outstandingBalance > 0 ? 'Account status: Overdue / Outstanding' : 'Account status: Paid in Full'}
+          </span>
         </Card>
       </div>
 

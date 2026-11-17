@@ -57,6 +57,8 @@ interface User {
   name: string;
   email: string;
   role: string;
+  isPrimary?: boolean;
+  permissions?: any[];
   companyId?: string;
   companyName?: string;
   planName?: string;
@@ -95,6 +97,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       name: `${apiUser.firstName} ${apiUser.lastName}`,
       email: apiUser.email,
       role: apiUser.roleName,
+      isPrimary: apiUser.isPrimary,
+      permissions: apiUser.permissions,
       companyId: apiUser.companyId,
       companyName: apiUser.companyName,
       planName: apiUser.planName,

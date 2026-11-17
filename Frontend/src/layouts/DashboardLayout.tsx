@@ -233,17 +233,57 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     },
   ];
 
-  const { data: roles = [] } = useQuery({
-    queryKey: ['rbac-roles-list'],
-    queryFn: () => api.roles.getAll(),
+  const isCoManager = user?.role === 'Co-Manager' || (user as any)?.isPrimary === false;
+
+  // Fresh permissions query for Co-Managers (ensures real-time update even without re-login)
+  const { data: companyUsers = [] } = useQuery({
+    queryKey: ['my-permissions-info', user?.email],
+    queryFn: () => api.users.getAll(),
+    enabled: Boolean(user?.email && isCoManager),
   });
 
+  const currentUserPerms = React.useMemo(() => {
+    const directPerms = (user as any)?.permissions;
+    if (Array.isArray(directPerms) && directPerms.length > 0) {
+      return directPerms;
+    }
+    const myRecord = (companyUsers as any[]).find(
+      (u: any) => u.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase()
+    );
+    return myRecord?.permissions || [];
+  }, [user, companyUsers]);
+
   const hasModuleAccess = (moduleName: string) => {
-    if (user?.role === 'Super Admin' || user?.role === 'Property Manager') return true;
-    const matchingRole = roles.find(r => r.name.toLowerCase() === user?.role?.toLowerCase());
-    if (!matchingRole) return true; // fallback
-    const permRule = matchingRole.permissions.find((p: any) => p.module === moduleName);
-    return permRule ? permRule.view : false;
+    // Super Admin has full access
+    if (user?.role === 'Super Admin') return true;
+
+    // Primary Manager has full master access
+    const isPrimary = (user as any)?.isPrimary;
+    if (user?.role === 'Property Manager' && isPrimary !== false) return true;
+
+    // Co-Manager: NEVER has access to Company Settings
+    if (isCoManager && (moduleName === 'Company Settings' || moduleName === 'Settings')) {
+      return false;
+    }
+
+    // Check user's specific permissions from direct state or API query
+    if (Array.isArray(currentUserPerms) && currentUserPerms.length > 0) {
+      const permRule = currentUserPerms.find(
+        (p: any) => p.module?.toLowerCase() === moduleName.toLowerCase()
+      );
+      if (permRule) return Boolean(permRule.view ?? permRule.canView);
+    }
+
+    // Fallback for Co-Manager if permissions are still initializing:
+    if (isCoManager) {
+      // Sensitive owner-only modules are blocked by default
+      if (moduleName === 'Company Settings' || moduleName === 'Accounting') {
+        return false;
+      }
+      return true;
+    }
+
+    return true;
   };
 
   const getFilteredMenuItems = () => {
@@ -252,14 +292,18 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
     const filtered: MenuItem[] = [];
 
-    managerMenuItems.forEach(item => {
+    managerMenuItems.forEach((item) => {
       let moduleName = '';
-      if (item.path.startsWith('/properties') || item.path.startsWith('/buildings') || item.path.startsWith('/units')) {
+      if (item.path === '/') {
+        moduleName = 'Dashboard';
+      } else if (item.path.startsWith('/properties') || item.path.startsWith('/buildings') || item.path.startsWith('/units')) {
         moduleName = 'Properties';
       } else if (item.path.startsWith('/leasing')) {
         moduleName = 'Leasing';
       } else if (item.path.startsWith('/tenants')) {
         moduleName = 'Tenants';
+      } else if (item.path.startsWith('/documents')) {
+        moduleName = 'Documents';
       } else if (item.path.startsWith('/owners')) {
         moduleName = 'Owners';
       } else if (item.path.startsWith('/rent') || item.path.startsWith('/payments') || item.path.startsWith('/invoices') || item.path.startsWith('/rent-ledger')) {
@@ -272,12 +316,10 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         moduleName = 'Reports';
       } else if (item.path.startsWith('/communication')) {
         moduleName = 'Communication';
-      } else if (item.path.startsWith('/notifications')) {
-        moduleName = 'Notifications';
+      } else if (item.path.startsWith('/ai')) {
+        moduleName = 'AI Assistant';
       } else if (item.path.startsWith('/admin') || item.path.startsWith('/platform-integrations')) {
         moduleName = 'Company Settings';
-      } else if (item.path.startsWith('/ai')) {
-        moduleName = 'Dashboard';
       }
 
       if (!moduleName || hasModuleAccess(moduleName)) {
@@ -288,7 +330,10 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     return filtered;
   };
 
-  const visibleMenuItems = React.useMemo(() => getFilteredMenuItems(), [user?.role, roles]);
+  const visibleMenuItems = React.useMemo(
+    () => getFilteredMenuItems(),
+    [user?.role, currentUserPerms, isCoManager]
+  );
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -359,7 +404,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     if (activeItem) {
       setActiveDropdown(activeItem.title);
     }
-  }, [currentPath, roles]);
+  }, [currentPath, visibleMenuItems]);
 
   const navRef = useRef<HTMLDivElement>(null);
 

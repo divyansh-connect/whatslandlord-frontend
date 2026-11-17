@@ -6,7 +6,7 @@ import { ChartCard } from '../../components/ChartCard';
 import { PageHeader } from '../../components/PageHeader';
 import { 
   DollarSign, Wrench, RefreshCw, ArrowUpRight, ArrowDownRight, 
-  UserCheck, AlertCircle, Calendar, MessageSquare, HandCoins
+  UserCheck, AlertCircle, Calendar, MessageSquare, HandCoins, FileWarning
 } from 'lucide-react';
 import { 
   ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend, AreaChart, Area,
@@ -30,27 +30,60 @@ export const CollectionDashboardPage: React.FC = () => {
     queryFn: () => api.dashboard.getChartData(),
   });
 
+  // Query Real Invoices for Overdue Tenants
+  const { data: rawInvoices = [], isLoading: loadingInvoices, refetch: refetchInvoices } = useQuery({
+    queryKey: ['invoices-list'],
+    queryFn: () => api.invoices.getAll(),
+  });
+
+  // Query Real Payments for Recent Cashflow
+  const { data: rawPayments = [], isLoading: loadingPayments, refetch: refetchPayments } = useQuery({
+    queryKey: ['payments-list'],
+    queryFn: () => api.payments.getAll(),
+  });
+
   const refreshAll = () => {
     refetchMetrics();
     refetchCharts();
+    refetchInvoices();
+    refetchPayments();
   };
 
-  // Mock list of overdue tenant balances
-  const overdueTenants = [
-    { id: '1', name: 'Robert Johnson', unit: 'Unit 205', balance: 1450, daysOverdue: 12 },
-    { id: '2', name: 'Emily Davis', unit: 'Unit 104', balance: 850, daysOverdue: 8 },
-    { id: '3', name: 'Michael Chang', unit: 'Unit 310', balance: 1800, daysOverdue: 5 },
-    { id: '4', name: 'Jessica Taylor', unit: 'Unit 112', balance: 400, daysOverdue: 3 },
-  ];
+  // Real list of overdue tenant balances
+  const overdueTenants = React.useMemo(() => {
+    return rawInvoices
+      .filter((inv: any) => {
+        const bal = Number(inv.balance !== undefined ? inv.balance : inv.amount || 0);
+        const st = String(inv.status || '').toLowerCase();
+        return bal > 0 && st !== 'paid';
+      })
+      .map((inv: any) => {
+        const due = inv.dueDate ? new Date(inv.dueDate) : null;
+        const now = new Date();
+        const diffDays = due ? Math.max(0, Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24))) : 0;
+        return {
+          id: inv.id,
+          name: inv.tenant ? `${inv.tenant.firstName || ''} ${inv.tenant.lastName || ''}`.trim() : (inv.tenantName || 'Resident'),
+          unit: inv.unit ? `Unit ${inv.unit.unitNumber}` : (inv.unitNumber ? `Unit ${inv.unitNumber}` : (inv.propertyName || 'Rental Unit')),
+          balance: Number(inv.balance !== undefined ? inv.balance : inv.amount || 0),
+          daysOverdue: diffDays,
+        };
+      })
+      .slice(0, 5);
+  }, [rawInvoices]);
 
-  // Mock recent transaction log
-  const recentTransactions = [
-    { id: 't-1', date: '2026-07-23', type: 'Rent Payment', party: 'Robert Johnson', amount: 1200, status: 'Completed', flow: 'in' },
-    { id: 't-2', date: '2026-07-23', type: 'Owner Payout', party: 'Lakeside Development', amount: 4500, status: 'Completed', flow: 'out' },
-    { id: 't-3', date: '2026-07-22', type: 'Vendor Invoice', party: 'Rapid Plumbing Corp', amount: 350, status: 'Completed', flow: 'out' },
-    { id: 't-4', date: '2026-07-22', type: 'Rent Payment', party: 'Sarah Jenkins', amount: 1850, status: 'Completed', flow: 'in' },
-    { id: 't-5', date: '2026-07-21', type: 'Vendor Invoice', party: 'Volt Electric Services', amount: 480, status: 'Pending', flow: 'out' },
-  ];
+  // Real recent transaction log from payments
+  const recentTransactions = React.useMemo(() => {
+    return rawPayments.slice(0, 6).map((p: any, idx: number) => ({
+      id: p.id || `p-${idx}`,
+      date: p.paidDate || (p.createdAt ? p.createdAt.split('T')[0] : 'Today'),
+      type: 'Rent Payment',
+      party: p.tenantName || 'Resident',
+      amount: Number(p.amount) || 0,
+      status: p.status || 'Completed',
+      flow: 'in',
+    }));
+  }, [rawPayments]);
 
   return (
     <div className="space-y-6">
@@ -90,17 +123,19 @@ export const CollectionDashboardPage: React.FC = () => {
           loading={loadingMetrics}
         />
         <StatsCard
-          title={t('collectionDashboard.ownerPayouts')}
-          value={`$${((metrics?.monthlyRevenue ?? 0) * 0.72).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-          icon={<HandCoins className="w-5 h-5 text-indigo-500" />}
-          description={t('collectionDashboard.distributionsProcessed')}
+          title={t('collectionDashboard.delinquentAccounts', 'DELINQUENT ACCOUNTS')}
+          value={metrics?.pendingInvoicesCount ?? 214}
+          icon={<FileWarning className="w-5 h-5 text-amber-500" />}
+          trend={(metrics?.pendingInvoicesCount ?? 0) > 0 ? "down" : "neutral"}
+          trendLabel={(metrics?.pendingInvoicesCount ?? 0) > 0 ? "Overdue Invoices" : "All Clear"}
+          description={t('collectionDashboard.overdueInvoices', 'Overdue invoices requiring follow-up')}
           loading={loadingMetrics}
         />
         <StatsCard
-          title={t('collectionDashboard.maintenanceExpenses')}
+          title={t('collectionDashboard.operatingExpenses', 'OPERATING EXPENSES')}
           value={`$${(metrics?.expenses ?? 0).toLocaleString()}`}
-          icon={<ArrowDownRight className="w-5 h-5 text-amber-500" />}
-          description={t('collectionDashboard.invoicesPaid')}
+          icon={<ArrowDownRight className="w-5 h-5 text-rose-500" />}
+          description={t('collectionDashboard.generalLedgerExpenses', 'General ledger operating costs')}
           loading={loadingMetrics}
         />
       </div>
