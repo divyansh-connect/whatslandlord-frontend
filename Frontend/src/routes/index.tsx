@@ -742,6 +742,16 @@ const tenantDetailsRoute = createRoute({
 });
 
 // Leases & Leasing Routes (Phase 3)
+const leasingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/leasing',
+  component: () => (
+    <ProtectedWrapper>
+      <LeasesPage />
+    </ProtectedWrapper>
+  ),
+});
+
 const leasesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/leasing/leases',
@@ -6041,6 +6051,7 @@ const routeTree = rootRoute.addChildren([
   tenantDetailsRoute,
 
   // Leasing
+  leasingRoute,
   leasesRoute,
   newLeaseRoute,
   leaseDetailsRoute,

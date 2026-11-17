@@ -419,8 +419,15 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     if (navRef.current) {
       sessionStorage.setItem('sidebar-scroll', navRef.current.scrollTop.toString());
     }
-    if (item.submenu) {
-      setActiveDropdown(activeDropdown === item.title ? null : item.title);
+    if (item.submenu && item.submenu.length > 0) {
+      const targetPath = item.path || item.submenu[0]?.path;
+      if (targetPath && currentPath !== targetPath) {
+        setActiveDropdown(item.title);
+        navigate(targetPath);
+        setIsMobileOpen(false);
+      } else {
+        setActiveDropdown(activeDropdown === item.title ? null : item.title);
+      }
     } else {
       navigate(item.path);
       setIsMobileOpen(false);
@@ -514,7 +521,17 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                     {isSidebarOpen && <span>{item.title}</span>}
                   </div>
                   {isSidebarOpen && hasSub && (
-                    <span>{isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveDropdown(activeDropdown === item.title ? null : item.title);
+                      }}
+                      className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded transition-colors"
+                    >
+                      {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </span>
                   )}
                 </button>
 
@@ -609,7 +626,19 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                           </span>
                         )}
                       </div>
-                      {hasSub && (isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />)}
+                      {hasSub && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveDropdown(activeDropdown === item.title ? null : item.title);
+                          }}
+                          className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded transition-colors"
+                        >
+                          {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        </span>
+                      )}
                     </button>
                     {hasSub && isOpen && (
                       <div className="pl-6 space-y-1 py-1 border-l ml-5 mt-1 border-border">
