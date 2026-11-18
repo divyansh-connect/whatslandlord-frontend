@@ -243,14 +243,17 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   });
 
   const currentUserPerms = React.useMemo(() => {
+    const myRecord = (companyUsers as any[]).find(
+      (u: any) => u.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase()
+    );
+    if (myRecord?.permissions && Array.isArray(myRecord.permissions) && myRecord.permissions.length > 0) {
+      return myRecord.permissions;
+    }
     const directPerms = (user as any)?.permissions;
     if (Array.isArray(directPerms) && directPerms.length > 0) {
       return directPerms;
     }
-    const myRecord = (companyUsers as any[]).find(
-      (u: any) => u.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase()
-    );
-    return myRecord?.permissions || [];
+    return [];
   }, [user, companyUsers]);
 
   const hasModuleAccess = (moduleName: string) => {
@@ -318,6 +321,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         moduleName = 'Communication';
       } else if (item.path.startsWith('/ai')) {
         moduleName = 'AI Assistant';
+      } else if (item.path.startsWith('/restore-bin')) {
+        moduleName = 'Restore Bin';
       } else if (item.path.startsWith('/admin') || item.path.startsWith('/platform-integrations')) {
         moduleName = 'Company Settings';
       }

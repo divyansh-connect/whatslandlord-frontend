@@ -155,32 +155,61 @@ export const RolesPage: React.FC = () => {
     }
   };
 
-  const handlePermissionToggle = (
-    module: string,
-    action: 'view' | 'create' | 'edit' | 'delete' | 'approve' | 'export',
-    checked: boolean
-  ) => {
+  const handleToggleModule = (module: string, enabled: boolean) => {
     if (isPrimaryActive) return; // Primary Manager cannot be edited or restricted!
 
     setLocalPermissions((prev) => {
       const idx = prev.findIndex((p) => p.module?.toLowerCase() === module.toLowerCase());
+      const updatedItem: PermissionItem = {
+        module,
+        view: enabled,
+        create: enabled,
+        edit: enabled,
+        delete: enabled,
+        approve: enabled,
+        export: enabled,
+        canView: enabled,
+        canCreate: enabled,
+        canEdit: enabled,
+        canDelete: enabled,
+        canApprove: enabled,
+        canExport: enabled,
+      };
+
       if (idx !== -1) {
         const copy = [...prev];
-        copy[idx] = { ...copy[idx], [action]: checked };
+        copy[idx] = updatedItem;
         return copy;
       } else {
-        const newItem: PermissionItem = {
-          module,
-          view: action === 'view' ? checked : false,
-          create: action === 'create' ? checked : false,
-          edit: action === 'edit' ? checked : false,
-          delete: action === 'delete' ? checked : false,
-          approve: action === 'approve' ? checked : false,
-          export: action === 'export' ? checked : false,
-        };
-        return [...prev, newItem];
+        return [...prev, updatedItem];
       }
     });
+  };
+
+  const handleToggleAll = (enabled: boolean) => {
+    if (isPrimaryActive) return;
+    const standardModules = [
+      'Dashboard', 'Properties', 'Leasing', 'Tenants', 'Documents',
+      'Owners', 'Rent & Payments', 'Accounting', 'Maintenance',
+      'Reports', 'Communication', 'AI Assistant', 'Restore Bin'
+    ];
+    setLocalPermissions(
+      standardModules.map((mod) => ({
+        module: mod,
+        view: enabled,
+        create: enabled,
+        edit: enabled,
+        delete: enabled,
+        approve: enabled,
+        export: enabled,
+        canView: enabled,
+        canCreate: enabled,
+        canEdit: enabled,
+        canDelete: enabled,
+        canApprove: enabled,
+        canExport: enabled,
+      }))
+    );
   };
 
   const handleSavePermissions = () => {
@@ -450,7 +479,8 @@ export const RolesPage: React.FC = () => {
               managerName={activeManager.name}
               isPrimary={isPrimaryActive}
               permissions={isPrimaryActive ? [] : localPermissions}
-              onToggle={handlePermissionToggle}
+              onToggleModule={handleToggleModule}
+              onToggleAll={handleToggleAll}
               onSave={handleSavePermissions}
               isSaving={updatePermissionsMutation.isPending}
             />

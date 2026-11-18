@@ -292,6 +292,29 @@ const ProtectedWrapper: React.FC<{ children: React.ReactNode }> = ({ children })
     enabled: isAuthenticated && !!user,
   });
 
+  const isPrimary = (user as any)?.isPrimary;
+  const isCoManager = user?.role === 'Co-Manager' || (user?.role === 'Property Manager' && isPrimary === false);
+
+  const { data: companyUsers = [] } = useQuery({
+    queryKey: ['my-permissions-info', user?.email],
+    queryFn: () => api.users.getAll(),
+    enabled: Boolean(isAuthenticated && user?.email && isCoManager),
+  });
+
+  const currentUserPerms = React.useMemo(() => {
+    const myRecord = (companyUsers as any[]).find(
+      (u: any) => u.email?.trim().toLowerCase() === user?.email?.trim().toLowerCase()
+    );
+    if (myRecord?.permissions && Array.isArray(myRecord.permissions) && myRecord.permissions.length > 0) {
+      return myRecord.permissions;
+    }
+    const directPerms = (user as any)?.permissions;
+    if (Array.isArray(directPerms) && directPerms.length > 0) {
+      return directPerms;
+    }
+    return [];
+  }, [user, companyUsers]);
+
   React.useEffect(() => {
     if (!isAuthenticated) {
       navigate({ to: '/login' });
@@ -346,6 +369,7 @@ const ProtectedWrapper: React.FC<{ children: React.ReactNode }> = ({ children })
         if (path.startsWith('/reports')) return 'Reports';
         if (path.startsWith('/communication')) return 'Communication';
         if (path.startsWith('/ai')) return 'AI Assistant';
+        if (path.startsWith('/restore-bin')) return 'Restore Bin';
         if (path.startsWith('/admin') || path.startsWith('/platform-integrations') || path.startsWith('/company-settings')) return 'Company Settings';
         return '';
       };
@@ -354,33 +378,18 @@ const ProtectedWrapper: React.FC<{ children: React.ReactNode }> = ({ children })
       if (reqModule === 'Company Settings') {
         hasAccess = false;
       } else if (reqModule) {
-        const userPermissions = (user as any)?.permissions;
-        let found = false;
-        if (Array.isArray(userPermissions) && userPermissions.length > 0) {
-          const permRule = userPermissions.find(
+        if (Array.isArray(currentUserPerms) && currentUserPerms.length > 0) {
+          const permRule = currentUserPerms.find(
             (p: any) => p.module?.toLowerCase() === reqModule.toLowerCase()
           );
           if (permRule) {
-            found = true;
-            if (!permRule.view && !permRule.canView) {
-              hasAccess = false;
-            }
+            hasAccess = Boolean(permRule.view ?? permRule.canView);
+          } else {
+            hasAccess = !['Company Settings', 'Accounting'].includes(reqModule);
           }
-        }
-        if (!found) {
-          const matchingRole = roles.find(
-            (r: any) =>
-              r.name.toLowerCase() === user.role.toLowerCase() ||
-              (user.email && r.name.toLowerCase().includes(user.email.toLowerCase()))
-          );
-          if (matchingRole) {
-            const permRule = matchingRole.permissions.find(
-              (p: any) => p.module?.toLowerCase() === reqModule.toLowerCase()
-            );
-            if (permRule && !permRule.view && !(permRule as any).canView) {
-              hasAccess = false;
-            }
-          }
+        } else {
+          // If permissions still initializing or empty, allow access except to sensitive admin routes
+          hasAccess = !['Company Settings', 'Accounting'].includes(reqModule);
         }
       }
     } else if (user?.role && user.role !== 'Super Admin' && user.role !== 'Property Manager') {
@@ -395,6 +404,8 @@ const ProtectedWrapper: React.FC<{ children: React.ReactNode }> = ({ children })
         if (path.startsWith('/maintenance') || path.startsWith('/inspections') || path.startsWith('/vendors')) return 'Maintenance';
         if (path.startsWith('/reports')) return 'Reports';
         if (path.startsWith('/communication')) return 'Communication';
+        if (path.startsWith('/ai')) return 'AI Assistant';
+        if (path.startsWith('/restore-bin')) return 'Restore Bin';
         if (path.startsWith('/admin') || path.startsWith('/platform-integrations')) return 'Company Settings';
         return '';
       };
