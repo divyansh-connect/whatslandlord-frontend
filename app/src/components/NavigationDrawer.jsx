@@ -176,6 +176,7 @@ export const NavigationDrawer = ({ visible, onClose, activeScreen, activeTab, on
     else if (m.id === 'reports') moduleName = 'Reports';
     else if (m.id === 'communication') moduleName = 'Communication';
     else if (m.id === 'ai') moduleName = 'AI Assistant';
+    else if (m.id === 'restore-bin' || m.id === 'bin') moduleName = 'Restore Bin';
 
     if (!moduleName) return true;
     const userPerms = user?.permissions;

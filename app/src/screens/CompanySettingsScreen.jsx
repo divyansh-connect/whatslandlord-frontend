@@ -132,8 +132,82 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
   const defaultModulesList = [
     'Dashboard', 'Properties', 'Leasing', 'Tenants', 'Documents',
     'Owners', 'Rent & Payments', 'Accounting', 'Maintenance',
-    'Reports', 'Communication', 'AI Assistant', 'Company Settings'
+    'Reports', 'Communication', 'AI Assistant', 'Restore Bin', 'Company Settings'
   ];
+
+  const MODULE_METADATA = {
+    'Dashboard': {
+      icon: 'grid-outline',
+      color: '#3b82f6',
+      desc: 'Access main dashboard overview, performance charts, and summary statistics.',
+    },
+    'Properties': {
+      icon: 'business-outline',
+      color: '#6366f1',
+      desc: 'View and manage real estate properties, unit configurations, and drafts.',
+    },
+    'Leasing': {
+      icon: 'key-outline',
+      color: '#f59e0b',
+      desc: 'Manage rental leads, tenant screening, move-in/out checklists, and leases.',
+    },
+    'Tenants': {
+      icon: 'people-outline',
+      color: '#10b981',
+      desc: 'Access tenant directory, contact information, and tenant documents.',
+    },
+    'Documents': {
+      icon: 'document-text-outline',
+      color: '#0284c7',
+      desc: 'View, upload, and organize lease agreements, contracts, and company files.',
+    },
+    'Owners': {
+      icon: 'person-circle-outline',
+      color: '#a855f7',
+      desc: 'View property owner records, ownership splits, and owner statements.',
+    },
+    'Rent & Payments': {
+      icon: 'card-outline',
+      color: '#14b8a6',
+      desc: 'Track monthly rent collections, record incoming payments, and send invoices.',
+    },
+    'Accounting': {
+      icon: 'book-outline',
+      color: '#f97316',
+      desc: 'General ledger, charts of accounts, company income, and vendor expense tracking.',
+    },
+    'Maintenance': {
+      icon: 'construct-outline',
+      color: '#f43f5e',
+      desc: 'Handle maintenance tickets, assign tasks to staff, and track work orders.',
+    },
+    'Reports': {
+      icon: 'bar-chart-outline',
+      color: '#06b6d4',
+      desc: 'Generate business analytics, rent roll, occupancy rates, and financial reports.',
+    },
+    'Communication': {
+      icon: 'chatbubbles-outline',
+      color: '#8b5cf6',
+      desc: 'Send notifications, SMS updates, and announcements to tenants and owners.',
+    },
+    'AI Assistant': {
+      icon: 'sparkles-outline',
+      color: '#ec4899',
+      desc: 'Use AI chatbot for automated leasing analysis and operational queries.',
+    },
+    'Restore Bin': {
+      icon: 'refresh-circle-outline',
+      color: '#d97706',
+      desc: 'View, recover, or permanently purge soft-deleted items across modules.',
+    },
+    'Company Settings': {
+      icon: 'settings-outline',
+      color: '#64748b',
+      desc: 'Organization billing, integrations, and manager management (Owner only).',
+      ownerOnly: true,
+    },
+  };
 
   const companyManagers = React.useMemo(() => {
     return usersList.filter(
@@ -959,11 +1033,84 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
     );
   };
 
+  const handleToggleModule = async (moduleName, enabled) => {
+    if (isPrimaryActive) return; // Primary Manager cannot be restricted
+    if (moduleName === 'Company Settings') return;
+
+    const updated = permissionsMatrix.map((p) => {
+      if (p.module?.toLowerCase() === moduleName.toLowerCase()) {
+        return {
+          ...p,
+          view: enabled,
+          create: enabled,
+          edit: enabled,
+          delete: enabled,
+          approve: enabled,
+          export: enabled,
+          canView: enabled,
+          canCreate: enabled,
+          canEdit: enabled,
+          canDelete: enabled,
+          canApprove: enabled,
+          canExport: enabled,
+        };
+      }
+      return p;
+    });
+
+    setPermissionsMatrix(updated);
+    if (activeManager?.id) {
+      apiClient
+        .put(
+          `/superadmin/company-users/${activeManager.id}/permissions`,
+          { permissions: updated },
+          logout,
+          refreshAccessToken
+        )
+        .catch(() => {});
+    }
+  };
+
+  const handleToggleAll = async (enabled) => {
+    if (isPrimaryActive) return;
+
+    const updated = permissionsMatrix.map((p) => {
+      if (p.module === 'Company Settings') return p;
+      return {
+        ...p,
+        view: enabled,
+        create: enabled,
+        edit: enabled,
+        delete: enabled,
+        approve: enabled,
+        export: enabled,
+        canView: enabled,
+        canCreate: enabled,
+        canEdit: enabled,
+        canDelete: enabled,
+        canApprove: enabled,
+        canExport: enabled,
+      };
+    });
+
+    setPermissionsMatrix(updated);
+    if (activeManager?.id) {
+      apiClient
+        .put(
+          `/superadmin/company-users/${activeManager.id}/permissions`,
+          { permissions: updated },
+          logout,
+          refreshAccessToken
+        )
+        .catch(() => {});
+    }
+  };
+
   const handleTogglePermission = async (moduleName, action) => {
     if (isPrimaryActive) return; // Primary Manager cannot be restricted
     if (moduleName === 'Company Settings') return;
 
-    const updated = permissionsMatrix.map(p => {
+    const updated = permissionsMatrix.map((p) => {
       if (p.module === moduleName) {
         return { ...p, [action]: !p[action] };
       }
@@ -972,7 +1119,14 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
 
     setPermissionsMatrix(updated);
     if (activeManager?.id) {
-      apiClient.put(`/superadmin/company-users/${activeManager.id}/permissions`, { permissions: updated }, logout, refreshAccessToken).catch(() => {});
+      apiClient
+        .put(
+          `/superadmin/company-users/${activeManager.id}/permissions`,
+          { permissions: updated },
+          logout,
+          refreshAccessToken
+        )
+        .catch(() => {});
     }
   };
 
@@ -2779,36 +2933,56 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                 )}
               </View>
 
-              {/* Card 3: PERMISSION SCOPE MATRIX */}
+              {/* Card 3: MENU ACCESS CONTROLS (TOGGLES) */}
               <View style={styles.permissionMatrixCard}>
-                <View style={[styles.permissionMatrixHeader, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
-                  <View style={{ flex: 1, marginRight: 8 }}>
+                <View style={[styles.permissionMatrixHeader, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }]}>
+                  <View style={{ flex: 1, minWidth: 180 }}>
                     <Text style={styles.permissionMatrixHeading} allowFontScaling={false}>
-                      PERMISSION SCOPE MATRIX: {activeManager?.name?.toUpperCase() || 'MANAGER'} {isPrimaryActive ? '(PRIMARY MANAGER)' : '(CO-MANAGER)'}
+                      MENU ACCESS CONTROLS: {activeManager?.name?.toUpperCase() || 'MANAGER'} {isPrimaryActive ? '(PRIMARY OWNER)' : '(CO-MANAGER)'}
                     </Text>
                     <Text style={styles.permissionMatrixSubtitle} allowFontScaling={false}>
                       {isPrimaryActive
-                        ? 'Primary Manager holds master organizational authority. All privileges are permanently unlocked.'
-                        : 'Configure module accessibility privileges and functional operation authorizations.'}
+                        ? 'Primary Manager holds master organizational authority. All menus and features are permanently unlocked.'
+                        : 'Toggle which navigation menus and modules this Co-Manager can view and access.'}
                     </Text>
                   </View>
 
                   {!isPrimaryActive && (
-                    <TouchableOpacity
-                      style={styles.savePermissionsHeaderBtn}
-                      onPress={handleSavePermissions}
-                      disabled={savingPermissions}
-                      activeOpacity={0.85}
-                    >
-                      {savingPermissions ? (
-                        <ActivityIndicator size="small" color="#ffffff" />
-                      ) : (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          <Ionicons name="save-outline" size={13} color="#ffffff" />
-                          <Text style={styles.savePermissionsHeaderBtnText} allowFontScaling={false}>Save</Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TouchableOpacity
+                        style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: '#10b981', flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(16, 185, 129, 0.08)' }}
+                        onPress={() => handleToggleAll(true)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="checkmark" size={13} color="#10b981" />
+                        <Text style={{ fontSize: 10.5, fontWeight: '800', color: '#10b981' }} allowFontScaling={false}>Enable All</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: '#f43f5e', flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(244, 63, 94, 0.08)' }}
+                        onPress={() => handleToggleAll(false)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="close" size={13} color="#f43f5e" />
+                        <Text style={{ fontSize: 10.5, fontWeight: '800', color: '#f43f5e' }} allowFontScaling={false}>Disable All</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.savePermissionsHeaderBtn}
+                        onPress={handleSavePermissions}
+                        disabled={savingPermissions}
+                        activeOpacity={0.85}
+                      >
+                        {savingPermissions ? (
+                          <ActivityIndicator size="small" color="#ffffff" />
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <Ionicons name="save-outline" size={13} color="#ffffff" />
+                            <Text style={styles.savePermissionsHeaderBtnText} allowFontScaling={false}>Save</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   )}
                 </View>
 
@@ -2821,63 +2995,113 @@ export const CompanySettingsScreen = ({ initialTab = 'menu', onNavigate, onBack 
                   </View>
                 )}
 
-                <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-                  <View>
-                    {/* Header Row */}
-                    <View style={styles.matrixTableHeaderRow}>
-                      <Text style={[styles.matrixTableColHeader, { width: 145, textAlign: 'left' }]} allowFontScaling={false}>
-                        MODULE NAME
-                      </Text>
-                      {['view', 'create', 'edit', 'delete', 'approve', 'export'].map((act) => (
-                        <Text key={act} style={[styles.matrixTableColHeader, { width: 62, textAlign: 'center' }]} allowFontScaling={false}>
-                          {act.toUpperCase()}
-                        </Text>
-                      ))}
-                    </View>
+                {/* Modules Toggle List */}
+                <View style={{ paddingVertical: 4 }}>
+                  {defaultModulesList.map((modName) => {
+                    const meta = MODULE_METADATA[modName] || {
+                      icon: 'apps-outline',
+                      color: '#64748b',
+                      desc: 'Configure module access and functionality.',
+                    };
+                    const isSettings = modName === 'Company Settings';
+                    const isLocked = isPrimaryActive || isSettings;
+                    const p = permissionsMatrix.find((x) => x.module?.toLowerCase() === modName.toLowerCase()) || {};
+                    const isEnabled = isPrimaryActive ? true : isSettings ? false : Boolean(p.view ?? p.canView);
 
-                    {/* Matrix Rows */}
-                    {permissionsMatrix.map((p) => {
-                      const isSettings = p.module === 'Company Settings';
-                      const isLocked = isPrimaryActive || isSettings;
-                      return (
-                        <View key={p.module} style={[styles.matrixTableRow, isSettings && !isPrimaryActive && { backgroundColor: 'rgba(244, 63, 94, 0.05)' }]}>
-                          <View style={{ width: 145, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                            {isSettings && !isPrimaryActive && (
-                              <Ionicons name="lock-closed" size={11} color="#f43f5e" />
-                            )}
-                            <Text style={[styles.matrixModuleNameText, { flex: 1 }]} numberOfLines={1} allowFontScaling={false}>
-                              {getFriendlyModuleName(p.module)}
-                            </Text>
-                            {isSettings && !isPrimaryActive && (
-                              <View style={{ backgroundColor: 'rgba(244, 63, 94, 0.1)', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
-                                <Text style={{ fontSize: 8, fontWeight: '800', color: '#f43f5e' }} allowFontScaling={false}>OWNER</Text>
-                              </View>
-                            )}
+                    return (
+                      <View
+                        key={modName}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingVertical: 12,
+                          paddingHorizontal: 14,
+                          borderBottomWidth: 1,
+                          borderBottomColor: colors.divider || '#f1f5f9',
+                          opacity: isSettings && !isPrimaryActive ? 0.6 : 1,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12, gap: 12 }}>
+                          <View
+                            style={{
+                              width: 38,
+                              height: 38,
+                              borderRadius: 10,
+                              backgroundColor: `${meta.color}15`,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Ionicons name={meta.icon} size={20} color={meta.color} />
                           </View>
-                          {['view', 'create', 'edit', 'delete', 'approve', 'export'].map((act) => {
-                            const checked = isPrimaryActive ? true : isSettings ? false : Boolean(p[act]);
-                            return (
-                              <TouchableOpacity
-                                key={act}
-                                style={[styles.matrixCheckboxWrap, { width: 62 }]}
-                                onPress={() => handleTogglePermission(p.module, act)}
-                                disabled={isLocked}
-                                activeOpacity={isLocked ? 1 : 0.7}
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text
+                                style={{
+                                  fontSize: 13.5,
+                                  fontWeight: '700',
+                                  color: colors.textPrimary || colors.text,
+                                }}
+                                numberOfLines={1}
+                                allowFontScaling={false}
                               >
-                                <Ionicons
-                                  name={checked ? 'checkbox' : 'square-outline'}
-                                  size={18}
-                                  color={checked ? '#2563eb' : isLocked ? colors.textMuted : colors.textMuted}
-                                  style={{ opacity: isLocked ? 0.6 : 1 }}
-                                />
-                              </TouchableOpacity>
-                            );
-                          })}
+                                {modName}
+                              </Text>
+                              {isSettings && !isPrimaryActive && (
+                                <View style={{ backgroundColor: 'rgba(244, 63, 94, 0.1)', paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 4, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                                  <Ionicons name="lock-closed" size={9} color="#f43f5e" />
+                                  <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#f43f5e' }} allowFontScaling={false}>OWNER ONLY</Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                color: colors.textMuted,
+                                marginTop: 2,
+                              }}
+                              numberOfLines={2}
+                              allowFontScaling={false}
+                            >
+                              {meta.desc}
+                            </Text>
+                          </View>
                         </View>
-                      );
-                    })}
-                  </View>
-                </ScrollView>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View
+                            style={{
+                              paddingHorizontal: 7,
+                              paddingVertical: 2,
+                              borderRadius: 12,
+                              backgroundColor: isEnabled ? 'rgba(16, 185, 129, 0.1)' : 'rgba(148, 163, 184, 0.15)',
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 10,
+                                fontWeight: '700',
+                                color: isEnabled ? '#10b981' : colors.textMuted,
+                              }}
+                              allowFontScaling={false}
+                            >
+                              {isEnabled ? 'Active' : 'Hidden'}
+                            </Text>
+                          </View>
+
+                          <Switch
+                            value={isEnabled}
+                            onValueChange={(val) => handleToggleModule(modName, val)}
+                            disabled={isLocked}
+                            trackColor={{ false: isDarkMode ? '#334155' : '#cbd5e1', true: '#2563eb' }}
+                            thumbColor={'#ffffff'}
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
 
                 {!isPrimaryActive && (
                   <View style={styles.matrixSaveFooter}>
