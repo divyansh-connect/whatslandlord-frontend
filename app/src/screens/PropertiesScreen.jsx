@@ -136,7 +136,8 @@ const generateMonthListFromMoveIn = (dateStr) => {
     const d = new Date(currentYear, currentMonth, 1);
     const id = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
     const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    months.push({ id, label });
+    const dueDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+    months.push({ id, label, dueDate });
     currentMonth++;
     if (currentMonth > 11) {
       currentMonth = 0;
@@ -690,14 +691,45 @@ export const PropertiesScreen = ({
   const handleSetMonthStatus = (monthId, newStatus, paidAmount = 0) => {
     const rentVal = Number(uRent) || 1500;
     const finalPaid = newStatus === 'Paid' ? rentVal : newStatus === 'Partial' ? Math.min(rentVal, Number(paidAmount)) : 0;
-    setMonthPaymentDetails((prev) => ({
-      ...prev,
-      [monthId]: {
-        status: newStatus,
-        paidAmount: finalPaid,
-      },
-    }));
+    setMonthPaymentDetails((prev) => {
+      const prevDetail = prev[monthId] || {};
+      return {
+        ...prev,
+        [monthId]: {
+          ...prevDetail,
+          status: newStatus,
+          paidAmount: finalPaid,
+          applyLateFee:
+            newStatus === 'Paid'
+              ? false
+              : newStatus === 'Partial'
+              ? Boolean(prevDetail.applyLateFee ?? false)
+              : Boolean(prevDetail.applyLateFee ?? includeMonthlyLateFee),
+        },
+      };
+    });
     setActiveMonthPopover(null);
+  };
+
+  const handleToggleGlobalLateFee = () => {
+    const nextVal = !includeMonthlyLateFee;
+    setIncludeMonthlyLateFee(nextVal);
+    setMonthPaymentDetails((prev) => {
+      const updated = { ...prev };
+      pastMonths.forEach((m) => {
+        const cur = updated[m.id] || { status: 'Unpaid', paidAmount: 0 };
+        updated[m.id] = {
+          ...cur,
+          applyLateFee:
+            cur.status === 'Paid'
+              ? false
+              : cur.status === 'Partial'
+              ? Boolean(cur.applyLateFee)
+              : nextVal,
+        };
+      });
+      return updated;
+    });
   };
 
   // Filtered lists
@@ -1222,20 +1254,43 @@ export const PropertiesScreen = ({
         console.debug('Failed fetching fresh tenant invoices/payments:', err.message);
       }
 
-      const paymentsByMonth = {};
-      tPayments.forEach((pay) => {
-        const payDate = String(pay.dueDate || pay.paidDate || pay.date || '');
-        if (!payDate || payDate.length < 7) return;
-        const monthKey = payDate.slice(0, 7);
-        if (!paymentsByMonth[monthKey]) paymentsByMonth[monthKey] = [];
-        paymentsByMonth[monthKey].push(pay);
-      });
-
       const invoicesByMonth = {};
       tInvoices.forEach((inv) => {
-        if (!inv.dueDate) return;
-        const monthKey = String(inv.dueDate).slice(0, 7);
-        invoicesByMonth[monthKey] = inv;
+        let monthKey = inv.dueDate ? String(inv.dueDate).slice(0, 7) : '';
+        if (Array.isArray(inv.lineItems)) {
+          for (const li of inv.lineItems) {
+            const desc = String(li?.description || '');
+            const match = desc.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})/i);
+            if (match) {
+              const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+              const mIdx = monthNames.indexOf(match[1].toLowerCase().slice(0, 3));
+              if (mIdx !== -1) {
+                monthKey = `${match[2]}-${String(mIdx + 1).padStart(2, '0')}`;
+                break;
+              }
+            }
+          }
+        }
+        if (monthKey) {
+          invoicesByMonth[monthKey] = inv;
+        }
+      });
+
+      const paymentsByMonth = {};
+      tPayments.forEach((pay) => {
+        let monthKey = String(pay.dueDate || pay.paidDate || pay.date || '').slice(0, 7);
+        if (pay.invoiceId) {
+          const matchedInvMonth = Object.keys(invoicesByMonth).find(
+            (m) => invoicesByMonth[m].id === pay.invoiceId
+          );
+          if (matchedInvMonth) {
+            monthKey = matchedInvMonth;
+          }
+        }
+        if (monthKey && monthKey.length >= 7) {
+          if (!paymentsByMonth[monthKey]) paymentsByMonth[monthKey] = [];
+          paymentsByMonth[monthKey].push(pay);
+        }
       });
 
       const allMonthKeys = Array.from(
@@ -1397,6 +1452,234 @@ export const PropertiesScreen = ({
       advertiseListing: uStatus === 'Vacant' && uWantToAdvertise === 'yes' && uAdvertiseTime === 'now',
     };
 
+    const syncMonthlyBilling = async (targetTenantId, targetUnitId, targetUnitNumber, propId, propName) => {
+      if (!targetTenantId || !pastMonths || pastMonths.length === 0) return;
+
+      const rentVal = Number(uRent) || 1500;
+      const rawFee = (uLateFeeAmount !== undefined && uLateFeeAmount !== '' && uLateFeeAmount !== null)
+        ? Number(uLateFeeAmount)
+        : 50;
+      const effectiveLateFee = (uLateFeeEnabled && uLateFeeType === 'PERCENTAGE')
+        ? Math.round(((rentVal * rawFee) / 100) * 100) / 100
+        : (rawFee > 0 ? rawFee : 50);
+
+      let existingInvoices = [];
+      let existingPayments = [];
+      try {
+        const [allInvsRes, allPaysRes] = await Promise.all([
+          apiClient.get('/invoices', logout, refreshAccessToken).catch(() => []),
+          apiClient.get('/payments', logout, refreshAccessToken).catch(() => []),
+        ]);
+        const allInvs = Array.isArray(allInvsRes?.data) ? allInvsRes.data : (Array.isArray(allInvsRes) ? allInvsRes : []);
+        const allPays = Array.isArray(allPaysRes?.data) ? allPaysRes.data : (Array.isArray(allPaysRes) ? allPaysRes : []);
+        existingInvoices = allInvs.filter((inv) => inv.tenantId === targetTenantId || inv.unitId === targetUnitId);
+        existingPayments = allPays.filter((pay) => pay.tenantId === targetTenantId || pay.unitId === targetUnitId);
+      } catch (fErr) {
+        console.warn('Could not fetch existing invoices/payments:', fErr);
+      }
+
+      const monthSyncPlan = [];
+
+      for (const monthItem of pastMonths) {
+        const monthDueDate = monthItem.dueDate || `${monthItem.id}-01`;
+        const detail = monthPaymentDetails[monthItem.id] || { status: 'Unpaid', paidAmount: 0 };
+        const pAmt = detail.status === 'Paid'
+          ? rentVal
+          : (detail.status === 'Partial' ? Math.min(rentVal, Number(detail.paidAmount || 0)) : 0);
+        const isPaid = detail.status === 'Paid';
+        const hasLateFee = detail.status === 'Paid'
+          ? false
+          : (detail.applyLateFee !== undefined ? Boolean(detail.applyLateFee) : (detail.status === 'Unpaid' && includeMonthlyLateFee));
+        const lateFeeAmt = hasLateFee ? effectiveLateFee : 0;
+        const totalInvoiceAmt = isPaid ? rentVal : (rentVal + lateFeeAmt);
+        const expectedBalance = Math.max(0, totalInvoiceAmt - pAmt);
+        const invStatus = detail.status === 'Paid'
+          ? 'Paid'
+          : (detail.status === 'Partial' ? 'Partially Paid' : 'Overdue');
+
+        const lineItems = [
+          {
+            description: `Monthly Rent Charge - ${monthItem.label}`,
+            amount: rentVal,
+          },
+        ];
+        if (lateFeeAmt > 0 && !isPaid) {
+          lineItems.push({
+            description: `Overdue Late Fee Charge - ${monthItem.label}`,
+            amount: lateFeeAmt,
+          });
+        }
+
+        const matchingInvs = existingInvoices.filter((inv) => {
+          const invMonth = String(inv.dueDate || '').slice(0, 7);
+          if (invMonth === monthItem.id) return true;
+          if (Array.isArray(inv.lineItems)) {
+            return inv.lineItems.some((li) => String(li?.description || '').includes(monthItem.label));
+          }
+          return false;
+        });
+        let primaryInv = matchingInvs[0] || null;
+        const duplicateInvs = matchingInvs.slice(1);
+
+        if (!primaryInv) {
+          try {
+            const invPayload = {
+              tenantId: targetTenantId,
+              tenantName: `${tFirstName} ${tLastName}`.trim(),
+              propertyId: propId,
+              propertyName: propName || 'Property',
+              unitId: targetUnitId,
+              unitNumber: targetUnitNumber,
+              amount: totalInvoiceAmt,
+              paidAmount: pAmt,
+              balance: expectedBalance,
+              dueDate: monthDueDate,
+              status: invStatus,
+              lineItems,
+            };
+            const invRes = await apiClient.post('/invoices', invPayload, logout, refreshAccessToken);
+            primaryInv = invRes?.data || invRes;
+          } catch (cInvErr) {
+            console.warn('Invoice create error:', cInvErr);
+          }
+        }
+
+        // Sync payment for this month
+        const matchingPays = existingPayments.filter((pay) => {
+          const payMonth = String(pay.dueDate || pay.paidDate || pay.date || '').slice(0, 7);
+          return payMonth === monthItem.id || (primaryInv?.id && pay.invoiceId === primaryInv.id);
+        });
+
+        if (pAmt > 0) {
+          const isPartial = detail.status === 'Partial';
+          const desiredPayStatus = isPartial ? 'PartiallyPaid' : 'Paid';
+          const desiredPayMethod = isPartial ? 'Offline_Partial' : 'Offline';
+
+          if (matchingPays.length > 0) {
+            const primaryPay = matchingPays[0];
+            const extraPays = matchingPays.slice(1);
+            try {
+              await apiClient.put(`/payments/${primaryPay.id}`, {
+                amount: pAmt,
+                status: desiredPayStatus,
+                paymentMethod: desiredPayMethod,
+                dueDate: monthDueDate,
+                paidDate: monthDueDate,
+              }, logout, refreshAccessToken);
+            } catch (uPayErr) {
+              console.warn('Payment update error:', uPayErr);
+            }
+            for (const extraPay of extraPays) {
+              try {
+                await apiClient.delete(`/payments/${extraPay.id}`, logout, refreshAccessToken);
+              } catch (dExtraErr) {
+                console.warn('Extra payment delete error:', dExtraErr);
+              }
+            }
+          } else {
+            try {
+              await apiClient.post('/payments', {
+                tenantId: targetTenantId,
+                tenantName: `${tFirstName} ${tLastName}`.trim(),
+                propertyId: propId,
+                propertyName: propName || 'Property',
+                unitId: targetUnitId,
+                unitNumber: targetUnitNumber,
+                invoiceId: primaryInv?.id,
+                amount: pAmt,
+                dueDate: monthDueDate,
+                paidDate: monthDueDate,
+                status: desiredPayStatus,
+                paymentMethod: desiredPayMethod,
+                referenceNumber: `RCP-OCCUPIED-${Math.floor(100000 + Math.random() * 900000)}`,
+                createdBy: 'Manager',
+              }, logout, refreshAccessToken);
+            } catch (cPayErr) {
+              console.warn('Payment create error:', cPayErr);
+            }
+          }
+        } else {
+          // Month is Unpaid -> remove any payments recorded for this month
+          for (const oldPay of matchingPays) {
+            try {
+              await apiClient.delete(`/payments/${oldPay.id}`, logout, refreshAccessToken);
+            } catch (dPayErr) {
+              console.warn('Payment delete error:', dPayErr);
+            }
+          }
+        }
+
+        monthSyncPlan.push({
+          monthItem,
+          monthDueDate,
+          existingInv: primaryInv,
+          duplicateInvs,
+          totalInvoiceAmt,
+          pAmt,
+          expectedBalance,
+          invStatus,
+          lineItems,
+        });
+      }
+
+      // Pass 2: Enforce exact invoice status, amount, paidAmount, balance, lineItems
+      for (const plan of monthSyncPlan) {
+        for (const dupInv of plan.duplicateInvs) {
+          try {
+            await apiClient.delete(`/invoices/${dupInv.id}`, logout, refreshAccessToken);
+          } catch (dupErr) {
+            console.warn('Duplicate invoice delete error:', dupErr);
+          }
+        }
+
+        if (plan.existingInv?.id) {
+          try {
+            const prevAmount = Number(plan.existingInv.amount || 0);
+            const updRes = await apiClient.put(`/invoices/${plan.existingInv.id}`, {
+              status: plan.invStatus,
+              amount: plan.totalInvoiceAmt,
+              paidAmount: plan.pAmt,
+              balance: plan.expectedBalance,
+              dueDate: plan.monthDueDate,
+              lineItems: plan.lineItems,
+            }, logout, refreshAccessToken);
+            const updatedInv = updRes?.data || updRes;
+
+            if (
+              prevAmount !== plan.totalInvoiceAmt &&
+              Number(updatedInv?.amount ?? prevAmount) !== plan.totalInvoiceAmt
+            ) {
+              await apiClient.delete(`/invoices/${plan.existingInv.id}`, logout, refreshAccessToken);
+              const recRes = await apiClient.post('/invoices', {
+                tenantId: targetTenantId,
+                tenantName: `${tFirstName} ${tLastName}`.trim(),
+                propertyId: propId,
+                propertyName: propName || 'Property',
+                unitId: targetUnitId,
+                unitNumber: targetUnitNumber,
+                amount: plan.totalInvoiceAmt,
+                paidAmount: plan.pAmt,
+                balance: plan.expectedBalance,
+                dueDate: plan.monthDueDate,
+                status: plan.invStatus,
+                lineItems: plan.lineItems,
+              }, logout, refreshAccessToken);
+              const recreated = recRes?.data || recRes;
+              if (recreated?.id && plan.invStatus === 'Partially Paid') {
+                await apiClient.put(`/invoices/${recreated.id}`, {
+                  status: 'Partially Paid',
+                  paidAmount: plan.pAmt,
+                  balance: plan.expectedBalance,
+                }, logout, refreshAccessToken);
+              }
+            }
+          } catch (sInvErr) {
+            console.warn('Invoice final sync error:', sInvErr);
+          }
+        }
+      }
+    };
+
     try {
       setSubmitting(true);
 
@@ -1443,27 +1726,98 @@ export const PropertiesScreen = ({
 
             let targetTenantId = editingTenantId;
             if (!targetTenantId) {
-              const existingTenant = tenants.find((item) => item.unitId === editingUnitId || (item.email && item.email.toLowerCase() === tEmail.trim().toLowerCase()));
-              targetTenantId = existingTenant?.id;
+              const allTenantsRes = await apiClient.get('/tenants', logout, refreshAccessToken).catch(() => []);
+              const allTenants = Array.isArray(allTenantsRes?.data) ? allTenantsRes.data : (Array.isArray(allTenantsRes) ? allTenantsRes : tenants);
+              const found = allTenants.find(
+                (item) =>
+                  item.unitId === editingUnitId ||
+                  (tEmail.trim() && item.email && item.email.toLowerCase().trim() === tEmail.trim().toLowerCase())
+              );
+              targetTenantId = found?.id;
             }
 
             if (targetTenantId) {
-              await apiClient.put(`/tenants/${targetTenantId}`, tenantPayload, logout, refreshAccessToken);
+              await apiClient.put(`/tenants/${targetTenantId}`, tenantPayload, logout, refreshAccessToken).catch(() => null);
               await safeStorage.setItem('tenant_gender_' + targetTenantId, finalGender);
               await safeStorage.setItem('unit_tenant_gender_' + editingUnitId, finalGender);
             } else {
-              const createdTenantRes = await apiClient.post('/tenants', tenantPayload, logout, refreshAccessToken).catch(() => null);
-              const createdTenant = createdTenantRes?.data || createdTenantRes;
-              if (createdTenant?.id) {
-                await safeStorage.setItem('tenant_gender_' + createdTenant.id, finalGender);
-                await safeStorage.setItem('unit_tenant_gender_' + editingUnitId, finalGender);
-                await apiClient.post(
-                  `/units/${editingUnitId}/assign-tenant`,
-                  { tenantId: createdTenant.id },
-                  logout,
-                  refreshAccessToken
-                ).catch(() => null);
+              try {
+                const createdTenantRes = await apiClient.post('/tenants', tenantPayload, logout, refreshAccessToken);
+                const createdTenant = createdTenantRes?.data || createdTenantRes;
+                if (createdTenant?.id) {
+                  targetTenantId = createdTenant.id;
+                  await safeStorage.setItem('tenant_gender_' + createdTenant.id, finalGender);
+                  await safeStorage.setItem('unit_tenant_gender_' + editingUnitId, finalGender);
+                  await apiClient.post(
+                    `/units/${editingUnitId}/assign-tenant`,
+                    { tenantId: createdTenant.id },
+                    logout,
+                    refreshAccessToken
+                  ).catch(() => null);
+                }
+              } catch (tCreateErr) {
+                // If email already registered, find that tenant and reuse!
+                if (String(tCreateErr?.message || '').toLowerCase().includes('already registered')) {
+                  const fallbackTenantsRes = await apiClient.get('/tenants', logout, refreshAccessToken).catch(() => []);
+                  const fallbackTenants = Array.isArray(fallbackTenantsRes?.data) ? fallbackTenantsRes.data : (Array.isArray(fallbackTenantsRes) ? fallbackTenantsRes : []);
+                  const matched = fallbackTenants.find((item) => item.email && item.email.toLowerCase().trim() === tEmail.trim().toLowerCase());
+                  if (matched?.id) {
+                    targetTenantId = matched.id;
+                    await apiClient.put(`/tenants/${matched.id}`, tenantPayload, logout, refreshAccessToken).catch(() => null);
+                    await safeStorage.setItem('tenant_gender_' + matched.id, finalGender);
+                    await safeStorage.setItem('unit_tenant_gender_' + editingUnitId, finalGender);
+                    await apiClient.post(
+                      `/units/${editingUnitId}/assign-tenant`,
+                      { tenantId: matched.id },
+                      logout,
+                      refreshAccessToken
+                    ).catch(() => null);
+                  }
+                }
               }
+            }
+
+            if (targetTenantId) {
+              // Ensure an active lease exists for targetTenantId so payments and ledger associate properly
+              try {
+                const leasesRes = await apiClient.get('/leases', logout, refreshAccessToken).catch(() => []);
+                const allLeases = Array.isArray(leasesRes?.data) ? leasesRes.data : (Array.isArray(leasesRes) ? leasesRes : []);
+                const hasLease = allLeases.some((l) => l.tenantId === targetTenantId || l.unitId === editingUnitId);
+                if (!hasLease) {
+                  const moveInParsed = parseDateSafe(tMoveInDate) || new Date();
+                  const endDate = new Date(moveInParsed);
+                  endDate.setFullYear(endDate.getFullYear() + 1);
+                  await apiClient.post(
+                    '/leases',
+                    {
+                      tenantId: targetTenantId,
+                      tenantName: `${tFirstName} ${tLastName}`.trim(),
+                      propertyId: uPropId,
+                      propertyName: selectedProp?.name || 'Property',
+                      unitId: editingUnitId,
+                      unitNumber: uNumber.trim(),
+                      rentAmount: Number(uRent) || 0,
+                      securityDeposit: Number(uDeposit) || 0,
+                      depositAmount: Number(uDeposit) || 0,
+                      startDate: tMoveInDate || new Date().toISOString().split('T')[0],
+                      endDate: endDate.toISOString().split('T')[0],
+                      status: 'Active',
+                    },
+                    logout,
+                    refreshAccessToken
+                  ).catch((err) => console.warn('Lease creation post error:', err));
+                }
+              } catch (leaseCheckErr) {
+                console.warn('Lease check/create warning:', leaseCheckErr);
+              }
+
+              await syncMonthlyBilling(
+                targetTenantId,
+                editingUnitId,
+                uNumber.trim(),
+                uPropId,
+                selectedProp?.name || 'Property'
+              );
             }
           } catch (tErr) {
             console.warn('Tenant update/create error:', tErr.message);
@@ -1514,8 +1868,30 @@ export const PropertiesScreen = ({
               previousAddress: tPreviousAddress.trim() || undefined,
             };
 
-            const createdTenantRes = await apiClient.post('/tenants', tenantPayload, logout, refreshAccessToken);
-            const createdTenant = createdTenantRes?.data || createdTenantRes;
+            let createdTenant = null;
+            if (tEmail.trim()) {
+              const freshTenantsRes = await apiClient.get('/tenants', logout, refreshAccessToken).catch(() => []);
+              const freshTenants = Array.isArray(freshTenantsRes?.data) ? freshTenantsRes.data : (Array.isArray(freshTenantsRes) ? freshTenantsRes : tenants);
+              createdTenant = freshTenants.find((item) => item.email && item.email.toLowerCase().trim() === tEmail.trim().toLowerCase());
+            }
+
+            if (createdTenant?.id) {
+              await apiClient.put(`/tenants/${createdTenant.id}`, tenantPayload, logout, refreshAccessToken).catch(() => null);
+            } else {
+              try {
+                const createdTenantRes = await apiClient.post('/tenants', tenantPayload, logout, refreshAccessToken);
+                createdTenant = createdTenantRes?.data || createdTenantRes;
+              } catch (createTErr) {
+                if (String(createTErr?.message || '').toLowerCase().includes('already registered')) {
+                  const fallbackTenantsRes = await apiClient.get('/tenants', logout, refreshAccessToken).catch(() => []);
+                  const fallbackTenants = Array.isArray(fallbackTenantsRes?.data) ? fallbackTenantsRes.data : (Array.isArray(fallbackTenantsRes) ? fallbackTenantsRes : []);
+                  createdTenant = fallbackTenants.find((item) => item.email && item.email.toLowerCase().trim() === tEmail.trim().toLowerCase());
+                  if (createdTenant?.id) {
+                    await apiClient.put(`/tenants/${createdTenant.id}`, tenantPayload, logout, refreshAccessToken).catch(() => null);
+                  }
+                }
+              }
+            }
 
             if (createdTenant?.id) {
               await safeStorage.setItem('tenant_gender_' + createdTenant.id, finalGender);
@@ -1544,15 +1920,24 @@ export const PropertiesScreen = ({
                   propertyName: selectedProp?.name || 'Property',
                   unitId: createdUnit.id,
                   unitNumber: uNumber.trim(),
-                  rentAmount: Number(uRent) || 1500,
-                  securityDeposit: Number(uDeposit) || 1500,
+                  rentAmount: Number(uRent) || 0,
+                  securityDeposit: Number(uDeposit) || 0,
+                  depositAmount: Number(uDeposit) || 0,
                   startDate: tMoveInDate,
                   endDate: endDate.toISOString().split('T')[0],
                   status: 'Active',
                 },
                 logout,
                 refreshAccessToken
-              ).catch(() => null);
+              ).catch((err) => console.warn('Lease creation post error:', err));
+
+              await syncMonthlyBilling(
+                createdTenant.id,
+                createdUnit.id,
+                uNumber.trim(),
+                uPropId,
+                selectedProp?.name || 'Property'
+              );
             }
           } catch (tErr) {
             console.warn('Tenant creation error:', tErr.message);
@@ -4624,7 +5009,7 @@ export const PropertiesScreen = ({
                             styles.monthlyLateFeeBtn,
                             includeMonthlyLateFee && styles.monthlyLateFeeBtnActive
                           ]}
-                          onPress={() => setIncludeMonthlyLateFee(!includeMonthlyLateFee)}
+                          onPress={handleToggleGlobalLateFee}
                           activeOpacity={0.7}
                         >
                           <Ionicons
