@@ -344,8 +344,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
 
 
-
-
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth >= 1024;
