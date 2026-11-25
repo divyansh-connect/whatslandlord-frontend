@@ -335,7 +335,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     return filtered;
   };
 
-  
   const visibleMenuItems = React.useMemo(
     () => getFilteredMenuItems(),
     [user?.role, currentUserPerms, isCoManager]
