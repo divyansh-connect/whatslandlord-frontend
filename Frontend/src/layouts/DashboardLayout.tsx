@@ -339,6 +339,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     () => getFilteredMenuItems(),
     [user?.role, currentUserPerms, isCoManager]
   );
+
+
   
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
