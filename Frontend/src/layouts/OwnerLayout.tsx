@@ -22,6 +22,8 @@ interface MenuItem {
   submenu?: { title: string; path: string }[];
 }
 
+
+
 interface OwnerLayoutProps {
   children: React.ReactNode;
   currentPath: string;
