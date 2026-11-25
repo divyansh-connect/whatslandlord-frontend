@@ -327,6 +327,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         moduleName = 'Company Settings';
       }
 
+
+
       if (!moduleName || hasModuleAccess(moduleName)) {
         filtered.push(item);
       }
