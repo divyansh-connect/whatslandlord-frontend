@@ -4,13 +4,13 @@ import api from '../../api';
 import { StatsCard } from '../../components/StatsCard';
 import { ChartCard } from '../../components/ChartCard';
 import { PageHeader } from '../../components/PageHeader';
-import { 
-  Building2, Home, UserCheck, AlertCircle, TrendingUp, DollarSign, Calendar, Wrench, 
+import {
+  Building2, Home, UserCheck, AlertCircle, TrendingUp, DollarSign, Calendar, Wrench,
   Sparkles, RefreshCw, BarChart
 } from 'lucide-react';
-import { 
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, 
-  BarChart as ReBarChart, Bar, Legend, PieChart, Pie, Cell, AreaChart, Area 
+import {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart as ReBarChart, Bar, Legend, PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts';
 
 import { useAuthStore } from '../../store/useStore';
@@ -229,17 +229,17 @@ export const DashboardPage: React.FC = () => {
               <AreaChart data={charts?.revenueGrowth} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.01}/>
+                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.01} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(var(--foreground), 0.05)" />
                 <XAxis dataKey="month" stroke="currentColor" fontSize={11} tickLine={false} axisLine={false} opacity={0.6} />
                 <YAxis stroke="currentColor" fontSize={11} tickLine={false} axisLine={false} opacity={0.6} tickFormatter={(v) => `$${v}`} />
-                <Tooltip 
-                  contentStyle={{ 
-                    background: 'hsl(var(--card))', 
-                    borderColor: 'hsl(var(--border))', 
+                <Tooltip
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    borderColor: 'hsl(var(--border))',
                     borderRadius: '10px',
                     color: 'hsl(var(--foreground))'
                   }}
@@ -273,9 +273,9 @@ export const DashboardPage: React.FC = () => {
                   ))}
                 </Pie>
                 <Tooltip
-                  contentStyle={{ 
-                    background: 'hsl(var(--card))', 
-                    borderColor: 'hsl(var(--border))', 
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    borderColor: 'hsl(var(--border))',
                     borderRadius: '10px',
                     color: 'hsl(var(--foreground))'
                   }}
@@ -297,17 +297,17 @@ export const DashboardPage: React.FC = () => {
               <AreaChart data={charts?.revenueGrowth} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.01}/>
+                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.01} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(var(--foreground), 0.05)" />
                 <XAxis dataKey="month" stroke="currentColor" fontSize={11} tickLine={false} axisLine={false} opacity={0.6} />
                 <YAxis stroke="currentColor" fontSize={11} tickLine={false} axisLine={false} opacity={0.6} tickFormatter={(v) => `$${v}`} />
-                <Tooltip 
-                  contentStyle={{ 
-                    background: 'hsl(var(--card))', 
-                    borderColor: 'hsl(var(--border))', 
+                <Tooltip
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    borderColor: 'hsl(var(--border))',
                     borderRadius: '10px',
                     color: 'hsl(var(--foreground))'
                   }}
@@ -329,10 +329,10 @@ export const DashboardPage: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(var(--foreground), 0.05)" />
                 <XAxis dataKey="month" stroke="currentColor" fontSize={11} tickLine={false} axisLine={false} opacity={0.6} />
                 <YAxis stroke="currentColor" fontSize={11} tickLine={false} axisLine={false} opacity={0.6} tickFormatter={(v) => `$${v}`} />
-                <Tooltip 
-                  contentStyle={{ 
-                    background: 'hsl(var(--card))', 
-                    borderColor: 'hsl(var(--border))', 
+                <Tooltip
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    borderColor: 'hsl(var(--border))',
                     borderRadius: '10px',
                     color: 'hsl(var(--foreground))'
                   }}
@@ -356,10 +356,10 @@ export const DashboardPage: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(var(--foreground), 0.05)" />
                 <XAxis dataKey="month" stroke="currentColor" fontSize={11} tickLine={false} axisLine={false} opacity={0.6} />
                 <YAxis stroke="currentColor" fontSize={11} tickLine={false} axisLine={false} opacity={0.6} domain={[60, 100]} tickFormatter={(v) => `${v}%`} />
-                <Tooltip 
-                  contentStyle={{ 
-                    background: 'hsl(var(--card))', 
-                    borderColor: 'hsl(var(--border))', 
+                <Tooltip
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    borderColor: 'hsl(var(--border))',
                     borderRadius: '10px',
                     color: 'hsl(var(--foreground))'
                   }}
@@ -393,9 +393,9 @@ export const DashboardPage: React.FC = () => {
                   ))}
                 </Pie>
                 <Tooltip
-                  contentStyle={{ 
-                    background: 'hsl(var(--card))', 
-                    borderColor: 'hsl(var(--border))', 
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    borderColor: 'hsl(var(--border))',
                     borderRadius: '10px',
                     color: 'hsl(var(--foreground))'
                   }}
