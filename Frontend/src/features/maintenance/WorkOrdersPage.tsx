@@ -68,7 +68,7 @@ export const WorkOrdersPage: React.FC = () => {
       .slice(0, 500)
       .map(
         (w) =>
-          `"${w.id}","${w.workOrderNumber}","${w.propertyName}","${w.unitNumber}","${w.vendorName}","${w.assignedTechnician}","${w.scheduledDate}","${w.estimatedCost}","${w.actualCost}","${w.status}"`
+          `"${w.id}","${w.workOrderNumber}","${w.propertyName}","${w.unitNumber}","${w.vendorName}","${w.assignedTechnician}","${w.scheduledDate}","${w.estimatedCost}","${w.totalCost ?? w.actualCost}","${w.status}"`
       )
       .join('\n');
     const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -148,7 +148,7 @@ export const WorkOrdersPage: React.FC = () => {
       id: 'actCost',
       cell: ({ row }) => (
         <span className="font-extrabold text-rose-500">
-          ${((row.original.actualCost || 0) + (row.original.extraExpenses || 0)).toLocaleString()}
+          ${(row.original.totalCost ?? row.original.actualCost ?? 0).toLocaleString()}
         </span>
       ),
     },

@@ -178,9 +178,9 @@ export const MaintenanceMetricModal: React.FC<MaintenanceMetricModalProps> = ({
       // 4. TOTAL MAINTENANCE COST
       case 'totalMaintenanceCost': {
         const costWos = workOrders
-          .filter((w: any) => (Number(w.actualCost) > 0 || Number(w.estimatedCost) > 0 || Number(w.cost) > 0))
+          .filter((w: any) => (Number(w.totalCost ?? w.actualCost) > 0 || Number(w.estimatedCost) > 0 || Number(w.cost) > 0))
           .map((w: any, idx: number) => {
-            const actual = Number(w.actualCost || w.cost || 0);
+            const actual = Number(w.totalCost ?? w.actualCost ?? w.cost ?? 0);
             const est = Number(w.estimatedCost || 0);
             return {
               id: w.id,
@@ -196,7 +196,7 @@ export const MaintenanceMetricModal: React.FC<MaintenanceMetricModalProps> = ({
             };
           });
 
-        const totalSum = workOrders.reduce((sum: number, w: any) => sum + (Number(w.actualCost) || Number(w.cost) || 0), 0);
+        const totalSum = workOrders.reduce((sum: number, w: any) => sum + (Number(w.totalCost ?? w.actualCost ?? w.cost) || 0), 0);
 
         return {
           title: 'Maintenance Cost Ledger',

@@ -276,7 +276,7 @@ export const MaintenanceDashboardPage: React.FC = () => {
   const emergencyRequestsCount = allRequests.filter((r: any) => ['urgent', 'emergency'].includes((r.priority || '').toLowerCase())).length;
   const inProgressWosCount = managerWorkOrders.filter((w: any) => ['In Progress', 'InProgress', 'In_Progress'].includes(w.status)).length;
   const completedWosCount = managerWorkOrders.filter((w: any) => ['Completed', 'Resolved', 'Closed'].includes(w.status)).length;
-  const totalCostAmount = managerWorkOrders.reduce((sum: number, w: any) => sum + (Number(w.actualCost) || Number(w.cost) || 0), 0);
+  const totalCostAmount = managerWorkOrders.reduce((sum: number, w: any) => sum + (Number(w.totalCost ?? w.actualCost ?? w.cost) || 0), 0);
 
   const liveMetrics = {
     openRequests: openRequestsCount,
