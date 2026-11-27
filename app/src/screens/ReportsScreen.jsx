@@ -3915,7 +3915,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                 />
               </TouchableOpacity>
               {expandedFilterSection === 'property' && (
-                <View style={styles.accordionList}>
+                <ScrollView style={styles.accordionList} nestedScrollEnabled showsVerticalScrollIndicator>
                   <TouchableOpacity
                     style={styles.accordionOption}
                     onPress={() => handleSelectProperty('')}
@@ -3945,7 +3945,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                       </Text>
                     </TouchableOpacity>
                   ))}
-                </View>
+                </ScrollView>
               )}
 
               {/* 2. Unit, Tenant, Status & Dates Accordions (Strictly Hidden for Occupancy Report matching Web) */}
@@ -3975,7 +3975,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                     />
                   </TouchableOpacity>
                   {expandedFilterSection === 'unit' && (
-                    <View style={styles.accordionList}>
+                    <ScrollView style={styles.accordionList} nestedScrollEnabled showsVerticalScrollIndicator>
                       <TouchableOpacity
                         style={styles.accordionOption}
                         onPress={() => handleSelectUnit('')}
@@ -4005,7 +4005,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                           </Text>
                         </TouchableOpacity>
                       ))}
-                    </View>
+                    </ScrollView>
                   )}
 
                   {/* Tenant Filter Accordion (Hidden for Occupancy & Maintenance matching Web) */}
@@ -4036,7 +4036,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                         />
                       </TouchableOpacity>
                       {expandedFilterSection === 'tenant' && (
-                        <View style={styles.accordionList}>
+                        <ScrollView style={styles.accordionList} nestedScrollEnabled showsVerticalScrollIndicator>
                           <TouchableOpacity
                             style={styles.accordionOption}
                             onPress={() => {
@@ -4072,7 +4072,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                               </Text>
                             </TouchableOpacity>
                           ))}
-                        </View>
+                        </ScrollView>
                       )}
                     </>
                   )}
@@ -4099,7 +4099,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                     />
                   </TouchableOpacity>
                   {expandedFilterSection === 'status' && (
-                    <View style={styles.accordionList}>
+                    <ScrollView style={styles.accordionList} nestedScrollEnabled showsVerticalScrollIndicator>
                       {getStatusChoices().map((s) => (
                         <TouchableOpacity
                           key={s.value || 'all'}
@@ -4119,7 +4119,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                           </Text>
                         </TouchableOpacity>
                       ))}
-                    </View>
+                    </ScrollView>
                   )}
 
                   {/* Priority Filter Accordion (Maintenance Report matching Web) */}
@@ -4146,7 +4146,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                         />
                       </TouchableOpacity>
                       {expandedFilterSection === 'priority' && (
-                        <View style={styles.accordionList}>
+                        <ScrollView style={styles.accordionList} nestedScrollEnabled showsVerticalScrollIndicator>
                           {getPriorityChoices().map((p) => (
                             <TouchableOpacity
                               key={p.value || 'all'}
@@ -4166,7 +4166,7 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                               </Text>
                             </TouchableOpacity>
                           ))}
-                        </View>
+                        </ScrollView>
                       )}
                     </>
                   )}
@@ -5073,6 +5073,7 @@ const getStyles = (colors, isDarkMode) =>
       borderColor: colors.cardBorder,
       maxHeight: 180,
       paddingVertical: 4,
+      overflow: 'hidden',
     },
     accordionOption: {
       flexDirection: 'row',

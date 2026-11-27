@@ -63,16 +63,14 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
       const formatted = rawList.map((p) => {
         const rawUnits = p.units || [];
         const mappedUnits = rawUnits.map((u) => {
-          const activeLease = (u.leases || []).find((l) => 
-            l.status === 'Active' || l.status === 'Pending_Move_In' || l.status === 'Pending'
-          ) || (u.leases || [])[0];
-          const matchedTenant = (u.tenants || [])[0] || activeLease?.tenant;
+          const activeLease = (u.leases || []).find((l) => l.status === 'Active');
+          const matchedTenant = (u.tenants || []).find((t) => t.status !== 'Inactive') || activeLease?.tenant;
           const rent = Number(activeLease?.rentAmount ?? u.rentAmount ?? 0);
           const dep = Number(activeLease?.depositAmount ?? activeLease?.deposit ?? activeLease?.securityDeposit ?? u.securityDeposit ?? 0);
           const residentName = matchedTenant 
             ? `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim() 
             : (activeLease?.tenantName || (u.tenants?.length ? `${u.tenants[0].firstName} ${u.tenants[0].lastName}`.trim() : u.tenantName) || '');
-          const isOcc = (u.status || '').toLowerCase() === 'occupied' || !!activeLease || !!matchedTenant;
+          const isOcc = String(u.status || '').toLowerCase() === 'occupied';
 
           const rawUnitName = u.unitNumber || u.name || `Unit ${u.id?.slice(0, 4)}`;
           const cleanUnitName = String(rawUnitName).startsWith('Unit') ? rawUnitName : `Unit ${rawUnitName}`;
@@ -86,13 +84,13 @@ export const OwnerPropertiesScreen = ({ onNavigate }) => {
             squareFootage: u.squareFootage || 850,
             rentAmount: rent,
             securityDeposit: dep,
-            status: isOcc ? 'Occupied' : 'Vacant',
+            status: isOcc ? 'Occupied' : (u.status || 'Vacant'),
             tenantName: isOcc ? (residentName || 'Resident') : 'Vacant',
           };
         });
 
         const occupiedCount = mappedUnits.filter((u) => u.status === 'Occupied').length;
-        const totalUnitsCount = Math.max(mappedUnits.length, Number(p.totalUnits || p.unitsCount || p.buildings?.[0]?.unitsCount || 1));
+        const totalUnitsCount = mappedUnits.length > 0 ? mappedUnits.length : Number(p.totalUnits || p.unitsCount || p.buildings?.[0]?.unitsCount || 0);
         const vacantCount = Math.max(0, totalUnitsCount - occupiedCount);
         const computedOccupancyRate = totalUnitsCount > 0
           ? Math.round((occupiedCount / totalUnitsCount) * 100)
