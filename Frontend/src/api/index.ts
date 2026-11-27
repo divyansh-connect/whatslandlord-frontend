@@ -1008,19 +1008,19 @@ export const api = {
           return end <= sixtyDaysFromNow;
         }).length;
 
-        // Return backend metrics with 100% authority, or fallback with exact synchronized calculation
+        // Return synchronized calculation
         return {
-          totalProperties: backendMetrics?.totalProperties !== undefined ? Number(backendMetrics.totalProperties) : properties.length,
-          totalUnits: backendMetrics?.totalUnits !== undefined ? Number(backendMetrics.totalUnits) : totalUnitsCount,
-          occupiedUnits: backendMetrics?.occupiedUnits !== undefined ? Number(backendMetrics.occupiedUnits) : occupiedUnitsCount,
-          vacantUnits: backendMetrics?.vacantUnits !== undefined ? Number(backendMetrics.vacantUnits) : vacantUnitsCount,
-          occupancyRate: backendMetrics?.occupancyRate !== undefined ? Number(backendMetrics.occupancyRate) : computedOccupancyRate,
-          monthlyRevenue: backendMetrics?.monthlyRevenue !== undefined ? Number(backendMetrics.monthlyRevenue) : computedRevenue,
-          pendingRent: backendMetrics?.pendingRent !== undefined ? Number(backendMetrics.pendingRent) : computedPendingRent,
-          pendingInvoicesCount: backendMetrics?.pendingInvoicesCount !== undefined ? Number(backendMetrics.pendingInvoicesCount) : pendingInvoicesCount,
-          expenses: backendMetrics?.expenses !== undefined ? Number(backendMetrics.expenses) : computedExpenses,
-          openMaintenance: backendMetrics?.openMaintenance !== undefined ? Number(backendMetrics.openMaintenance) : openMaintenanceCount,
-          leasesExpiringSoon: backendMetrics?.leasesExpiringSoon !== undefined ? Number(backendMetrics.leasesExpiringSoon) : expiringLeasesCount,
+          totalProperties: properties.length,
+          totalUnits: totalUnitsCount,
+          occupiedUnits: occupiedUnitsCount,
+          vacantUnits: vacantUnitsCount,
+          occupancyRate: computedOccupancyRate,
+          monthlyRevenue: computedRevenue,
+          pendingRent: computedPendingRent,
+          pendingInvoicesCount: pendingInvoicesCount,
+          expenses: computedExpenses,
+          openMaintenance: openMaintenanceCount,
+          leasesExpiringSoon: expiringLeasesCount,
         };
       } catch (e) {
         console.error('Dashboard metrics calculation error:', e);
