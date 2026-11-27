@@ -3621,6 +3621,200 @@ export const MaintenanceScreen = ({
               )
             )}
           </KeyboardAvoidingView>
+
+          {showQuickAddStaffModal && (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }}>
+              <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBg}>
+                <View style={[styles.modalCard, { maxHeight: '90%' }]}>
+                  <View style={styles.modalHeaderRow}>
+                    <View style={styles.modalTitleRow}>
+                      <Ionicons name="person-add-outline" size={20} color="#0284c7" style={{ marginRight: 8 }} />
+                      <View>
+                        <Text style={styles.modalTitle} allowFontScaling={false}>Provision Maintenance Staff</Text>
+                        <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 1 }} allowFontScaling={false}>
+                          Quick-register technician profile with service specialty
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity onPress={() => setShowQuickAddStaffModal(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                      <Ionicons name="close" size={22} color="#94a3b8" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                    <View style={styles.formGroup}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>FULL NAME *</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="E.g., David Miller"
+                        placeholderTextColor="#64748b"
+                        value={quickStaffName}
+                        onChangeText={setQuickStaffName}
+                      />
+                    </View>
+
+                    <View style={styles.formGroup}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>EMAIL ADDRESS *</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        placeholder="david@company.com"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        placeholderTextColor="#64748b"
+                        value={quickStaffEmail}
+                        onChangeText={setQuickStaffEmail}
+                      />
+                    </View>
+
+                    <View style={styles.formRow}>
+                      <View style={[styles.formGroup, { flex: 1 }]}>
+                        <Text style={styles.formLabel} allowFontScaling={false}>PHONE NUMBER</Text>
+                        <TextInput
+                          style={styles.formInput}
+                          placeholder="(555) 0122"
+                          keyboardType="phone-pad"
+                          placeholderTextColor="#64748b"
+                          value={quickStaffPhone}
+                          onChangeText={setQuickStaffPhone}
+                        />
+                      </View>
+                      <View style={[styles.formGroup, { flex: 1 }]}>
+                        <Text style={styles.formLabel} allowFontScaling={false}>STATUS</Text>
+                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                          <TouchableOpacity
+                            onPress={() => setQuickStaffStatus('Active')}
+                            style={{
+                              flex: 1,
+                              paddingVertical: 9,
+                              borderRadius: 8,
+                              alignItems: 'center',
+                              backgroundColor: quickStaffStatus === 'Active' ? '#10b981' : (isDarkMode ? '#334155' : '#e2e8f0'),
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: quickStaffStatus === 'Active' ? '#fff' : colors.textSecondary }} allowFontScaling={false}>
+                              Active
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => setQuickStaffStatus('Suspended')}
+                            style={{
+                              flex: 1,
+                              paddingVertical: 9,
+                              borderRadius: 8,
+                              alignItems: 'center',
+                              backgroundColor: quickStaffStatus === 'Suspended' ? '#ef4444' : (isDarkMode ? '#334155' : '#e2e8f0'),
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: quickStaffStatus === 'Suspended' ? '#fff' : colors.textSecondary }} allowFontScaling={false}>
+                              Suspended
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+
+                    <View style={styles.formGroup}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>USER PASSWORD *</Text>
+                      <View style={{ position: 'relative', justifyContent: 'center' }}>
+                        <TextInput
+                          style={[styles.formInput, { paddingRight: 40 }]}
+                          placeholder="Choose secure password"
+                          secureTextEntry={!showQuickStaffPassword}
+                          placeholderTextColor="#64748b"
+                          value={quickStaffPassword}
+                          onChangeText={setQuickStaffPassword}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowQuickStaffPassword(!showQuickStaffPassword)}
+                          style={{ position: 'absolute', right: 12, padding: 4 }}
+                        >
+                          <Ionicons
+                            name={showQuickStaffPassword ? "eye-off-outline" : "eye-outline"}
+                            size={18}
+                            color="#64748b"
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View style={styles.formGroup}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>ROLE</Text>
+                      <View style={[styles.formInput, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc', justifyContent: 'center' }]}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>
+                          🔧 Maintenance
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Specialty Dropdown */}
+                    <View style={[styles.formGroup, showQuickSpecialtyDropdown && { zIndex: 9999, position: 'relative' }]}>
+                      <Text style={styles.formLabel} allowFontScaling={false}>SPECIALTY TRADE *</Text>
+                      <TouchableOpacity
+                        style={styles.dropdownTrigger}
+                        onPress={() => setShowQuickSpecialtyDropdown(!showQuickSpecialtyDropdown)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.dropdownTriggerText} allowFontScaling={false}>
+                          {quickStaffSpecialty}
+                        </Text>
+                        <Ionicons name={showQuickSpecialtyDropdown ? "chevron-up" : "chevron-down"} size={14} color="#cbd5e1" />
+                      </TouchableOpacity>
+                      {showQuickSpecialtyDropdown && (
+                        <View style={styles.dropdownContainer}>
+                          {[
+                            { label: 'Plumber Specialty', val: 'Plumber' },
+                            { label: 'Electrician Specialty', val: 'Electrician' },
+                            { label: 'HVAC Maintenance', val: 'HVAC' },
+                            { label: 'General Contractor', val: 'General Contractor' },
+                            { label: 'Cleaning & Turnovers', val: 'Cleaning' },
+                            { label: 'Landscaping & Pools', val: 'Landscaping' },
+                            { label: 'Pest Control', val: 'Pest Control' },
+                            { label: 'Security & Fire', val: 'Security' },
+                            { label: 'Roofing & Guttering', val: 'Roofing' },
+                          ].map((opt) => (
+                            <TouchableOpacity
+                              key={opt.val}
+                              style={styles.dropdownItem}
+                              onPress={() => {
+                                setQuickStaffSpecialty(opt.val);
+                                setShowQuickSpecialtyDropdown(false);
+                              }}
+                            >
+                              <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt.label}</Text>
+                              {quickStaffSpecialty === opt.val && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={[styles.modalActions, { marginTop: 16 }]}>
+                      <TouchableOpacity
+                        style={styles.cancelBtn}
+                        onPress={() => setShowQuickAddStaffModal(false)}
+                        disabled={quickStaffSubmitting}
+                      >
+                        <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.submitBtn, { backgroundColor: '#0284c7' }, quickStaffSubmitting && styles.submitBtnDisabled]}
+                        onPress={handleQuickCreateStaff}
+                        disabled={quickStaffSubmitting}
+                      >
+                        {quickStaffSubmitting ? (
+                          <ActivityIndicator size="small" color="#ffffff" />
+                        ) : (
+                          <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>
+                            Provision & Select Staff
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </ScrollView>
+                </View>
+              </KeyboardAvoidingView>
+            </View>
+          )}
         </View>
       </Modal>
 
@@ -4185,201 +4379,6 @@ export const MaintenanceScreen = ({
                   </View>
                 </ScrollView>
               )}
-            </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* --- QUICK PROVISION MAINTENANCE STAFF MODAL --- */}
-      <Modal visible={showQuickAddStaffModal} animationType="slide" transparent>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBg}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={[styles.modalCard, { maxHeight: '90%' }]}>
-              <View style={styles.modalHeaderRow}>
-                <View style={styles.modalTitleRow}>
-                  <Ionicons name="person-add-outline" size={20} color="#0284c7" style={{ marginRight: 8 }} />
-                  <View>
-                    <Text style={styles.modalTitle} allowFontScaling={false}>Provision Maintenance Staff</Text>
-                    <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 1 }} allowFontScaling={false}>
-                      Quick-register technician profile with service specialty
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity onPress={() => setShowQuickAddStaffModal(false)}>
-                  <Ionicons name="close" size={22} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>FULL NAME *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="E.g., David Miller"
-                    placeholderTextColor="#64748b"
-                    value={quickStaffName}
-                    onChangeText={setQuickStaffName}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>EMAIL ADDRESS *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="david@company.com"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    placeholderTextColor="#64748b"
-                    value={quickStaffEmail}
-                    onChangeText={setQuickStaffEmail}
-                  />
-                </View>
-
-                <View style={styles.formRow}>
-                  <View style={[styles.formGroup, { flex: 1 }]}>
-                    <Text style={styles.formLabel} allowFontScaling={false}>PHONE NUMBER</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      placeholder="(555) 0122"
-                      keyboardType="phone-pad"
-                      placeholderTextColor="#64748b"
-                      value={quickStaffPhone}
-                      onChangeText={setQuickStaffPhone}
-                    />
-                  </View>
-                  <View style={[styles.formGroup, { flex: 1 }]}>
-                    <Text style={styles.formLabel} allowFontScaling={false}>STATUS</Text>
-                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
-                      <TouchableOpacity
-                        onPress={() => setQuickStaffStatus('Active')}
-                        style={{
-                          flex: 1,
-                          paddingVertical: 9,
-                          borderRadius: 8,
-                          alignItems: 'center',
-                          backgroundColor: quickStaffStatus === 'Active' ? '#10b981' : (isDarkMode ? '#334155' : '#e2e8f0'),
-                        }}
-                      >
-                        <Text style={{ fontSize: 11, fontWeight: '800', color: quickStaffStatus === 'Active' ? '#fff' : colors.textSecondary }} allowFontScaling={false}>
-                          Active
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => setQuickStaffStatus('Suspended')}
-                        style={{
-                          flex: 1,
-                          paddingVertical: 9,
-                          borderRadius: 8,
-                          alignItems: 'center',
-                          backgroundColor: quickStaffStatus === 'Suspended' ? '#ef4444' : (isDarkMode ? '#334155' : '#e2e8f0'),
-                        }}
-                      >
-                        <Text style={{ fontSize: 11, fontWeight: '800', color: quickStaffStatus === 'Suspended' ? '#fff' : colors.textSecondary }} allowFontScaling={false}>
-                          Suspended
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>USER PASSWORD *</Text>
-                  <View style={{ position: 'relative', justifyContent: 'center' }}>
-                    <TextInput
-                      style={[styles.formInput, { paddingRight: 40 }]}
-                      placeholder="Choose secure password"
-                      secureTextEntry={!showQuickStaffPassword}
-                      placeholderTextColor="#64748b"
-                      value={quickStaffPassword}
-                      onChangeText={setQuickStaffPassword}
-                    />
-                    <TouchableOpacity
-                      onPress={() => setShowQuickStaffPassword(!showQuickStaffPassword)}
-                      style={{ position: 'absolute', right: 12, padding: 4 }}
-                    >
-                      <Ionicons
-                        name={showQuickStaffPassword ? "eye-off-outline" : "eye-outline"}
-                        size={18}
-                        color="#64748b"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>ROLE</Text>
-                  <View style={[styles.formInput, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc', justifyContent: 'center' }]}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }} allowFontScaling={false}>
-                      🔧 Maintenance
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Specialty Dropdown */}
-                <View style={[styles.formGroup, showQuickSpecialtyDropdown && { zIndex: 9999, position: 'relative' }]}>
-                  <Text style={styles.formLabel} allowFontScaling={false}>SPECIALTY TRADE *</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownTrigger}
-                    onPress={() => setShowQuickSpecialtyDropdown(!showQuickSpecialtyDropdown)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.dropdownTriggerText} allowFontScaling={false}>
-                      {quickStaffSpecialty}
-                    </Text>
-                    <Ionicons name={showQuickSpecialtyDropdown ? "chevron-up" : "chevron-down"} size={14} color="#cbd5e1" />
-                  </TouchableOpacity>
-                  {showQuickSpecialtyDropdown && (
-                    <View style={styles.dropdownContainer}>
-                      {[
-                        { label: 'Plumber Specialty', val: 'Plumber' },
-                        { label: 'Electrician Specialty', val: 'Electrician' },
-                        { label: 'HVAC Maintenance', val: 'HVAC' },
-                        { label: 'General Contractor', val: 'General Contractor' },
-                        { label: 'Cleaning & Turnovers', val: 'Cleaning' },
-                        { label: 'Landscaping & Pools', val: 'Landscaping' },
-                        { label: 'Pest Control', val: 'Pest Control' },
-                        { label: 'Security & Fire', val: 'Security' },
-                        { label: 'Roofing & Guttering', val: 'Roofing' },
-                      ].map((opt) => (
-                        <TouchableOpacity
-                          key={opt.val}
-                          style={styles.dropdownItem}
-                          onPress={() => {
-                            setQuickStaffSpecialty(opt.val);
-                            setShowQuickSpecialtyDropdown(false);
-                          }}
-                        >
-                          <Text style={styles.dropdownItemText} allowFontScaling={false}>{opt.label}</Text>
-                          {quickStaffSpecialty === opt.val && <Ionicons name="checkmark" size={16} color="#38bdf8" />}
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                <View style={[styles.modalActions, { marginTop: 16 }]}>
-                  <TouchableOpacity
-                    style={styles.cancelBtn}
-                    onPress={() => setShowQuickAddStaffModal(false)}
-                    disabled={quickStaffSubmitting}
-                  >
-                    <Text style={styles.cancelBtnText} allowFontScaling={false}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.submitBtn, { backgroundColor: '#0284c7' }, quickStaffSubmitting && styles.submitBtnDisabled]}
-                    onPress={handleQuickCreateStaff}
-                    disabled={quickStaffSubmitting}
-                  >
-                    {quickStaffSubmitting ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <Text style={[styles.submitBtnText, { color: '#ffffff' }]} allowFontScaling={false}>
-                        Provision & Select Staff
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
             </View>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
