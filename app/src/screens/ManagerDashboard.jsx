@@ -426,14 +426,38 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
             return (u.propertyId && activePropIds.has(u.propertyId)) || (pName && activePropNames.has(pName));
           });
 
+      const rawPayments = Array.isArray(paymentsRes) ? paymentsRes : (paymentsRes?.data || []);
+      const payList = Array.isArray(rawPayments) ? rawPayments : [];
+      const pendingPayments = payList.filter((p) => {
+        const st = String(p.status || '').toLowerCase().trim();
+        return st === 'pending' || st === 'unpaid' || st === 'processing' || st === 'draft';
+      });
+      setPendingPaymentsList(pendingPayments);
+
+      const getInvoiceReconciledBal = (inv) => {
+        const invAmount = Number(inv.amount || 0);
+        const invMonth = String(inv.dueDate || '').slice(0, 7);
+        const matchedPays = payList.filter((p) => {
+          if (p.invoiceId && p.invoiceId === inv.id) return true;
+          const pTenantId = p.tenantId || p.tenant?.id;
+          if (pTenantId && inv.tenantId && pTenantId !== inv.tenantId) return false;
+          const pMonth = String(p.paidDate || p.dueDate || '').slice(0, 7);
+          return pMonth && pMonth === invMonth;
+        });
+        const paysSum = matchedPays.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        const effectivePaid = Math.max(Number(inv.paidAmount || 0), paysSum);
+        if (inv.balance !== undefined && inv.balance !== null && Number(inv.balance) >= 0) {
+          return Math.min(Number(inv.balance), Math.max(0, Math.round((invAmount - effectivePaid) * 100) / 100));
+        }
+        return Math.max(0, Math.round((invAmount - effectivePaid) * 100) / 100);
+      };
+
       const invList = Array.isArray(rawInvoices) ? rawInvoices : [];
       const unpaidInvoices = invList
         .filter((inv) => {
-          const bal = (inv.balance !== undefined && inv.balance !== null && Number(inv.balance) > 0)
-            ? Number(inv.balance)
-            : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+          const bal = getInvoiceReconciledBal(inv);
           const st = String(inv.status || '').toLowerCase().trim();
-          if (bal <= 0 || st === 'paid' || st === 'void' || st === 'cancelled') return false;
+          if (bal <= 0 || st === 'paid' || st === 'fully paid' || st === 'fullypaid' || st === 'void' || st === 'cancelled') return false;
 
           const cleanUnitNum = String(inv.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
           const matchedUnit = activeUnits.find(
@@ -450,9 +474,7 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
           return true;
         })
         .map((inv, idx) => {
-          const bal = (inv.balance !== undefined && inv.balance !== null && Number(inv.balance) > 0)
-            ? Number(inv.balance)
-            : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+          const bal = getInvoiceReconciledBal(inv);
           const cleanUnitNum = String(inv.unitNumber || '').replace(/^unit\s+/i, '').toLowerCase().trim();
           const matchedUnit = activeUnits.find(
             (u) =>
@@ -486,18 +508,8 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
         });
       setOutstandingInvoices(unpaidInvoices);
 
-      const rawPayments = Array.isArray(paymentsRes) ? paymentsRes : (paymentsRes?.data || []);
-      const payList = Array.isArray(rawPayments) ? rawPayments : [];
-      const pendingPayments = payList.filter((p) => {
-        const st = String(p.status || '').toLowerCase().trim();
-        return st === 'pending' || st === 'unpaid' || st === 'processing' || st === 'draft';
-      });
-      setPendingPaymentsList(pendingPayments);
-
       const totalPendingInvoices = unpaidInvoices.reduce((acc, inv) => {
-        const bal = (inv.balance !== undefined && inv.balance !== null && Number(inv.balance) > 0)
-          ? Number(inv.balance)
-          : ((Number(inv.amount) || 0) - (Number(inv.paidAmount) || 0));
+        const bal = getInvoiceReconciledBal(inv);
         return acc + bal;
       }, 0);
       const totalPendingPayments = pendingPayments.reduce((acc, p) => {
@@ -601,9 +613,9 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
         occupancyRate: occRate,
         monthlyRevenue: Number(m.monthlyRevenue || computedMonthlyRev || 0),
         pendingRent: Number(
-          Number(m.pendingRent) > 0 
+          m.pendingRent !== undefined && m.pendingRent !== null
             ? m.pendingRent 
-            : (totalPendingRent > 0 ? totalPendingRent : (m.pendingRent || 0))
+            : (totalPendingRent > 0 ? totalPendingRent : 0)
         ),
         expenses: Number(
           m.expenses !== undefined && m.expenses !== null && Number(m.expenses) > 0
@@ -641,9 +653,9 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
           occupancyRate: occRate,
           monthlyRevenue: Number(m.monthlyRevenue || computedMonthlyRev || 0),
           pendingRent: Number(
-            Number(m.pendingRent) > 0 
+            m.pendingRent !== undefined && m.pendingRent !== null
               ? m.pendingRent 
-              : (totalPendingRent > 0 ? totalPendingRent : (m.pendingRent || 0))
+              : (totalPendingRent > 0 ? totalPendingRent : 0)
           ),
           expenses: Number(
             m.expenses !== undefined && m.expenses !== null && Number(m.expenses) > 0
