@@ -739,47 +739,12 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
         active: t.active !== undefined ? t.active : true,
       }));
 
-      const finalList = formatted.length > 0 ? formatted : [
-        {
-          id: 'standard-movein-template',
-          name: 'Move-In Apartment Standard Checklist',
-          type: 'MOVE_IN',
-          description: 'Standard 4-room structural condition checklist for incoming tenant move-ins.',
-          rooms: defaultStarterRooms,
-          roomsCount: 4,
-          createdBy: 'system@apexpm.com',
-          active: true,
-        },
-        {
-          id: 'standard-moveout-template',
-          name: 'Move-Out Security Deposit Audit Checklist',
-          type: 'MOVE_OUT',
-          description: 'Comprehensive security deposit damage assessment and appliance audit.',
-          rooms: defaultStarterRooms,
-          roomsCount: 4,
-          createdBy: 'system@apexpm.com',
-          active: true,
-        },
-      ];
-
-      setTemplatesList(finalList);
-      return finalList;
+      setTemplatesList(formatted);
+      return formatted;
     } catch (e) {
       console.log('Templates fetch failed:', e.message);
-      const fallback = [
-        {
-          id: 'standard-movein-template',
-          name: 'Move-In Apartment Standard Checklist',
-          type: 'MOVE_IN',
-          description: 'Standard 4-room structural condition checklist for incoming tenant move-ins.',
-          rooms: defaultStarterRooms,
-          roomsCount: 4,
-          createdBy: 'system@apexpm.com',
-          active: true,
-        },
-      ];
-      setTemplatesList(fallback);
-      return fallback;
+      setTemplatesList([]);
+      return [];
     } finally {
       if (showLoading) setLoading(false);
       setRefreshing(false);

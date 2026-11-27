@@ -107,33 +107,7 @@ export const InspectionTemplatesScreen = ({ onNavigate }) => {
           }))
         );
       } else {
-        // Fallback default templates if database empty
-        setTemplates([
-          {
-            id: 'tmpl-1',
-            title: 'Move-In Apartment Standard Checklist',
-            category: 'Move-In',
-            itemsCount: 16,
-            description: 'Standard multi-room inspection covering HVAC, plumbing, walls, and fixtures.',
-            rooms: defaultStarterRooms,
-          },
-          {
-            id: 'tmpl-2',
-            title: 'Move-Out Security Deposit Audit',
-            category: 'Move-Out',
-            itemsCount: 16,
-            description: 'Detailed damage check for security deposit deduction calculations.',
-            rooms: defaultStarterRooms,
-          },
-          {
-            id: 'tmpl-3',
-            title: 'Annual Commercial Building Safety',
-            category: 'Routine',
-            itemsCount: 12,
-            description: 'Fire extinguisher, smoke alarm, emergency exit lighting check.',
-            rooms: defaultStarterRooms.slice(0, 2),
-          },
-        ]);
+        setTemplates([]);
       }
     } catch (e) {
       console.log('Error fetching templates:', e);
