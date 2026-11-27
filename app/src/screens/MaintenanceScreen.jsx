@@ -627,6 +627,8 @@ export const MaintenanceScreen = ({
         scheduledDate: w.scheduledDate || (w.createdAt ? (typeof w.createdAt === 'string' && w.createdAt.includes('T') ? w.createdAt.split('T')[0] : w.createdAt) : 'N/A'),
         estimatedCost: Number(w.estimatedCost || 0),
         actualCost: Number(w.actualCost || w.cost || 0),
+        extraExpenses: Number(w.extraExpenses || 0),
+        totalCost: Number(w.totalCost ?? (Number(w.actualCost || w.cost || 0) + Number(w.extraExpenses || 0))),
         status: w.status || 'Open',
       }));
       setWorkOrders(mappedWo);
@@ -735,7 +737,7 @@ export const MaintenanceScreen = ({
     workOrdersInProgress: workOrders.filter(w => w.status === 'In Progress' || w.status === 'InProgress').length,
     completedThisMonth: workOrders.filter(w => w.status === 'Completed' || w.status === 'Resolved').length,
     avgCompletionTime: '3.2 days',
-    totalMaintenanceCost: workOrders.reduce((sum, w) => sum + (Number(w.actualCost) || 0), 0),
+    totalMaintenanceCost: workOrders.reduce((sum, w) => sum + (Number(w.totalCost ?? w.actualCost) || 0), 0),
   };
 
   const getMaintModalMeta = () => {
@@ -854,7 +856,7 @@ export const MaintenanceScreen = ({
 
       case 'totalMaintenanceCost':
         return workOrders
-          .filter(w => (Number(w.actualCost) > 0 || Number(w.estimatedCost) > 0))
+          .filter(w => (Number(w.totalCost ?? w.actualCost) > 0 || Number(w.estimatedCost) > 0))
           .filter(w =>
             !q ||
             w.workOrderNumber?.toLowerCase().includes(q) ||
@@ -864,8 +866,8 @@ export const MaintenanceScreen = ({
           .map(w => ({
             id: w.id,
             title: `${w.workOrderNumber || '#WO'} · ${w.propertyName || 'Property'}`,
-            subtitle: `Vendor: ${w.vendorName || 'Contractor'} · Actual: $${Number(w.actualCost || 0).toLocaleString()}`,
-            badge: `$${Number(w.actualCost || w.estimatedCost || 0).toLocaleString()}`,
+            subtitle: `Vendor: ${w.vendorName || 'Contractor'} · Actual: $${Number(w.totalCost ?? w.actualCost ?? 0).toLocaleString()}`,
+            badge: `$${Number(w.totalCost ?? w.actualCost ?? w.estimatedCost ?? 0).toLocaleString()}`,
             badgeColor: '#ef4444',
             type: 'work_order',
             raw: w,
@@ -2434,7 +2436,7 @@ export const MaintenanceScreen = ({
                           </View>
                           <View style={[styles.priorityBadge, { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }]}>
                             <Text style={[styles.priorityBadgeText, { color: '#10b981' }]} allowFontScaling={false}>
-                              ${((Number(w.actualCost) || 0) + (Number(w.extraExpenses) || 0)) > 0 ? ((Number(w.actualCost) || 0) + (Number(w.extraExpenses) || 0)) : (w.estimatedCost || 0)}
+                              ${Number(w.totalCost ?? w.actualCost ?? 0) > 0 ? Number(w.totalCost ?? w.actualCost ?? 0) : (w.estimatedCost || 0)}
                             </Text>
                           </View>
                         </View>
@@ -4255,7 +4257,7 @@ export const MaintenanceScreen = ({
                             Total Final Cost:
                           </Text>
                           <Text style={{ fontSize: 15, fontWeight: '900', color: '#10b981' }} allowFontScaling={false}>
-                            ${((Number(selectedWorkOrder.actualCost || selectedWorkOrder.cost) || 0) + (Number(selectedWorkOrder.extraExpenses) || 0)) || (Number(selectedWorkOrder.estimatedCost) || 0)}
+                            ${Number(selectedWorkOrder.totalCost ?? ((Number(selectedWorkOrder.actualCost || selectedWorkOrder.cost) || 0) + (Number(selectedWorkOrder.extraExpenses) || 0))) || (Number(selectedWorkOrder.estimatedCost) || 0)}
                           </Text>
                         </View>
                       </View>
