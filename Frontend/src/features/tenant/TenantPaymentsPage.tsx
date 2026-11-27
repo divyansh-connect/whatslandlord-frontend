@@ -13,33 +13,41 @@ import { ColumnDef } from '@tanstack/react-table';
 import { clsx } from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/Tabs';
-import { useCompanyStore } from '../../store/useStore';
+import { useAuthStore, useCompanyStore } from '../../store/useStore';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export const TenantPaymentsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const { user } = useAuthStore();
   const { companyName: globalCompanyName, companyAddress: globalCompanyAddress } = useCompanyStore();
   const [isOpen, setIsOpen] = useState(false);
   const [step, setStep] = useState<'details' | 'processing' | 'receipt'>('details');
   const [processingMsg, setProcessingMsg] = useState('Initializing SSL handshaking...');
 
   // Queries
-  const { data: metrics } = useQuery({
-    queryKey: ['tenant-dashboard-metrics'],
+  const { data: metrics, isLoading: loadingMetrics, isFetching: fetchingMetrics } = useQuery({
+    queryKey: ['tenant-dashboard-metrics', user?.id],
     queryFn: () => api.tenantPortal.getMetrics(),
+    staleTime: 0,
   });
-  const { data: allPayments = [], isLoading } = useQuery({ queryKey: ['tenant-payments-list'], queryFn: () => api.rent.getAll() });
+  const { data: allPayments = [], isLoading, isFetching: fetchingPayments } = useQuery({
+    queryKey: ['tenant-payments-list', user?.id],
+    queryFn: () => api.rent.getAll(),
+    staleTime: 0,
+  });
 
   const { data: profile } = useQuery({
-    queryKey: ['tenant-profile'],
+    queryKey: ['tenant-profile', user?.id],
     queryFn: () => api.tenantProfile.get(),
+    staleTime: 0,
   });
 
-  const { data: allInvoices = [] } = useQuery({
-    queryKey: ['invoices-list'],
+  const { data: allInvoices = [], isFetching: fetchingInvoices } = useQuery({
+    queryKey: ['invoices-list', user?.id],
     queryFn: () => api.invoices.getAll(),
+    staleTime: 0,
   });
 
   const tenantName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.name || 'Resident' : 'Resident';
@@ -583,6 +591,10 @@ export const TenantPaymentsPage: React.FC = () => {
       ),
     },
   ];
+
+  if (loadingMetrics || fetchingMetrics || isLoading || fetchingPayments || fetchingInvoices || !metrics) {
+    return <LoadingSkeleton type="card" />;
+  }
 
   return (
     <div>

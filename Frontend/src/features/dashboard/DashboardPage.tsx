@@ -15,23 +15,27 @@ import {
 
 import { useAuthStore } from '../../store/useStore';
 import { useTranslation } from 'react-i18next';
+import { LoadingSkeleton } from '../../components/LoadingSkeleton';
 import { MetricDetailsModal, MetricType } from './MetricDetailsModal';
 
 export const DashboardPage: React.FC = () => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { user } = useAuthStore();
   const [selectedMetric, setSelectedMetric] = React.useState<MetricType | null>(null);
 
   // Query Metrics
-  const { data: metrics, isLoading: loadingMetrics, refetch: refetchMetrics } = useQuery({
-    queryKey: ['dashboard-metrics'],
+  const { data: metrics, isLoading: loadingMetrics, isFetching: fetchingMetrics, refetch: refetchMetrics } = useQuery({
+    queryKey: ['dashboard-metrics', user?.id],
     queryFn: () => api.dashboard.getMetrics(),
+    staleTime: 0,
   });
 
   // Query Charts
   const { data: charts, isLoading: loadingCharts, refetch: refetchCharts } = useQuery({
-    queryKey: ['dashboard-charts'],
+    queryKey: ['dashboard-charts', user?.id],
     queryFn: () => api.dashboard.getChartData(),
+    staleTime: 0,
   });
 
   const refreshAll = () => {
@@ -48,8 +52,11 @@ export const DashboardPage: React.FC = () => {
 
   const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b'];
 
-  const { user } = useAuthStore();
   const isCollectionManager = user?.role === 'Collection Manager';
+
+  if (loadingMetrics || fetchingMetrics || !metrics) {
+    return <LoadingSkeleton type="card" />;
+  }
 
   return (
     <div className="space-y-6">

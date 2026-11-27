@@ -18,18 +18,19 @@ export const TenantDashboardPage: React.FC = () => {
   const { user } = useAuthStore();
 
   // Queries
-  const { data: metrics, isLoading } = useQuery({
-    queryKey: ['tenant-dashboard-metrics'],
+  const { data: metrics, isLoading, isFetching: isMetricsFetching } = useQuery({
+    queryKey: ['tenant-dashboard-metrics', user?.id],
     queryFn: () => api.tenantPortal.getMetrics(),
+    staleTime: 0,
   });
 
   const { data: screeningReports = [] } = useQuery({
-    queryKey: ['tenant-screening-reports'],
+    queryKey: ['tenant-screening-reports', user?.id],
     queryFn: () => api.screening.getAll(),
   });
 
   const { data: profile } = useQuery({
-    queryKey: ['tenant-profile'],
+    queryKey: ['tenant-profile', user?.id],
     queryFn: () => api.tenantProfile.get(),
   });
 
@@ -61,7 +62,7 @@ export const TenantDashboardPage: React.FC = () => {
     };
   }, [refetchNotifications, queryClient]);
 
-  if (isLoading || !metrics) {
+  if (isLoading || isMetricsFetching || !metrics) {
     return <LoadingSkeleton type="card" />;
   }
 
