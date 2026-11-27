@@ -18,26 +18,27 @@ export const TenantDashboardPage: React.FC = () => {
   const { user } = useAuthStore();
 
   // Queries
-  const { data: metrics, isLoading, isFetching: isMetricsFetching } = useQuery({
+  const { data: metrics, isLoading } = useQuery({
     queryKey: ['tenant-dashboard-metrics', user?.id],
     queryFn: () => api.tenantPortal.getMetrics(),
-    staleTime: 0,
+    staleTime: 30000,
   });
 
   const { data: screeningReports = [] } = useQuery({
     queryKey: ['tenant-screening-reports', user?.id],
     queryFn: () => api.screening.getAll(),
+    staleTime: 30000,
   });
 
   const { data: profile } = useQuery({
     queryKey: ['tenant-profile', user?.id],
     queryFn: () => api.tenantProfile.get(),
+    staleTime: 30000,
   });
 
   const { data: notifications = [], refetch: refetchNotifications } = useQuery({
     queryKey: ['tenant-notifications-list'],
     queryFn: () => api.tenantNotifications.getAll(),
-    refetchInterval: 4000,
   });
 
   const dismissNoticeMutation = useMutation({
@@ -62,7 +63,7 @@ export const TenantDashboardPage: React.FC = () => {
     };
   }, [refetchNotifications, queryClient]);
 
-  if (isLoading || isMetricsFetching || !metrics) {
+  if ((isLoading && !metrics) || !metrics) {
     return <LoadingSkeleton type="card" />;
   }
 

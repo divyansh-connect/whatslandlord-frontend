@@ -27,28 +27,30 @@ export const TenantPaymentsPage: React.FC = () => {
   const [processingMsg, setProcessingMsg] = useState('Initializing SSL handshaking...');
 
   // Queries
-  const { data: metrics, isLoading: loadingMetrics, isFetching: fetchingMetrics } = useQuery({
+  const { data: metrics, isLoading: loadingMetrics } = useQuery({
     queryKey: ['tenant-dashboard-metrics', user?.id],
     queryFn: () => api.tenantPortal.getMetrics(),
-    staleTime: 0,
+    staleTime: 30000,
   });
-  const { data: allPayments = [], isLoading, isFetching: fetchingPayments } = useQuery({
+  const { data: allPayments = [], isLoading: loadingPayments } = useQuery({
     queryKey: ['tenant-payments-list', user?.id],
     queryFn: () => api.rent.getAll(),
-    staleTime: 0,
+    staleTime: 30000,
   });
 
   const { data: profile } = useQuery({
     queryKey: ['tenant-profile', user?.id],
     queryFn: () => api.tenantProfile.get(),
-    staleTime: 0,
+    staleTime: 30000,
   });
 
-  const { data: allInvoices = [], isFetching: fetchingInvoices } = useQuery({
+  const { data: allInvoices = [], isLoading: loadingInvoices } = useQuery({
     queryKey: ['invoices-list', user?.id],
     queryFn: () => api.invoices.getAll(),
-    staleTime: 0,
+    staleTime: 30000,
   });
+
+  const isLoading = loadingPayments || loadingInvoices;
 
   const tenantName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.name || 'Resident' : 'Resident';
 
@@ -159,7 +161,9 @@ export const TenantPaymentsPage: React.FC = () => {
     };
   }, [calculatedLedger]);
 
-  const outstandingBalance = metrics?.outstandingBalance !== undefined ? Math.max(0, Number(metrics.outstandingBalance)) : Math.max(0, ledgerMetrics.currentBal);
+  const outstandingBalance = metrics?.outstandingBalance !== undefined 
+    ? Math.max(0, Number(metrics.outstandingBalance)) 
+    : (allPayments.length > 0 ? Math.max(0, ledgerMetrics.currentBal) : 0);
 
   const handleExportCSV = () => {
     const headers = ['Date', 'Transaction Type', 'Description', 'Reference Number', 'Invoice Amount', 'Payment Amount', 'Additional Charge', 'Running Balance', 'Status'];
@@ -592,7 +596,7 @@ export const TenantPaymentsPage: React.FC = () => {
     },
   ];
 
-  if (loadingMetrics || fetchingMetrics || isLoading || fetchingPayments || fetchingInvoices || !metrics) {
+  if ((loadingMetrics && !metrics) || (loadingPayments && allPayments.length === 0) || (loadingInvoices && allInvoices.length === 0) || !metrics) {
     return <LoadingSkeleton type="card" />;
   }
 

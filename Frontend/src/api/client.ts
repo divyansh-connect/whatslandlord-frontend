@@ -98,21 +98,6 @@ export const apiClient = {
       }
     }
 
-    // Try fallback to local backend if remote API returns 404 or connection fails
-    if ((!response || response.status === 404) && !BASE_URL.includes('localhost:5000')) {
-      try {
-        const localResponse = await fetch(`http://localhost:5000/api/v1${url}`, {
-          method: 'GET',
-          headers: apiClient.getHeaders(),
-        });
-        if (localResponse.ok) {
-          return localResponse.json();
-        }
-      } catch (e) {
-        // Fallback failed, continue with main response handling
-      }
-    }
-
     if (response && response.status === 401) {
       const refreshed = await handleUnauthorized();
       if (refreshed) {
@@ -151,22 +136,6 @@ export const apiClient = {
         });
       } catch {
         response = null;
-      }
-    }
-
-    // Try fallback to local backend if remote API returns 404 or connection fails
-    if ((!response || response.status === 404) && !BASE_URL.includes('localhost:5000')) {
-      try {
-        const localResponse = await fetch(`http://localhost:5000/api/v1${url}`, {
-          method: 'POST',
-          headers,
-          body: isFormData ? data : JSON.stringify(data),
-        });
-        if (localResponse.ok) {
-          return localResponse.json();
-        }
-      } catch (e) {
-        // Fallback failed
       }
     }
 
