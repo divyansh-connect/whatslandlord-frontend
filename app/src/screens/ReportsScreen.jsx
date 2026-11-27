@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
+import { formatDateOnlyNY } from '../utils/dateUtils';
 import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -2638,14 +2639,14 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                               {/* Start Date */}
                               <View style={[styles.tableDataCell, { width: 95 }]}>
                                 <Text style={styles.tableCellTextMuted} numberOfLines={1} allowFontScaling={false}>
-                                  {item.startDate && item.startDate !== 'N/A' ? new Date(item.startDate).toLocaleDateString() : 'N/A'}
+                                  {item.startDate && item.startDate !== 'N/A' ? formatDateOnlyNY(item.startDate) : 'N/A'}
                                 </Text>
                               </View>
 
                               {/* End Date */}
                               <View style={[styles.tableDataCell, { width: 95 }]}>
                                 <Text style={styles.tableCellTextMuted} numberOfLines={1} allowFontScaling={false}>
-                                  {item.endDate && item.endDate !== 'N/A' ? new Date(item.endDate).toLocaleDateString() : 'N/A'}
+                                  {item.endDate && item.endDate !== 'N/A' ? formatDateOnlyNY(item.endDate) : 'N/A'}
                                 </Text>
                               </View>
 
@@ -3018,14 +3019,14 @@ export const ReportsScreen = ({ onNavigate, onBack }) => {
                               {/* Created Date */}
                               <View style={[styles.tableDataCell, { width: 105 }]}>
                                 <Text style={styles.tableCellTextMuted} numberOfLines={1} allowFontScaling={false}>
-                                  {item.createdDate && item.createdDate !== 'N/A' ? new Date(item.createdDate).toLocaleDateString() : 'N/A'}
+                                  {item.createdDate && item.createdDate !== 'N/A' ? formatDateOnlyNY(item.createdDate) : 'N/A'}
                                 </Text>
                               </View>
 
                               {/* Completed Date */}
                               <View style={[styles.tableDataCell, { width: 110 }]}>
                                 <Text style={styles.tableDataCellTextMuted} numberOfLines={1} allowFontScaling={false}>
-                                  {item.completedDate && item.completedDate !== 'N/A' ? new Date(item.completedDate).toLocaleDateString() : 'Pending'}
+                                  {item.completedDate && item.completedDate !== 'N/A' ? formatDateOnlyNY(item.completedDate) : 'Pending'}
                                 </Text>
                               </View>
 

@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
+import { getNewYorkTodayStr } from '../utils/dateUtils';
 import { useAuthStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -240,7 +241,7 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
   const [leadPhone, setLeadPhone] = useState('');
   const [leadPropertyId, setLeadPropertyId] = useState('');
   const [leadBudget, setLeadBudget] = useState('1600');
-  const [leadMoveInDate, setLeadMoveInDate] = useState(new Date().toISOString().split('T')[0]);
+  const [leadMoveInDate, setLeadMoveInDate] = useState(getNewYorkTodayStr());
   const [leadSource, setLeadSource] = useState('Zillow');
   const [leadPriority, setLeadPriority] = useState('Medium');
   const [leadAssignedAgent, setLeadAssignedAgent] = useState('Agent Smith');
@@ -947,7 +948,7 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
         propertyId: leadPropertyId || undefined,
         property: chosenProp ? chosenProp.name : undefined,
         budget: parseFloat(leadBudget) || 1600,
-        moveInDate: leadMoveInDate || new Date().toISOString().split('T')[0],
+        moveInDate: leadMoveInDate || getNewYorkTodayStr(),
         source: leadSource || 'Zillow',
         priority: leadPriority || 'Medium',
         assignedAgent: leadAssignedAgent.trim() || 'Agent Smith',
@@ -966,7 +967,7 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
       setLeadPhone('');
       setLeadPropertyId('');
       setLeadBudget('1600');
-      setLeadMoveInDate(new Date().toISOString().split('T')[0]);
+      setLeadMoveInDate(getNewYorkTodayStr());
       setLeadSource('Zillow');
       setLeadPriority('Medium');
       setLeadAssignedAgent('Agent Smith');
@@ -1423,7 +1424,7 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
   const openCreateLeaseModal = () => {
     fetchOptions();
     if (!leaseStartDate) {
-      setLeaseStartDate(new Date().toISOString().split('T')[0]);
+      setLeaseStartDate(getNewYorkTodayStr());
     }
     if (!leaseEndDate) {
       const nextYear = new Date();
@@ -3076,7 +3077,7 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
                     const isRejected = item.status === 'REJECTED';
                     const isOfferSent = item.status === 'OFFER_SENT';
                     const statusColor = isAccepted ? '#10b981' : isRejected ? '#ef4444' : isOfferSent ? '#38bdf8' : '#f59e0b';
-                    const statusLabel = isAccepted ? 'Accepted' : isRejected ? 'Declined' : isOfferSent ? 'Offer Sent' : 'Pending Offer';
+                    const statusLabel = isAccepted ? 'Accepted' : isRejected ? 'Declined' : isOfferSent ? 'Ready for Action' : 'Pending';
                     const isActionLoading = renewalActionLoadingId === item.id;
 
                     return (
@@ -3143,7 +3144,7 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
                               ) : (
                                 <>
                                   <Ionicons name="mail-outline" size={13} color="#38bdf8" style={{ marginRight: 4 }} />
-                                  <Text style={[styles.smallActionText, { color: '#38bdf8' }]} allowFontScaling={false}>Send Offer</Text>
+                                  <Text style={[styles.smallActionText, { color: '#38bdf8' }]} allowFontScaling={false}>Start Renewal</Text>
                                 </>
                               )}
                             </TouchableOpacity>

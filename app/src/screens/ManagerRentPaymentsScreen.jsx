@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { AppActivityIndicator as ActivityIndicator } from '../components/AppActivityIndicator';
 import apiClient from '../api/client';
+import { getNewYorkTodayStr } from '../utils/dateUtils';
 import { useAuthStore, useThemeStore } from '../store/useStore';
 import { useThemeColors } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -615,32 +616,6 @@ export const ManagerRentPaymentsScreen = ({
         });
       });
 
-      // Safety fallback: reflect any invoice paidAmount > 0 as credit if payment not in parsedPayments
-      parsedInvoices.forEach((inv) => {
-        const invPaid = Number(inv.paidAmount) || 0;
-        if (invPaid > 0) {
-          const hasPayment = parsedPayments.some((p) =>
-            p.invoiceId === inv.id ||
-            (p.tenantId === inv.tenantId && Math.abs(Number(p.amount) - invPaid) < 0.01 && (String(p.dueDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7) || String(p.paidDate || '').slice(0, 7) === String(inv.dueDate || '').slice(0, 7)))
-          );
-          if (!hasPayment) {
-            allTransactions.push({
-              type: 'payment',
-              sortOrder: 3,
-              date: inv.dueDate && inv.dueDate !== 'N/A' ? inv.dueDate : new Date().toISOString().split('T')[0],
-              amount: invPaid,
-              tenantId: inv.tenantId,
-              tenantName: inv.tenantName,
-              propertyName: inv.propertyName,
-              unitNumber: inv.unitNumber,
-              description: `Payment Received via Offline (Partial) · Ref# RCP-OCCUPIED-AUTO`,
-              transactionType: 'Payment',
-              id: `led-pay-inv-${inv.id}`,
-            });
-          }
-        }
-      });
-
       // Chronological sort ascending: date first, then sortOrder
       allTransactions.sort((a, b) => {
         const timeA = new Date(a.date).getTime();
@@ -702,7 +677,7 @@ export const ManagerRentPaymentsScreen = ({
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
     const localToday = `${year}-${month}-${day}`;
-    const utcToday = now.toISOString().split('T')[0];
+    const utcToday = getNewYorkTodayStr();
 
     const s = String(dateVal);
     if (s.startsWith(localToday) || s.startsWith(utcToday)) return true;
@@ -891,7 +866,7 @@ export const ManagerRentPaymentsScreen = ({
 
   const getRentModalItems = () => {
     const q = rentMetricSearch.toLowerCase().trim();
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getNewYorkTodayStr();
 
     switch (selectedRentMetric) {
       case 'collectedToday': {
@@ -1205,7 +1180,7 @@ export const ManagerRentPaymentsScreen = ({
       return;
     }
 
-    const todayDate = new Date().toISOString().split('T')[0];
+    const todayDate = getNewYorkTodayStr();
     const validationData = {
       amount: finalAmount,
       date: payDate || todayDate,
@@ -1318,8 +1293,12 @@ export const ManagerRentPaymentsScreen = ({
     }
 
     try {
-      setSubmitting(true);
       const totalAmount = invLineItems.reduce((sum, item) => sum + parseFloat(item.amount || '0'), 0);
+      if (isNaN(totalAmount) || totalAmount <= 0) {
+        Alert.alert('Invalid Amount', 'Invoice total amount must be greater than $0.');
+        return;
+      }
+      setSubmitting(true);
       const selectedTenant = tenants.find((t) => t.id === valRes.data.tenantId);
       const tenantName = selectedTenant
         ? `${selectedTenant.firstName || ''} ${selectedTenant.lastName || ''}`.trim() || selectedTenant.name || 'Resident'
@@ -1338,7 +1317,7 @@ export const ManagerRentPaymentsScreen = ({
         amount: totalAmount,
         notes: invNotes,
         lineItems: invLineItems,
-        status: 'Draft',
+        status: 'Sent',
       };
 
       await apiClient.post('/invoices', payload, logout, refreshAccessToken);

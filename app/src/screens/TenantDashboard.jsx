@@ -794,7 +794,7 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
             ${Number(tenantData.currentRent || 0).toLocaleString()}
           </Text>
           <Text style={styles.metricCardFooter} allowFontScaling={false}>
-            {es ? 'Fecha de Vencimiento: ' : 'Due Date: '}{tenantData.nextDueDate && tenantData.nextDueDate !== 'N/A' ? tenantData.nextDueDate : '2026-07-01'}
+            {es ? 'Fecha de Vencimiento: ' : 'Due Date: '}{tenantData.nextDueDate && tenantData.nextDueDate !== 'N/A' ? tenantData.nextDueDate : 'N/A'}
           </Text>
         </View>
 

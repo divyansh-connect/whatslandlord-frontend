@@ -109,35 +109,55 @@ const parseDateSafe = (dateStr) => {
   return isNaN(dt.getTime()) ? null : dt;
 };
 
-// Helper to generate past months list (Matching Web NewUnitPage.tsx)
+// Helper to get New York current year/month (0-indexed month)
+const getNewYorkYearMonth = () => {
+  try {
+    const nyDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const [y, m] = nyDateStr.split('-').map(Number);
+    if (y && m) return { year: y, month: m - 1 };
+  } catch (e) {}
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() };
+};
+
+// Helper to compute inclusive prorated rent for the 1st month
+const getProratedMonthRent = (monthlyRent, monthItem) => {
+  const base = Number(monthlyRent) || 0;
+  if (!monthItem || !monthItem.isProrated) return base;
+  return Math.round((base / monthItem.daysInMonth) * monthItem.remainingDays * 100) / 100;
+};
+
+// Helper to generate past months list (NY timezone, 1st month prorated, 2nd+ month on 1st)
 const generateMonthListFromMoveIn = (dateStr) => {
   if (!dateStr) return [];
   const start = parseDateSafe(dateStr);
   if (!start) return [];
-  const now = new Date();
-  // Ensure reference end date covers at least 2026-10-21 (matching Web 10 months past demo dataset)
-  let refYear = Math.max(now.getFullYear(), 2026);
-  let refMonth = 9; // October (index 9)
-  if (now.getFullYear() > 2026) {
-    refMonth = now.getMonth();
-  } else if (now.getFullYear() === 2026) {
-    refMonth = Math.max(now.getMonth(), 9);
-  }
+  const ny = getNewYorkYearMonth();
+  const refYear = ny.year;
+  const refMonth = ny.month;
 
   let currentYear = start.getFullYear();
   let currentMonth = start.getMonth();
+  const startDay = start.getDate();
 
   if (currentYear > refYear || (currentYear === refYear && currentMonth > refMonth)) {
     return [];
   }
 
   const months = [];
+  let isFirst = true;
   while (currentYear < refYear || (currentYear === refYear && currentMonth <= refMonth)) {
     const d = new Date(currentYear, currentMonth, 1);
     const id = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
     const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    const dueDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
-    months.push({ id, label, dueDate });
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const remainingDays = isFirst ? Math.max(1, daysInMonth - startDay + 1) : daysInMonth;
+    const isProrated = isFirst && startDay > 1;
+    const dueDate = isFirst
+      ? `${id}-${String(startDay).padStart(2, '0')}`
+      : `${id}-01`;
+    months.push({ id, label, dueDate, isProrated, daysInMonth, remainingDays });
+    isFirst = false;
     currentMonth++;
     if (currentMonth > 11) {
       currentMonth = 0;
@@ -640,20 +660,21 @@ export const PropertiesScreen = ({
     let totalUnpaid = 0;
 
     pastMonths.forEach((m) => {
+      const mRent = getProratedMonthRent(rentVal, m);
       const d = monthPaymentDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
       const hasLate = d.applyLateFee !== undefined ? Boolean(d.applyLateFee) : (d.status !== 'Paid' && includeMonthlyLateFee);
       const mFee = hasLate ? lateFeeVal : 0;
       if (d.status === 'Paid') {
         // paid
       } else if (d.status === 'Partial') {
-        const p = Math.min(rentVal, Number(d.paidAmount || 0));
-        totalUnpaid += Math.max(0, rentVal + mFee - p);
+        const p = Math.min(mRent, Number(d.paidAmount || 0));
+        totalUnpaid += Math.max(0, mRent + mFee - p);
       } else {
-        totalUnpaid += (rentVal + mFee);
+        totalUnpaid += (mRent + mFee);
       }
     });
 
-    setTOutstandingBalance(String(totalUnpaid));
+    setTOutstandingBalance(String(Math.round(totalUnpaid * 100) / 100));
   }, [pastMonths, monthPaymentDetails, includeMonthlyLateFee, uRent]);
 
   // Counts for Badges
@@ -667,30 +688,39 @@ export const PropertiesScreen = ({
     let partCount = 0;
 
     pastMonths.forEach((m) => {
+      const mRent = getProratedMonthRent(rentVal, m);
       const d = monthPaymentDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
       const hasLate = d.applyLateFee !== undefined ? Boolean(d.applyLateFee) : (d.status !== 'Paid' && includeMonthlyLateFee);
       const mFee = hasLate ? lateFeeVal : 0;
       if (d.status === 'Paid') {
         pCount++;
-        pTotal += rentVal;
+        pTotal += mRent;
       } else if (d.status === 'Partial') {
         partCount++;
-        const p = Math.min(rentVal, Number(d.paidAmount || 0));
+        const p = Math.min(mRent, Number(d.paidAmount || 0));
         pTotal += p;
         uCount++;
-        uTotal += Math.max(0, rentVal + mFee - p);
+        uTotal += Math.max(0, mRent + mFee - p);
       } else {
         uCount++;
-        uTotal += (rentVal + mFee);
+        uTotal += (mRent + mFee);
       }
     });
 
-    return { paidCount: pCount, paidTotal: pTotal, unpaidCount: uCount, unpaidTotal: uTotal, partialCount: partCount };
+    return {
+      paidCount: pCount,
+      paidTotal: Math.round(pTotal * 100) / 100,
+      unpaidCount: uCount,
+      unpaidTotal: Math.round(uTotal * 100) / 100,
+      partialCount: partCount,
+    };
   }, [pastMonths, monthPaymentDetails, includeMonthlyLateFee, uRent]);
 
   const handleSetMonthStatus = (monthId, newStatus, paidAmount = 0) => {
     const rentVal = Number(uRent) || 1500;
-    const finalPaid = newStatus === 'Paid' ? rentVal : newStatus === 'Partial' ? Math.min(rentVal, Number(paidAmount)) : 0;
+    const monthItem = pastMonths.find((m) => m.id === monthId);
+    const mRent = getProratedMonthRent(rentVal, monthItem);
+    const finalPaid = newStatus === 'Paid' ? mRent : newStatus === 'Partial' ? Math.min(mRent, Number(paidAmount)) : 0;
     setMonthPaymentDetails((prev) => {
       const prevDetail = prev[monthId] || {};
       return {
@@ -1482,25 +1512,28 @@ export const PropertiesScreen = ({
 
       for (const monthItem of pastMonths) {
         const monthDueDate = monthItem.dueDate || `${monthItem.id}-01`;
+        const mRent = getProratedMonthRent(rentVal, monthItem);
         const detail = monthPaymentDetails[monthItem.id] || { status: 'Unpaid', paidAmount: 0 };
         const pAmt = detail.status === 'Paid'
-          ? rentVal
-          : (detail.status === 'Partial' ? Math.min(rentVal, Number(detail.paidAmount || 0)) : 0);
+          ? mRent
+          : (detail.status === 'Partial' ? Math.min(mRent, Number(detail.paidAmount || 0)) : 0);
         const isPaid = detail.status === 'Paid';
         const hasLateFee = detail.status === 'Paid'
           ? false
           : (detail.applyLateFee !== undefined ? Boolean(detail.applyLateFee) : (detail.status === 'Unpaid' && includeMonthlyLateFee));
         const lateFeeAmt = hasLateFee ? effectiveLateFee : 0;
-        const totalInvoiceAmt = isPaid ? rentVal : (rentVal + lateFeeAmt);
-        const expectedBalance = Math.max(0, totalInvoiceAmt - pAmt);
+        const totalInvoiceAmt = isPaid ? mRent : (mRent + lateFeeAmt);
+        const expectedBalance = Math.max(0, Math.round((totalInvoiceAmt - pAmt) * 100) / 100);
         const invStatus = detail.status === 'Paid'
           ? 'Paid'
           : (detail.status === 'Partial' ? 'Partially Paid' : 'Overdue');
 
         const lineItems = [
           {
-            description: `Monthly Rent Charge - ${monthItem.label}`,
-            amount: rentVal,
+            description: monthItem.isProrated
+              ? `Prorated Rent Charge - ${monthItem.label} (${monthItem.remainingDays}/${monthItem.daysInMonth} days)`
+              : `Monthly Rent Charge - ${monthItem.label}`,
+            amount: mRent,
           },
         ];
         if (lateFeeAmt > 0 && !isPaid) {
@@ -1799,7 +1832,7 @@ export const PropertiesScreen = ({
                       rentAmount: Number(uRent) || 0,
                       securityDeposit: Number(uDeposit) || 0,
                       depositAmount: Number(uDeposit) || 0,
-                      startDate: tMoveInDate || new Date().toISOString().split('T')[0],
+                      startDate: tMoveInDate || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
                       endDate: endDate.toISOString().split('T')[0],
                       status: 'Active',
                     },
