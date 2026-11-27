@@ -67,13 +67,13 @@ export const OwnerPropertiesPage: React.FC = () => {
     const enrichedUnits = rawUnits.map((u: any) => {
       const activeLease = propLeases.find((l: any) =>
         (l.unitId === u.id || l.unit?.id === u.id) &&
-        (l.status === 'Active' || l.status === 'Pending_Move_In' || l.status === 'Pending')
-      ) || (u.leases || []).find((l: any) =>
-        l.status === 'Active' || l.status === 'Pending_Move_In' || l.status === 'Pending'
-      ) || (u.leases || [])[0];
+        l.status === 'Active'
+      ) || (u.leases || []).find((l: any) => l.status === 'Active');
 
-      const matchedTenant = propTenants.find((t: any) => t.unitId === u.id) || (u.tenants || [])[0] || activeLease?.tenant;
-      const isOcc = (u.status || '').toLowerCase() === 'occupied' || !!activeLease || !!matchedTenant;
+      const matchedTenant = propTenants.find((t: any) => t.unitId === u.id && t.status !== 'Inactive')
+        || (u.tenants || []).find((t: any) => t.status !== 'Inactive')
+        || activeLease?.tenant;
+      const isOcc = String(u.status || '').toLowerCase() === 'occupied';
       const rentAmount = Number(activeLease?.rentAmount ?? u.rentAmount ?? 0);
       
       const leaseDeposit = activeLease ? Number(activeLease.depositAmount ?? activeLease.deposit ?? activeLease.securityDeposit ?? 0) : null;
@@ -91,7 +91,7 @@ export const OwnerPropertiesPage: React.FC = () => {
       return {
         ...u,
         isOccupied: isOcc,
-        status: isOcc ? 'Occupied' : 'Vacant',
+        status: isOcc ? 'Occupied' : (u.status || 'Vacant'),
         rentAmount,
         securityDeposit: deposit,
         tenantName: isOcc ? tenantName : 'Vacant',
@@ -100,7 +100,7 @@ export const OwnerPropertiesPage: React.FC = () => {
     });
 
     const occCount = enrichedUnits.filter((u: any) => u.isOccupied).length;
-    const totalUnitsCount = Math.max(enrichedUnits.length, Number(p.totalUnits || p.unitsCount || 1));
+    const totalUnitsCount = enrichedUnits.length > 0 ? enrichedUnits.length : Number(p.totalUnits || p.unitsCount || 0);
     const vacCount = Math.max(0, totalUnitsCount - occCount);
     const occRate = totalUnitsCount > 0 ? Math.round((occCount / totalUnitsCount) * 100) : 0;
     const finalRent = totalMonthlyRent > 0 ? totalMonthlyRent : Number(p.monthlyRevenue || p.monthlyRent || 0);

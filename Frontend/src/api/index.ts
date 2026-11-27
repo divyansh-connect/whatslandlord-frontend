@@ -3427,16 +3427,14 @@ export const api = {
           const totalUnitsCount = rawUnits.length > 0 ? rawUnits.length : (p.unitsCount || 0);
 
           const mappedUnits = rawUnits.map((u: any) => {
-            const activeLease = (u.leases || []).find((l: any) => 
-              l.status === 'Active' || l.status === 'Pending_Move_In' || l.status === 'Pending'
-            ) || (u.leases || [])[0];
-            const matchedTenant = (u.tenants || [])[0] || activeLease?.tenant;
+            const activeLease = (u.leases || []).find((l: any) => l.status === 'Active');
+            const matchedTenant = (u.tenants || []).find((t: any) => t.status !== 'Inactive') || activeLease?.tenant;
             const rent = Number(activeLease?.rentAmount ?? u.rentAmount ?? 0);
             const dep = Number(activeLease?.depositAmount ?? activeLease?.deposit ?? activeLease?.securityDeposit ?? u.securityDeposit ?? 0);
             const residentName = matchedTenant 
               ? `${matchedTenant.firstName || ''} ${matchedTenant.lastName || ''}`.trim() 
               : (activeLease?.tenantName || (u.tenants?.length ? `${u.tenants[0].firstName} ${u.tenants[0].lastName}`.trim() : u.tenantName) || '');
-            const isOcc = (u.status || '').toLowerCase() === 'occupied' || !!activeLease || !!matchedTenant;
+            const isOcc = String(u.status || '').toLowerCase() === 'occupied';
 
             return {
               id: u.id,
@@ -3447,7 +3445,7 @@ export const api = {
               squareFootage: u.squareFootage || 0,
               rentAmount: rent,
               securityDeposit: dep,
-              status: isOcc ? 'Occupied' : 'Vacant',
+              status: isOcc ? 'Occupied' : (u.status || 'Vacant'),
               tenantName: isOcc ? (residentName || 'Resident') : '',
               tenants: u.tenants || [],
               leases: u.leases || [],
