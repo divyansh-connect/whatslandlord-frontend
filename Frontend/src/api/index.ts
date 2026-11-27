@@ -2770,17 +2770,61 @@ export const api = {
     ...mockApi.tenantPortal,
     getMetrics: async () => {
       try {
-        const res: any = await apiClient.get('/portal/tenant/metrics');
+        const [res, invRes, payRes]: any[] = await Promise.all([
+          apiClient.get('/portal/tenant/metrics').catch(() => null),
+          api.invoices.getAll().catch(() => []),
+          api.rent.getAll().catch(() => []),
+        ]);
+        const bData = res?.data || res || {};
+        const invoices = Array.isArray(invRes) ? invRes : [];
+        const payments = (Array.isArray(payRes) ? payRes : []).filter(
+          (p: any) => !(p.referenceNumber && String(p.referenceNumber).toUpperCase().startsWith('REFUND-'))
+        );
+
+        // Reconcile invoices with payments by invoiceId or billing month
+        const reconciledInvoices = invoices.map((inv: any) => {
+          const invAmount = Number(inv.amount || 0);
+          const invMonth = String(inv.dueDate || '').slice(0, 7);
+          const matchedPays = payments.filter((p: any) => {
+            if (p.invoiceId && p.invoiceId === inv.id) return true;
+            const pMonth = String(p.dueDate || p.paidDate || '').slice(0, 7);
+            return pMonth && pMonth === invMonth;
+          });
+          const paidSum = matchedPays.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+          const effectivePaid = Math.max(Number(inv.paidAmount || 0), paidSum);
+          const effectiveBal = Math.max(0, Math.round((invAmount - effectivePaid) * 100) / 100);
+          return {
+            ...inv,
+            paidAmount: effectivePaid,
+            balance: effectiveBal,
+            isUnpaid: effectiveBal > 0,
+          };
+        });
+
+        const unpaidInvoices = reconciledInvoices.filter((inv: any) => inv.isUnpaid);
+        const calculatedOutstanding = Math.round(unpaidInvoices.reduce((sum: number, inv: any) => sum + inv.balance, 0) * 100) / 100;
+        const oldestUnpaid = unpaidInvoices[0];
+        const calculatedCurrentRent = oldestUnpaid ? oldestUnpaid.balance : 0;
+        const calculatedNextDueDate = oldestUnpaid ? (oldestUnpaid.dueDate ? String(oldestUnpaid.dueDate).split('T')[0] : 'N/A') : 'N/A';
+
+        // If backend returned valid reconciled data (or matches), prefer it; if backend returned unreconciled gross total, use calculated
+        const backendBal = bData.outstandingBalance !== undefined ? Number(bData.outstandingBalance) : null;
+        const useCalculated = payments.length > 0 && backendBal !== null && calculatedOutstanding < backendBal;
+
+        const outstandingBalance = useCalculated ? calculatedOutstanding : (backendBal ?? calculatedOutstanding);
+        const currentRent = useCalculated ? calculatedCurrentRent : (Number(bData.currentRent ?? calculatedCurrentRent) || 0);
+        const nextDueDate = useCalculated ? calculatedNextDueDate : (bData.nextDueDate || calculatedNextDueDate);
+
         return {
-          currentRent: res.data?.currentRent || 0,
-          currentRentDue: res.data?.currentRentDue || res.data?.currentRent || 0,
-          outstandingBalance: res.data?.outstandingBalance || 0,
-          nextDueDate: res.data?.nextDueDate || 'N/A',
-          unreadMessages: res.data?.unreadMessages || 0,
-          packagesWaiting: res.data?.packagesWaiting || 0,
-          activeVisitors: res.data?.activeVisitors || 0,
-          leaseExpiration: res.data?.leaseExpiration || 'N/A',
-          openMaintenanceRequests: res.data?.openMaintenanceRequests || 0,
+          currentRent,
+          currentRentDue: currentRent,
+          outstandingBalance,
+          nextDueDate,
+          unreadMessages: bData?.unreadMessages || 0,
+          packagesWaiting: bData?.packagesWaiting || 0,
+          activeVisitors: bData?.activeVisitors || 0,
+          leaseExpiration: bData?.leaseExpiration || 'N/A',
+          openMaintenanceRequests: bData?.openMaintenanceRequests || 0,
         };
       } catch (e) {
         return {

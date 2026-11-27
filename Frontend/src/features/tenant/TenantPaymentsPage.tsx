@@ -50,7 +50,7 @@ export const TenantPaymentsPage: React.FC = () => {
     staleTime: 30000,
   });
 
-  const isLoading = loadingPayments || loadingInvoices;
+  const isLoading = loadingPayments || loadingInvoices || loadingMetrics;
 
   const tenantName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.name || 'Resident' : 'Resident';
 
@@ -161,9 +161,17 @@ export const TenantPaymentsPage: React.FC = () => {
     };
   }, [calculatedLedger]);
 
-  const outstandingBalance = metrics?.outstandingBalance !== undefined 
-    ? Math.max(0, Number(metrics.outstandingBalance)) 
-    : (allPayments.length > 0 ? Math.max(0, ledgerMetrics.currentBal) : 0);
+  const outstandingBalance = React.useMemo(() => {
+    // 1. If we have calculated ledger balance with payments, it is 100% reconciled
+    if (allPayments.length > 0 && calculatedLedger.length > 0) {
+      return Math.max(0, ledgerMetrics.currentBal);
+    }
+    // 2. Otherwise use backend reconciled metrics
+    if (metrics?.outstandingBalance !== undefined) {
+      return Math.max(0, Number(metrics.outstandingBalance));
+    }
+    return 0;
+  }, [allPayments.length, calculatedLedger.length, ledgerMetrics.currentBal, metrics?.outstandingBalance]);
 
   const handleExportCSV = () => {
     const headers = ['Date', 'Transaction Type', 'Description', 'Reference Number', 'Invoice Amount', 'Payment Amount', 'Additional Charge', 'Running Balance', 'Status'];
@@ -628,14 +636,18 @@ export const TenantPaymentsPage: React.FC = () => {
             <Card className="md:col-span-2 p-5 border bg-card flex justify-between items-center text-xs font-semibold">
               <div>
                 <h4 className="font-extrabold uppercase text-muted-foreground text-[10px]">{t('tenantPayments.outstandingBalance')}</h4>
-                <p className={`text-3xl font-black mt-2 flex items-center gap-1.5 ${outstandingBalance > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-                  ${outstandingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  {outstandingBalance === 0 && <CheckCircle className="w-5 h-5 text-emerald-500" />}
-                </p>
+                {isLoading ? (
+                  <div className="h-9 w-36 bg-muted/60 animate-pulse rounded-lg mt-2" />
+                ) : (
+                  <p className={`text-3xl font-black mt-2 flex items-center gap-1.5 ${outstandingBalance > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                    ${outstandingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    {outstandingBalance === 0 && <CheckCircle className="w-5 h-5 text-emerald-500" />}
+                  </p>
+                )}
                 <p className="text-[10px] text-muted-foreground mt-1">{t('tenantPayments.nextInvoice')}</p>
               </div>
               <Button 
-                disabled={outstandingBalance === 0} 
+                disabled={isLoading || outstandingBalance === 0} 
                 onClick={() => {
                   setPaymentOption('full');
                   setIsOpen(true);
@@ -643,7 +655,7 @@ export const TenantPaymentsPage: React.FC = () => {
                 variant={outstandingBalance > 0 ? 'default' : 'outline'} 
                 className={outstandingBalance > 0 ? '' : 'border-slate-200 dark:border-white/10 text-muted-foreground bg-transparent'}
               >
-                {outstandingBalance > 0 ? t('tenantPayments.payRent') : t('tenantPayments.noBalance')}
+                {isLoading ? '...' : (outstandingBalance > 0 ? t('tenantPayments.payRent') : t('tenantPayments.noBalance'))}
               </Button>
             </Card>
 

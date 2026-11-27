@@ -18,7 +18,7 @@ export const TenantDashboardPage: React.FC = () => {
   const { user } = useAuthStore();
 
   // Queries
-  const { data: metrics, isLoading } = useQuery({
+  const { data: metrics, isLoading, isFetching } = useQuery({
     queryKey: ['tenant-dashboard-metrics', user?.id],
     queryFn: () => api.tenantPortal.getMetrics(),
     staleTime: 30000,
@@ -63,7 +63,7 @@ export const TenantDashboardPage: React.FC = () => {
     };
   }, [refetchNotifications, queryClient]);
 
-  if ((isLoading && !metrics) || !metrics) {
+  if (isLoading || !metrics) {
     return <LoadingSkeleton type="card" />;
   }
 
@@ -87,18 +87,18 @@ export const TenantDashboardPage: React.FC = () => {
   // AI notice is strictly shown ONLY if the tenant has an outstanding balance AND the notice strictly belongs to this tenant
   const latestRentNotice = hasOutstandingBalance
     ? notifications.find((n: any) => {
-        if (Boolean(n.read)) return false;
-        if (!isNoticeForTenant(n, tenantCtx)) return false;
+      if (Boolean(n.read)) return false;
+      if (!isNoticeForTenant(n, tenantCtx)) return false;
 
-        return (
-          (n.id || '').startsWith('ai-notice') ||
-          (n.title || '').toLowerCase().includes('rent') ||
-          (n.title || '').toLowerCase().includes('notice') ||
-          (n.title || '').toLowerCase().includes('reminder') ||
-          (n.message || '').toLowerCase().includes('rent') ||
-          (n.type || '') === 'warning'
-        );
-      })
+      return (
+        (n.id || '').startsWith('ai-notice') ||
+        (n.title || '').toLowerCase().includes('rent') ||
+        (n.title || '').toLowerCase().includes('notice') ||
+        (n.title || '').toLowerCase().includes('reminder') ||
+        (n.message || '').toLowerCase().includes('rent') ||
+        (n.type || '') === 'warning'
+      );
+    })
     : null;
 
   return (
@@ -179,36 +179,36 @@ export const TenantDashboardPage: React.FC = () => {
 
       {/* QUICK ACTIONS BAR */}
       <div className="flex flex-wrap gap-2.5 p-3.5 bg-card border rounded-2xl">
-        <Button 
-          size="sm" 
-          onClick={() => navigate({ to: '/tenant/payments' })} 
+        <Button
+          size="sm"
+          onClick={() => navigate({ to: '/tenant/payments' })}
           className="flex items-center gap-1"
           disabled={isPending}
         >
           <CreditCard className="w-4 h-4" /> {t('tenant.dashboard.payRent')}
         </Button>
-        <Button 
-          size="sm" 
-          variant="outline" 
-          onClick={() => navigate({ to: '/tenant/maintenance' })} 
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => navigate({ to: '/tenant/maintenance' })}
           className="flex items-center gap-1"
           disabled={isPending}
         >
           <Wrench className="w-4 h-4" /> {t('tenant.dashboard.submitRepair')}
         </Button>
-        <Button 
-          size="sm" 
-          variant="outline" 
-          onClick={() => navigate({ to: '/tenant/messages' })} 
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => navigate({ to: '/tenant/messages' })}
           className="flex items-center gap-1"
           disabled={isPending}
         >
           <MessageSquare className="w-4 h-4" /> {t('tenant.dashboard.contactMgmt')}
         </Button>
-        <Button 
-          size="sm" 
-          variant="outline" 
-          onClick={() => navigate({ to: '/tenant/lease' })} 
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => navigate({ to: '/tenant/lease' })}
           className="flex items-center gap-1"
           disabled={isPending}
         >
@@ -301,18 +301,20 @@ export const TenantDashboardPage: React.FC = () => {
         <Card className="p-5 border bg-card flex flex-col justify-between">
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('tenant.dashboard.currentRentDue')}</p>
-            <p className="text-2xl font-black mt-1 text-primary">${metrics.currentRent.toLocaleString()}</p>
+            <p className="text-2xl font-black mt-1 text-primary">${Number(metrics.currentRent || 0).toLocaleString()}</p>
           </div>
-          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('tenant.dashboard.dueDate')}: {metrics.nextDueDate}</span>
+          <span className="text-[10px] text-muted-foreground font-semibold mt-4">{t('tenant.dashboard.dueDate')}: {metrics.nextDueDate || 'N/A'}</span>
         </Card>
 
         <Card className="p-5 border bg-card flex flex-col justify-between">
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase">{t('tenant.dashboard.outstandingBalance')}</p>
-            <p className="text-2xl font-black mt-1 text-emerald-500">${metrics.outstandingBalance.toLocaleString()}</p>
+            <p className={`text-2xl font-black mt-1 ${Number(metrics.outstandingBalance || 0) > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+              ${Number(metrics.outstandingBalance || 0).toLocaleString()}
+            </p>
           </div>
           <span className="text-[10px] text-muted-foreground font-semibold mt-4">
-            {metrics.outstandingBalance > 0 ? 'Account status: Overdue / Outstanding' : 'Account status: Paid in Full'}
+            {Number(metrics.outstandingBalance || 0) > 0 ? 'Account status: Overdue / Outstanding' : 'Account status: Paid in Full'}
           </span>
         </Card>
       </div>
