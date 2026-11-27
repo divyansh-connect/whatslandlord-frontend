@@ -84,6 +84,7 @@ export const NewInvoicePage: React.FC = () => {
         unitNumber: selectedUnit ? selectedUnit.unitNumber : '101',
         dueDate: values.dueDate,
         amount: total,
+        status: 'Sent',
         lineItems: values.lineItems,
         notes: values.notes,
       });
@@ -160,10 +161,17 @@ export const NewInvoicePage: React.FC = () => {
                   <Input placeholder="Rent / Utility Charge" {...register(`lineItems.${idx}.description`)} />
                 </div>
                 
-                <CurrencyInput
-                  label="Charge Amount ($)"
-                  {...register(`lineItems.${idx}.amount`, { valueAsNumber: true })}
-                />
+                <div className="space-y-1">
+                  <CurrencyInput
+                    label="Charge Amount ($)"
+                    min={0.01}
+                    step="0.01"
+                    {...register(`lineItems.${idx}.amount`, { valueAsNumber: true })}
+                  />
+                  {errors.lineItems?.[idx]?.amount && (
+                    <p className="text-rose-500 text-xs">{errors.lineItems[idx]?.amount?.message}</p>
+                  )}
+                </div>
 
                 <div className="flex justify-end">
                   <Button type="button" variant="ghost" className="text-rose-500 hover:bg-rose-500/10 h-10 w-10 flex items-center justify-center rounded-lg" onClick={() => remove(idx)}>

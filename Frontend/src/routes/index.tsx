@@ -2781,7 +2781,7 @@ const CompanySubscriptionPage: React.FC = () => {
                     <tr key={inv.id} className="hover:bg-accent/40 transition">
                       <td className="p-4 font-mono font-bold text-primary">{(inv.id || '').substring(0, 8).toUpperCase()}</td>
                       <td className="p-4 font-bold">{inv.companyName}</td>
-                      <td className="p-4 font-mono text-muted-foreground">{inv.createdAt ? inv.createdAt.split('T')[0] : '2026-07-01'}</td>
+                      <td className="p-4 font-mono text-muted-foreground">{inv.createdAt ? inv.createdAt.split('T')[0] : 'N/A'}</td>
                       <td className="p-4 font-bold">${inv.amount}</td>
                       <td className="p-4"><StatusBadge status={inv.status} /></td>
                     </tr>
@@ -3264,7 +3264,7 @@ const SubscriptionInvoicesPage: React.FC = () => {
                     <td className="p-4 font-mono font-bold text-primary">{(inv.id || '').substring(0, 8).toUpperCase()}</td>
                     <td className="p-4 font-bold">{inv.companyName}</td>
                     <td className="p-4 font-bold">${inv.amount}</td>
-                    <td className="p-4 font-mono text-muted-foreground">{inv.createdAt ? inv.createdAt.split('T')[0] : '2026-07-01'}</td>
+                    <td className="p-4 font-mono text-muted-foreground">{inv.createdAt ? inv.createdAt.split('T')[0] : 'N/A'}</td>
                     <td className="p-4"><StatusBadge status={inv.status} /></td>
                     <td className="p-4 font-mono text-muted-foreground">{inv.transactionId || 'N/A'}</td>
                     <td className="p-4 text-right">

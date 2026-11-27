@@ -583,7 +583,7 @@ export const RentLedgerPage: React.FC = () => {
                   </p>
                 </div>
                 <div className="text-[10px] text-muted-foreground uppercase font-bold text-right">
-                  Generated: {new Date().toLocaleDateString()}
+                  Generated: {new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                 </div>
               </div>
 
@@ -756,7 +756,7 @@ export const RentLedgerPage: React.FC = () => {
             {/* Ledger Footer */}
             <div className="flex justify-between items-center pt-4 border-t border-border">
               <div className="text-[10px] text-muted-foreground">
-                {t('rentLedgerPage.generatedOn', { date: new Date().toLocaleDateString() })}
+                {t('rentLedgerPage.generatedOn', { date: new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' }) })}
               </div>
               <div className="flex items-center gap-6">
                 <div className="text-right">
@@ -805,7 +805,7 @@ export const RentLedgerPage: React.FC = () => {
                   <h2 className="font-black text-xl text-primary mt-1">{managementCompany}</h2>
                 </div>
                 <div className="text-[10px] text-muted-foreground uppercase font-bold text-right">
-                  Generated: {new Date().toLocaleDateString()}
+                  Generated: {new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
                 </div>
               </div>
             </div>

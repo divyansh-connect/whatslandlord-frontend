@@ -35,6 +35,7 @@ import {
   MonthPaymentStatus,
   getEffectiveUnitLateFee,
   doesMonthHaveLateFee,
+  getProratedMonthRent,
 } from './NewUnitPage';
 
 const unitFormSchema = zod.object({
@@ -164,14 +165,16 @@ export const EditUnitPage: React.FC = () => {
         if (pastMonths.length > 0) {
           computedPreviousBalance = 0;
           pastMonths.forEach((m) => {
+            const mRent = getProratedMonthRent(rentVal, m);
             const d = editMonthDetails[m.id] || { status: 'Unpaid', paidAmount: 0 };
             const pAmt = d.status === 'Paid'
-              ? rentVal
-              : (d.status === 'Partial' ? Math.min(rentVal, Number(d.paidAmount || 0)) : 0);
+              ? mRent
+              : (d.status === 'Partial' ? Math.min(mRent, Number(d.paidAmount || 0)) : 0);
             const hasLateFee = doesMonthHaveLateFee(d, applyGlobalLateFee);
-            const due = Math.max(0, rentVal + (hasLateFee ? effectiveLateFee : 0) - pAmt);
+            const due = Math.max(0, mRent + (hasLateFee ? effectiveLateFee : 0) - pAmt);
             computedPreviousBalance += due;
           });
+          computedPreviousBalance = Math.round(computedPreviousBalance * 100) / 100;
         }
 
         const tenantData = {
@@ -274,22 +277,25 @@ export const EditUnitPage: React.FC = () => {
           }> = [];
 
           for (const monthItem of pastMonths) {
+            const mRent = getProratedMonthRent(rentVal, monthItem);
             const detail = editMonthDetails[monthItem.id] || { status: 'Unpaid', paidAmount: 0 };
             const pAmt = detail.status === 'Paid'
-              ? rentVal
-              : (detail.status === 'Partial' ? Math.min(rentVal, Number(detail.paidAmount || 0)) : 0);
+              ? mRent
+              : (detail.status === 'Partial' ? Math.min(mRent, Number(detail.paidAmount || 0)) : 0);
             const isPaid = detail.status === 'Paid';
             const hasLateFee = doesMonthHaveLateFee(detail, applyGlobalLateFee);
-            const totalInvoiceAmt = isPaid ? rentVal : (rentVal + (hasLateFee ? effectiveLateFee : 0));
-            const expectedBalance = Math.max(0, totalInvoiceAmt - pAmt);
+            const totalInvoiceAmt = isPaid ? mRent : (mRent + (hasLateFee ? effectiveLateFee : 0));
+            const expectedBalance = Math.max(0, Math.round((totalInvoiceAmt - pAmt) * 100) / 100);
             const invStatus: 'Paid' | 'Partially Paid' | 'Overdue' = detail.status === 'Paid'
               ? 'Paid'
               : (detail.status === 'Partial' ? 'Partially Paid' : 'Overdue');
 
             const lineItems = [
               {
-                description: `Monthly Rent Charge - ${monthItem.label}`,
-                amount: rentVal,
+                description: monthItem.isProrated
+                  ? `Prorated Rent Charge - ${monthItem.label} (${monthItem.remainingDays}/${monthItem.daysInMonth} days)`
+                  : `Monthly Rent Charge - ${monthItem.label}`,
+                amount: mRent,
               },
               ...(hasLateFee && effectiveLateFee > 0 ? [
                 {
@@ -692,15 +698,16 @@ export const EditUnitPage: React.FC = () => {
         const unpaidMonthsList: string[] = [];
 
         pastMonths.forEach((m) => {
+          const mRent = getProratedMonthRent(baseRent, m);
           const d = detailsMap[m.id] || { status: 'Unpaid', paidAmount: 0 };
           const pAmt =
             d.status === 'Paid'
-              ? baseRent
+              ? mRent
               : d.status === 'Partial'
-                ? Math.min(baseRent, Number(d.paidAmount || 0))
+                ? Math.min(mRent, Number(d.paidAmount || 0))
                 : 0;
           const mHasLateFee = doesMonthHaveLateFee(d, anyUnpaidHasLateFee);
-          const due = Math.max(0, baseRent + (mHasLateFee ? effectiveLateFee : 0) - pAmt);
+          const due = Math.max(0, mRent + (mHasLateFee ? effectiveLateFee : 0) - pAmt);
           if (due > 0 || d.status !== 'Paid') {
             unpaidMonthsList.push(m.id);
           }
@@ -708,7 +715,7 @@ export const EditUnitPage: React.FC = () => {
         });
 
         setValue('unpaidMonths', unpaidMonthsList);
-        setValue('tenantPreviousBalance', totalUnpaidBalance);
+        setValue('tenantPreviousBalance', Math.round(totalUnpaidBalance * 100) / 100);
       }
     };
 

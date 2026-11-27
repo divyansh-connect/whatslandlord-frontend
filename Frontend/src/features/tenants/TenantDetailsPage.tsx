@@ -51,7 +51,7 @@ export const TenantDetailsPage: React.FC = () => {
     id: d.id,
     name: d.name,
     size: '180 KB',
-    uploadedAt: d.uploadedAt || '2026-07-01',
+    uploadedAt: d.uploadedAt || 'N/A',
     uploadedBy: 'Manager',
   }));
 

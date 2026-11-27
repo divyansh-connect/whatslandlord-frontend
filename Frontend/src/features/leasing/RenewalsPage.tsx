@@ -227,9 +227,9 @@ export const RenewalsPage: React.FC = () => {
   const mapStatusLabel = (status: RenewalLog['status']) => {
     switch (status) {
       case 'PENDING':
-        return 'Pending Offer';
+        return 'Pending';
       case 'OFFER_SENT':
-        return 'Sent';
+        return 'Ready for Action';
       case 'ACCEPTED':
         return 'Accepted';
       case 'REJECTED':
@@ -383,7 +383,7 @@ export const RenewalsPage: React.FC = () => {
                           onClick={() => handleSendOffer(r.leaseId, r.tenantName)}
                           className="text-[10px] font-extrabold py-1 px-2.5 h-7 inline-flex items-center gap-1 bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
                         >
-                          <Mail className="w-3.5 h-3.5" /> Send Offer
+                          <Mail className="w-3.5 h-3.5" /> Start Renewal
                         </Button>
                         <Button 
                           variant="ghost" 

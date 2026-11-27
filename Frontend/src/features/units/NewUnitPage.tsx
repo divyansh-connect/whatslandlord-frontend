@@ -150,7 +150,21 @@ export interface MonthChipItem {
   id: string;
   label: string;
   dueDate: string;
+  isProrated?: boolean;
+  daysInMonth?: number;
+  remainingDays?: number;
 }
+
+export const getProratedMonthRent = (
+  monthlyRent: number | string,
+  monthItem?: MonthChipItem
+): number => {
+  const base = Number(monthlyRent || 0);
+  if (!monthItem || !monthItem.isProrated || !monthItem.daysInMonth || !monthItem.remainingDays) {
+    return base;
+  }
+  return Math.round((base / monthItem.daysInMonth) * monthItem.remainingDays * 100) / 100;
+};
 
 export const getEffectiveUnitLateFee = (
   rentAmount?: number | string,
@@ -180,33 +194,54 @@ export const doesMonthHaveLateFee = (
 
 export const generateMonthListFromMoveIn = (moveInDateStr: string): MonthChipItem[] => {
   if (!moveInDateStr) return [];
-  const moveInDate = new Date(moveInDateStr);
-  if (isNaN(moveInDate.getTime())) return [];
+  const cleanStr = String(moveInDateStr).split('T')[0].trim().replace(/\//g, '-');
+  const parts = cleanStr.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return [];
+  const [startYear, startMonth1, startDay] = parts[2] > 1000
+    ? [parts[2], parts[1], parts[0]]
+    : [parts[0], parts[1], parts[2]];
+  if (!startYear || !startMonth1 || !startDay) return [];
 
-  const now = new Date();
-  let currentYear = moveInDate.getFullYear();
-  let currentMonth = moveInDate.getMonth();
+  let endYear: number;
+  let endMonth: number;
+  try {
+    const nyDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const [nyY, nyM] = nyDateStr.split('-').map(Number);
+    endYear = nyY;
+    endMonth = nyM - 1;
+  } catch {
+    const now = new Date();
+    endYear = now.getFullYear();
+    endMonth = now.getMonth();
+  }
 
-  const endYear = now.getFullYear();
-  const endMonth = now.getMonth();
+  let currentYear = startYear;
+  let currentMonth = startMonth1 - 1;
 
-  if (currentYear > endYear || (currentYear === endYear && currentMonth >= endMonth)) {
+  if (currentYear > endYear || (currentYear === endYear && currentMonth > endMonth)) {
     return [];
   }
 
   const months: MonthChipItem[] = [];
+  let isFirst = true;
 
   while (
     currentYear < endYear ||
     (currentYear === endYear && currentMonth <= endMonth)
   ) {
-    const monthObj = new Date(currentYear, currentMonth, 1);
+    const monthObj = new Date(Date.UTC(currentYear, currentMonth, 1));
     const id = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
-    const label = monthObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    const dueDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+    const label = monthObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+    const daysInMonth = new Date(Date.UTC(currentYear, currentMonth + 1, 0)).getUTCDate();
+    const remainingDays = isFirst ? Math.max(1, daysInMonth - startDay + 1) : daysInMonth;
+    const isProrated = isFirst && startDay > 1;
+    const dueDate = isFirst
+      ? `${id}-${String(startDay).padStart(2, '0')}`
+      : `${id}-01`;
 
-    months.push({ id, label, dueDate });
+    months.push({ id, label, dueDate, isProrated, daysInMonth, remainingDays });
 
+    isFirst = false;
     currentMonth++;
     if (currentMonth > 11) {
       currentMonth = 0;
@@ -591,7 +626,7 @@ export const NewUnitPage: React.FC = () => {
                 paidAmount: 0,
               };
 
-              const rentAmt = Number(item.rentAmount || 0);
+              const rentAmt = getProratedMonthRent(item.rentAmount, monthItem);
               const isPaid = detail.status === 'Paid';
               const hasLateFee = doesMonthHaveLateFee(detail, item.applyGlobalLateFee);
               const lateFeeAmt = hasLateFee ? effectiveLateFee : 0;
@@ -603,7 +638,7 @@ export const NewUnitPage: React.FC = () => {
                   : detail.status === 'Partial'
                   ? Math.min(rentAmt, Number(detail.paidAmount || 0))
                   : 0;
-              const remainingBal = Math.max(0, totalInvAmt - paidAmt);
+              const remainingBal = Math.max(0, Math.round((totalInvAmt - paidAmt) * 100) / 100);
               const invStatus =
                 detail.status === 'Paid'
                   ? 'Paid'
@@ -613,7 +648,9 @@ export const NewUnitPage: React.FC = () => {
 
               const lineItems: any[] = [
                 {
-                  description: `Monthly Rent Charge - ${monthItem.label}`,
+                  description: monthItem.isProrated
+                    ? `Prorated Rent Charge - ${monthItem.label} (${monthItem.remainingDays}/${monthItem.daysInMonth} days)`
+                    : `Monthly Rent Charge - ${monthItem.label}`,
                   amount: rentAmt,
                 },
               ];
