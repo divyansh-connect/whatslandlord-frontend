@@ -808,12 +808,23 @@ export const api = {
     getMetrics: async () => {
       try {
         // 1. Fetch Backend Metrics as Primary Authority (Synced with Database & Delinquency Report)
-        let backendMetrics: any = null;
         try {
           const bRes: any = await apiClient.get('/dashboard/metrics');
           const data = bRes?.data || bRes;
           if (data && data.totalProperties !== undefined) {
-            backendMetrics = data;
+            return {
+              totalProperties: Number(data.totalProperties) || 0,
+              totalUnits: Number(data.totalUnits) || 0,
+              occupiedUnits: Number(data.occupiedUnits) || 0,
+              vacantUnits: Number(data.vacantUnits) || 0,
+              occupancyRate: Number(data.occupancyRate) || 0,
+              monthlyRevenue: Number(data.monthlyRevenue) || 0,
+              pendingRent: Number(data.pendingRent) || 0,
+              pendingInvoicesCount: Number(data.pendingInvoicesCount) || 0,
+              expenses: Number(data.expenses) || 0,
+              openMaintenance: Number(data.openMaintenance) || 0,
+              leasesExpiringSoon: Number(data.leasesExpiringSoon) || 0,
+            };
           }
         } catch (e) {
           console.warn('Backend metrics fetch failed, using fallback:', e);
@@ -944,12 +955,21 @@ export const api = {
 
           if (!matchedUnit || !activeUnitIds.has(matchedUnit.id)) return;
 
+          const invMonth = String(inv.dueDate || '').slice(0, 7);
+          const matchedPayments = payments.filter((p: any) => {
+            if (p.invoiceId && p.invoiceId === inv.id) return true;
+            const pTenantId = p.tenantId || p.tenant?.id;
+            if (pTenantId && inv.tenantId && pTenantId !== inv.tenantId) return false;
+            const pMonth = String(p.paidDate || p.dueDate || '').slice(0, 7);
+            return pMonth && pMonth === invMonth;
+          });
+          const paymentsSum = matchedPayments.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
           const invAmount = Number(inv.amount || 0);
-          const invPaid = Number(inv.paidAmount || 0);
+          const invPaid = Math.max(Number(inv.paidAmount || 0), paymentsSum);
           const bal =
             inv.balance !== undefined && inv.balance !== null
-              ? Number(inv.balance)
-              : Math.max(0, invAmount - invPaid);
+              ? Math.min(Number(inv.balance), Math.max(0, Math.round((invAmount - invPaid) * 100) / 100))
+              : Math.max(0, Math.round((invAmount - invPaid) * 100) / 100);
 
           if (bal > 0) {
             computedPendingRent += bal;

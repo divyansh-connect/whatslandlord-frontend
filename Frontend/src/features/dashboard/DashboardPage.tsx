@@ -25,17 +25,17 @@ export const DashboardPage: React.FC = () => {
   const [selectedMetric, setSelectedMetric] = React.useState<MetricType | null>(null);
 
   // Query Metrics
-  const { data: metrics, isLoading: loadingMetrics, isFetching: fetchingMetrics, refetch: refetchMetrics } = useQuery({
+  const { data: metrics, isLoading: loadingMetrics, refetch: refetchMetrics } = useQuery({
     queryKey: ['dashboard-metrics', user?.id],
     queryFn: () => api.dashboard.getMetrics(),
-    staleTime: 0,
+    staleTime: 30000,
   });
 
   // Query Charts
   const { data: charts, isLoading: loadingCharts, refetch: refetchCharts } = useQuery({
     queryKey: ['dashboard-charts', user?.id],
     queryFn: () => api.dashboard.getChartData(),
-    staleTime: 0,
+    staleTime: 30000,
   });
 
   const refreshAll = () => {
@@ -54,7 +54,7 @@ export const DashboardPage: React.FC = () => {
 
   const isCollectionManager = user?.role === 'Collection Manager';
 
-  if (loadingMetrics || fetchingMetrics || !metrics) {
+  if ((loadingMetrics && !metrics) || !metrics) {
     return <LoadingSkeleton type="card" />;
   }
 
