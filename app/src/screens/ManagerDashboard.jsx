@@ -709,32 +709,9 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
   };
 
   useEffect(() => {
-    let isMounted = true;
-    const initData = async () => {
-      // 1. Instant RAM Cache (0 ms)
-      if (memoryDashboardCache) {
-        applyCachedData(memoryDashboardCache);
-        setLoading(false);
-      } else {
-        // 2. Last Session Disk Cache (0.01s)
-        try {
-          const saved = await safeStorage.getItem('cache_manager_dashboard');
-          if (saved && isMounted) {
-            const parsed = JSON.parse(saved);
-            memoryDashboardCache = parsed;
-            applyCachedData(parsed);
-            setLoading(false);
-          }
-        } catch (_) {}
-      }
-
-      // 3. Progressive live background sync
-      fetchDashboardData();
-    };
-
-    initData();
-    return () => { isMounted = false; };
-  }, []);
+    setLoading(true);
+    fetchDashboardData();
+  }, [user?.id]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -1467,7 +1444,10 @@ export const ManagerDashboard = ({ onNavigate, onOpenMenu }) => {
               </Text>
             </View>
             <Text style={[styles.revenueSubValue, { color: metrics.pendingRent > 0 ? '#fca5a5' : '#86efac' }]} allowFontScaling={false}>
-              ${Number(metrics.pendingRent || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+              ${Number(metrics.pendingRent || 0).toLocaleString('en-US', {
+                minimumFractionDigits: Number(metrics.pendingRent || 0) % 1 !== 0 ? 2 : 0,
+                maximumFractionDigits: 2,
+              })}
             </Text>
           </TouchableOpacity>
 

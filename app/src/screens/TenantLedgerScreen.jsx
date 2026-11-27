@@ -226,8 +226,9 @@ export const TenantLedgerScreen = () => {
   };
 
   useEffect(() => {
+    setLoading(true);
     fetchAllLedgerData();
-  }, []);
+  }, [user?.id]);
 
   const filteredEntries = ledgerEntries.filter((item) => {
     const text = `${item.tenantName || ''} ${item.propertyName || ''} ${item.description || ''} ${item.transactionType || ''}`.toLowerCase();

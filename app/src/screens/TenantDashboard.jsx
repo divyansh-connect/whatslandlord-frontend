@@ -215,8 +215,9 @@ export const TenantDashboard = ({ onNavigate, onOpenMenu }) => {
   };
 
   useEffect(() => {
+    setLoading(true);
     fetchTenantPortalData();
-  }, []);
+  }, [user?.id]);
 
   const handleRefresh = () => {
     setRefreshing(true);

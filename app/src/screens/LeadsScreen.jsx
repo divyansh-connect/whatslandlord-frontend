@@ -3878,12 +3878,26 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
                       onPress={() => setActivePicker(activePicker === 'unit' ? null : 'unit')}
                     >
                       <Text style={[styles.formPickerText, !screenUnitId && { color: colors.textMuted }]} allowFontScaling={false} numberOfLines={1}>
-                        {screenUnitId ? `Unit ${units.find(u => u.id === screenUnitId)?.unitNumber || screenUnitId}` : 'Choose Unit...'}
+                        {(() => {
+                          if (!screenUnitId) return 'Choose Unit...';
+                          const su = units.find(u => u.id === screenUnitId);
+                          return su ? `Unit ${su.unitNumber}${su.status ? ` (${su.status})` : ''}` : `Unit ${screenUnitId}`;
+                        })()}
                       </Text>
                       <Ionicons name={activePicker === 'unit' ? "chevron-up" : "chevron-down"} size={16} color="#64748b" />
                     </TouchableOpacity>
                   </View>
                 </View>
+                {(() => {
+                  const su = units.find(u => u.id === screenUnitId);
+                  const isOcc = Boolean(su && su.status && su.status !== 'Vacant');
+                  if (!isOcc) return null;
+                  return (
+                    <Text style={{ fontSize: 11, color: '#f59e0b', fontWeight: '600', marginTop: 4 }} allowFontScaling={false}>
+                      ⚠️ Unit {su.unitNumber} is currently {su.status}. Screening requests are disabled for occupied units.
+                    </Text>
+                  );
+                })()}
                 {renderInlinePicker('property')}
                 {renderInlinePicker('unit')}
 
@@ -3916,48 +3930,55 @@ export const LeadsScreen = ({ onNavigate, onBack, initialTab = 'leads', targetLe
                 {renderInlinePicker('paymentResp')}
               </ScrollView>
 
-              <View style={styles.screeningModalActions}>
-                {/* 1st: Send Invitation Button on Top */}
-                <TouchableOpacity
-                  style={[styles.sendInviteBtn, submitting && { opacity: 0.5 }]}
-                  onPress={handleRequestScreening}
-                  disabled={submitting}
-                  activeOpacity={0.8}
-                >
-                  {submitting ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <>
-                      <Ionicons name="paper-plane" size={15} color="#ffffff" style={{ marginRight: 8 }} />
-                      <Text style={styles.sendInviteBtnText} allowFontScaling={false}>Send Invitation</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+              {(() => {
+                const su = units.find(u => u.id === screenUnitId);
+                const isScreenUnitOccupied = Boolean(su && su.status && su.status !== 'Vacant');
+                const isActionDisabled = submitting || isScreenUnitOccupied;
+                return (
+                  <View style={styles.screeningModalActions}>
+                    {/* 1st: Send Invitation Button on Top */}
+                    <TouchableOpacity
+                      style={[styles.sendInviteBtn, isActionDisabled && { opacity: 0.45 }]}
+                      onPress={handleRequestScreening}
+                      disabled={isActionDisabled}
+                      activeOpacity={0.8}
+                    >
+                      {submitting ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <>
+                          <Ionicons name="paper-plane" size={15} color="#ffffff" style={{ marginRight: 8 }} />
+                          <Text style={styles.sendInviteBtnText} allowFontScaling={false}>Send Invitation</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
 
-                {/* 2nd: Bottom Row with Cancel & Skip Screening (Green) */}
-                <View style={styles.screeningBottomRow}>
-                  <TouchableOpacity
-                    style={styles.screeningCancelBtn}
-                    onPress={() => {
-                      setActivePicker(null);
-                      setRecordScreeningOpen(false);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.screeningCancelBtnText} allowFontScaling={false}>Cancel</Text>
-                  </TouchableOpacity>
+                    {/* 2nd: Bottom Row with Cancel & Skip Screening (Green) */}
+                    <View style={styles.screeningBottomRow}>
+                      <TouchableOpacity
+                        style={styles.screeningCancelBtn}
+                        onPress={() => {
+                          setActivePicker(null);
+                          setRecordScreeningOpen(false);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.screeningCancelBtnText} allowFontScaling={false}>Cancel</Text>
+                      </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[styles.skipBtn, submitting && { opacity: 0.5 }]}
-                    onPress={handleSkipScreening}
-                    disabled={submitting}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="play-forward-outline" size={14} color="#ffffff" style={{ marginRight: 6 }} />
-                    <Text style={styles.skipBtnText} allowFontScaling={false}>Skip Screening</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+                      <TouchableOpacity
+                        style={[styles.skipBtn, isActionDisabled && { opacity: 0.45 }]}
+                        onPress={handleSkipScreening}
+                        disabled={isActionDisabled}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="play-forward-outline" size={14} color="#ffffff" style={{ marginRight: 6 }} />
+                        <Text style={styles.skipBtnText} allowFontScaling={false}>Skip Screening</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })()}
             </View>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
