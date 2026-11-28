@@ -89,11 +89,20 @@ export const TenantMessagesScreen = ({ onNavigate, onBack }) => {
       const msgList = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
       
       setMessages((prev) => {
-        // Keep optimistic pending messages if not yet in backend
+        // Deduplicate backend list & keep optimistic pending messages if not yet in backend
+        const seen = new Set();
+        const uniqueBackend = [];
+        for (const m of msgList) {
+          const idKey = m?.id ? String(m.id) : null;
+          if (idKey) {
+            if (seen.has(idKey)) continue;
+            seen.add(idKey);
+          }
+          uniqueBackend.push(m);
+        }
         const pending = prev.filter((m) => m.id && String(m.id).startsWith('temp-'));
-        const backendIds = new Set(msgList.map((m) => String(m.id)));
-        const stillPending = pending.filter((m) => !backendIds.has(String(m.id)));
-        return [...msgList, ...stillPending];
+        const stillPending = pending.filter((m) => !seen.has(String(m.id)));
+        return [...uniqueBackend, ...stillPending];
       });
 
       // Mark as read in background
@@ -170,9 +179,13 @@ export const TenantMessagesScreen = ({ onNavigate, onBack }) => {
       const savedMsg = res?.data || res;
 
       if (savedMsg?.id) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...savedMsg, isMine: true } : m))
-        );
+        setMessages((prev) => {
+          const alreadyExists = prev.some((m) => String(m.id) === String(savedMsg.id));
+          if (alreadyExists) {
+            return prev.filter((m) => m.id !== tempId);
+          }
+          return prev.map((m) => (m.id === tempId ? { ...savedMsg, isMine: true } : m));
+        });
       }
     } catch (e) {
       console.log('Error sending message:', e?.message || e);
@@ -227,7 +240,8 @@ export const TenantMessagesScreen = ({ onNavigate, onBack }) => {
           </TouchableOpacity>
         </View>
 
-        {/* SUB TABS: Direct Chat | Notices & Bulletins */}
+        {/* SUB TABS: Direct Chat | Notices & Bulletins (Notices hidden for now) */}
+        {false && (
         <View style={styles.tabBar}>
           <TouchableOpacity
             style={[styles.tabBtn, activeView === 'chat' && styles.tabBtnActive]}
@@ -264,6 +278,7 @@ export const TenantMessagesScreen = ({ onNavigate, onBack }) => {
             </Text>
           </TouchableOpacity>
         </View>
+        )}
       </View>
 
       {/* CONTENT */}
