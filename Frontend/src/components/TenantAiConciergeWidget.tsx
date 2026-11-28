@@ -148,11 +148,11 @@ export const TenantAiConciergeWidget: React.FC = () => {
       {/* FLOATING ACTION BUTTON */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center space-x-2 bg-gradient-to-r from-primary to-indigo-600 hover:from-primary/90 hover:to-indigo-700 text-white font-extrabold px-4 py-3 rounded-full shadow-2xl transition-all transform hover:scale-105"
+        title="24/7 AI Concierge"
+        aria-label="24/7 AI Concierge"
+        className="w-12 h-12 flex items-center justify-center bg-gradient-to-r from-primary to-indigo-600 hover:from-primary/90 hover:to-indigo-700 text-white rounded-full shadow-2xl transition-all transform hover:scale-105"
       >
-        <span className="text-lg">🤖</span>
-        <span className="text-xs uppercase tracking-wider hidden sm:inline">24/7 AI Concierge</span>
-        {isOpen ? <ChevronDown className="w-4 h-4" /> : <Sparkles className="w-4 h-4 animate-pulse" />}
+        {isOpen ? <ChevronDown className="w-5 h-5" /> : <span className="text-xl leading-none">🤖</span>}
       </button>
 
     </div>

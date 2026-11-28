@@ -1383,15 +1383,13 @@ export const api = {
   invoices: {
     getAll: async () => {
       try {
-        const [res, payRes, propsRes, tenantsRes]: any[] = await Promise.all([
+        const [res, propsRes, tenantsRes]: any[] = await Promise.all([
           apiClient.get('/invoices'),
-          apiClient.get('/payments').catch(() => ({ data: [] })),
           api.property.getAll().catch(() => []),
           api.tenant.getAll().catch(() => []),
         ]);
         const softDeletedIds = getSoftDeletedIds('Invoice');
         const softDeletedPropIds = getSoftDeletedIds('Property');
-        const softDeletedPayIds = getSoftDeletedIds('Payment');
 
         const properties = Array.isArray(propsRes) ? propsRes : [];
         const tenants = Array.isArray(tenantsRes) ? tenantsRes : [];
@@ -1401,71 +1399,19 @@ export const api = {
         const activePropIds = new Set(properties.map((p: any) => p.id));
         const activeTenantIds = new Set(tenants.map((t: any) => t.id));
 
-        const rawPayments = (Array.isArray(payRes?.data) ? payRes.data : Array.isArray(payRes) ? payRes : []).filter(
-          (p: any) => p && !softDeletedPayIds.includes(p.id)
-        );
-
         return (res.data || [])
           .filter((i: any) => !softDeletedIds.includes(i.id))
           .filter((i: any) => !softDeletedPropIds.includes(i.propertyId))
           .filter((i: any) => activePropIds.has(i.propertyId) && (!i.tenantId || activeTenantIds.has(i.tenantId)))
           .map((i: any) => {
             const invAmount = Number(i.amount || 0);
-            let invPaidAmount = Number(i.paidAmount || 0);
-            let invBalance =
+            const invPaidAmount = Number(i.paidAmount || 0);
+            const invBalance =
               i.balance !== undefined && i.balance !== null
                 ? Number(i.balance)
                 : Math.max(0, invAmount - invPaidAmount);
-            let invStatus = i.status || 'Sent';
+            const invStatus = i.status || 'Sent';
             const dueDateStr = i.dueDate ? String(i.dueDate).split('T')[0] : 'N/A';
-            const invMonth = dueDateStr !== 'N/A' ? dueDateStr.slice(0, 7) : '';
-
-            // Auto-reconcile invoices that were overwritten as 'Paid' when a Partial payment was recorded
-            if (i.tenantId && invMonth && invAmount > 0) {
-              const monthPayments = rawPayments.filter((p: any) => {
-                const pTenantId = p.tenantId || p.tenant?.id;
-                if (pTenantId !== i.tenantId) return false;
-                const pMonth = String(p.dueDate || p.paidDate || '').slice(0, 7);
-                return pMonth === invMonth;
-              });
-
-              if (monthPayments.length > 0) {
-                const totalMonthPaid = monthPayments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
-                const hasPartialPayment = monthPayments.some(
-                  (p: any) =>
-                    p.status === 'PartiallyPaid' ||
-                    p.status === 'Partially Paid' ||
-                    String(p.paymentMethod || '').includes('Partial')
-                );
-
-                if (hasPartialPayment && totalMonthPaid > 0 && totalMonthPaid < invAmount) {
-                  const expectedBal = Math.max(0, invAmount - totalMonthPaid);
-                  if (invStatus === 'Paid' || Math.abs(invPaidAmount - totalMonthPaid) > 0.01 || Math.abs(invBalance - expectedBal) > 0.01) {
-                    invPaidAmount = totalMonthPaid;
-                    invBalance = expectedBal;
-                    invStatus = 'Partially Paid';
-                    apiClient
-                      .put(`/invoices/${i.id}`, {
-                        status: 'Partially Paid',
-                        paidAmount: totalMonthPaid,
-                        balance: expectedBal,
-                      })
-                      .catch(() => {});
-                  }
-                } else if (!hasPartialPayment && totalMonthPaid >= invAmount && invStatus !== 'Paid') {
-                  invPaidAmount = invAmount;
-                  invBalance = 0;
-                  invStatus = 'Paid';
-                  apiClient
-                    .put(`/invoices/${i.id}`, {
-                      status: 'Paid',
-                      paidAmount: invAmount,
-                      balance: 0,
-                    })
-                    .catch(() => {});
-                }
-              }
-            }
 
             return {
               id: i.id,

@@ -239,6 +239,7 @@ export interface WorkOrder {
   priority?: 'Low' | 'Medium' | 'High' | 'Urgent';
   rejectReason?: string;
   extraExpenses?: number;
+  totalCost?: number;
   resolutionNotes?: string;
   advancePaymentAmount?: number;
   advancePaymentMethod?: string;
